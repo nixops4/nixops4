@@ -1,0 +1,7 @@
+
+# Nix
+result
+result-*
+
+# pre-commit
+.pre-commit-config.yaml
