@@ -1,0 +1,4 @@
+{
+  // Take from PATH, direnv
+  "rust-analyzer.server.path": "rust-analyzer"
+}

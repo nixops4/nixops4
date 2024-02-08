@@ -1,3 +1,5 @@
+# direnv
+.direnv
 
 # Nix
 result
@@ -5,3 +7,13 @@ result-*
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Rust
+**/target
+
+# VSCode
+# We have an opinionated setup for VSCode, so we want to keep the settings in the repo.
+!.vscode
+!.vscode/settings.json
+# Extension recommendations should be kept in the repo.
+!.vscode/extensions.json

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "nixops4-core",
+    "nixops4",
+]
+resolver = "2"
