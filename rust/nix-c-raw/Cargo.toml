@@ -1,0 +1,11 @@
+[package]
+name = "nix-c-raw"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+
+[build-dependencies]
+bindgen = "0.69.4"
+pkg-config = "0.3.30"

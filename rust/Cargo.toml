@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "nix-c-raw",
     "nixops4-core",
     "nixops4",
 ]
