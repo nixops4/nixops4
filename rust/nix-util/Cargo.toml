@@ -1,0 +1,10 @@
+[package]
+name = "nix-util"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+anyhow = "1.0.79"
+nix-c-raw = { path = "../nix-c-raw" }
