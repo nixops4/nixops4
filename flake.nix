@@ -54,6 +54,11 @@
               pkgs.rustfmt
               pkgs.pkg-config
               pkgs.clang-tools # clangd
+              pkgs.valgrind
+              # TODO: set up cargo-valgrind in shell and build
+              #       currently both this and `cargo install cargo-valgrind`
+              #       produce a binary that says ENOENT.
+              # pkgs.cargo-valgrind
             ];
             shellHook = ''
               ${config.pre-commit.installationScript}
