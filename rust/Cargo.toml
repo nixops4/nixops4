@@ -2,6 +2,7 @@
 members = [
     "nix-c-raw",
     "nix-util",
+    "nix-store",
     "nixops4-core",
     "nixops4",
 ]

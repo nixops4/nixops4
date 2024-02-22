@@ -173,6 +173,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "nix-c-raw",
+ "nix-util",
+]
+
+[[package]]
 name = "nix-util"
 version = "0.1.0"
 dependencies = [
