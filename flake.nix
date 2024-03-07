@@ -48,6 +48,8 @@
             buildInputs = [
               config.packages.nix
             ];
+            # Workaround: the gcc in the devshell doesn't find libc headers
+            RUST_NIX_C_RAW_EXTRA_CFLAGS = "-I${pkgs.stdenv.cc.libc.dev}/include";
             nativeBuildInputs = [
               pkgs.rust-analyzer
               pkgs.nixpkgs-fmt
