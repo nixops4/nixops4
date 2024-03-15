@@ -1,4 +1,16 @@
 {
   // Take from PATH, direnv
-  "rust-analyzer.server.path": "rust-analyzer"
+  "rust-analyzer.server.path": "rust-analyzer",
+
+  "[nix]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false
+  },
+
+  "[rust]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false
+  },
 }
