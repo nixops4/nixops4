@@ -37,6 +37,14 @@ fn c_headers() -> Vec<String> {
         args.push(format!("-I{}", path.to_str().unwrap()));
     }
 
+    for path in pkg_config::probe_library("bdw-gc")
+        .unwrap()
+        .include_paths
+        .iter()
+    {
+        args.push(format!("-I{}", path.to_str().unwrap()));
+    }
+
     if let Ok(cflags) = std::env::var("RUST_NIX_C_RAW_EXTRA_CFLAGS") {
         for flag in cflags.split_whitespace() {
             args.push(flag.to_string());

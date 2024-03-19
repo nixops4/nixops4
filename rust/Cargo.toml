@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "nix-c-raw",
+    "nix-expr",
     "nix-util",
     "nix-store",
     "nixops4-core",

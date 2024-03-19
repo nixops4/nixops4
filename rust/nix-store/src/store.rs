@@ -29,7 +29,7 @@ impl StoreRef {
 impl Drop for StoreRef {
     fn drop(&mut self) {
         unsafe {
-            raw::nix_store_unref(self.inner.as_ptr());
+            raw::nix_store_free(self.inner.as_ptr());
         }
     }
 }
@@ -71,6 +71,10 @@ impl Store {
             context,
         };
         Ok(store)
+    }
+
+    pub fn raw_ptr(&self) -> *mut raw::Store {
+        self.inner.ptr()
     }
 
     pub fn get_uri(&self) -> Result<String> {

@@ -73,6 +73,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad291aa74992b9b7a7e88c38acbbf6ad7e107f1d90ee8775b7bc1fc3394f485c"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "either"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,6 +180,18 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "pkg-config",
+]
+
+[[package]]
+name = "nix-expr"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ctor",
+ "lazy_static",
+ "nix-c-raw",
+ "nix-store",
+ "nix-util",
 ]
 
 [[package]]
