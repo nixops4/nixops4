@@ -67,6 +67,8 @@
             NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
           };
         };
-        flake = { };
+        flake = {
+          herculesCI.ciSystems = [ "x86_64-linux" ];
+        };
       });
 }
