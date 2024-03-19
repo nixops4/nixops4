@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn auto_works() {
         let res = Store::open("auto");
-        assert!(res.is_ok());
+        res.unwrap();
     }
 
     #[test]
