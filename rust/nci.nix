@@ -25,7 +25,9 @@
             if pkgs.stdenv.cc.isClang then
               null # don't set the variable
             else
-              "-I${lib.getDev pkgs.stdenv.cc.cc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${pkgs.stdenv.cc.cc.version}/include";
+              "-I${pkgs.stdenv.cc.libc.dev}/include"
+              + " -I${lib.getDev pkgs.stdenv.cc.cc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${pkgs.stdenv.cc.cc.version}/include"
+          ;
         };
       };
     };
