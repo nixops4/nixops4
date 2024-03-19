@@ -6,6 +6,15 @@ After a development hiatus in the original project, we have decided to fix struc
 
 **Status: work in progress, not usable.**
 
+## Goals
+
+- Support stateless and stateful deployments.
+- Fix the NixOps resource syntax.
+- Provide a stable interface for defining resources, so that resource developers have a well-defined task, and minimal maintenance afterwards.
+- Deployment projects provide can choose or provide their own resource implementations.
+- Sustainable development, by reusing existing technologies such as the module system and OpenTofu.
+- Maintainable code base in Rust.
+
 ## Hacking
 
 The following will open a shell with dependencies, and install pre-commit for automatic formatting.
