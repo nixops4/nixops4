@@ -9,7 +9,8 @@
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    pre-commit-hooks-nix.url = "github:cachix/pre-commit-hooks.nix";
+    # https://github.com/cachix/pre-commit-hooks.nix/pull/410
+    pre-commit-hooks-nix.url = "github:hercules-ci/pre-commit-hooks.nix/rustfmt-all";
     pre-commit-hooks-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -31,7 +32,7 @@
           pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
           pre-commit.settings.hooks.rustfmt.enable = true;
           # Override to pass `--all`
-          pre-commit.settings.hooks.rustfmt.entry = lib.mkForce "${pkgs.rustfmt}/bin/cargo-fmt fmt --all --manifest-path ./rust/Cargo.toml -- --color always";
+          pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
 
           devShells.default = pkgs.mkShell {
             name = "nixops4-devshell";
