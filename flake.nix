@@ -53,6 +53,7 @@
               pkgs.pkg-config
               pkgs.clang-tools # clangd
               pkgs.valgrind
+              pkgs.gdb
               # TODO: set up cargo-valgrind in shell and build
               #       currently both this and `cargo install cargo-valgrind`
               #       produce a binary that says ENOENT.
