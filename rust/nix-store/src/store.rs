@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn auto_works() {
         let res = Store::open("auto");
-        assert!(res.is_ok());
+        res.unwrap();
     }
 
     #[test]
@@ -125,6 +125,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Needs network access
     fn get_uri_nixos_cache() {
         let store = Store::open("https://cache.nixos.org/").unwrap();
         let uri = store.get_uri().unwrap();
