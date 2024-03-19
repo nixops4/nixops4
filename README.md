@@ -1,10 +1,10 @@
 
 # NixOps4
 
-This is the successor of NixOps 2.
-After a development hiatus in the original project, we have decided to fix structural issues through a first-principles rewrite.
+This project is intended to replace and improve on [NixOps 2](https://github.com/NixOS/nixops).
+It fixes a number of structural issues through a rewrite from first principles.
 
-**Status: work in progress, not usable.**
+**Status: in development**
 
 ## Goals
 
@@ -28,3 +28,9 @@ $ nix develop
 #### rust-analyzer
 
 If the rust-analyzer extension fails, make sure the devShell was loaded into VSCode via Nix Env Selector or direnv.
+
+## Credits
+
+Thank you to the NixOps 1 / 2 authors and maintainers, for exploring the domain, and for their efforts to maintain and improve it.
+
+Another special thanks goes to the [Fediversity](https://www.fediversity.eu) project, for their support to push NixOps over the bump that is NixOps4, and for their commitment to give back to the Nix community.
