@@ -125,6 +125,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Needs network access
     fn get_uri_nixos_cache() {
         let store = Store::open("https://cache.nixos.org/").unwrap();
         let uri = store.get_uri().unwrap();
