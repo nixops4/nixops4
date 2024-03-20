@@ -9,8 +9,7 @@
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # https://github.com/cachix/pre-commit-hooks.nix/pull/410
-    pre-commit-hooks-nix.url = "github:hercules-ci/pre-commit-hooks.nix/rustfmt-all";
+    pre-commit-hooks-nix.url = "github:cachix/pre-commit-hooks.nix";
     pre-commit-hooks-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
