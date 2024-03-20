@@ -30,7 +30,6 @@
 
           pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
           pre-commit.settings.hooks.rustfmt.enable = true;
-          # Override to pass `--all`
           pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
 
           devShells.default = pkgs.mkShell {
