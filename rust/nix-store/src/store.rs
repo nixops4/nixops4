@@ -2,8 +2,8 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_util::context::Context;
+use nix_util::string_return::callback_get_vec_u8;
 use std::ffi::CString;
-use std::mem::MaybeUninit;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
 
@@ -78,22 +78,17 @@ impl Store {
     }
 
     pub fn get_uri(&self) -> Result<String> {
-        const N: usize = 1024;
-        let mut buffer: [MaybeUninit<u8>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut raw_buffer: Vec<u8> = Vec::new();
         unsafe {
             raw::nix_store_get_uri(
                 self.context.ptr(),
                 self.inner.ptr(),
-                buffer.as_mut_ptr() as *mut i8,
-                N as u32,
+                callback_get_vec_u8 as *mut std::ffi::c_void,
+                &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
             )
         };
         self.context.check_err()?;
-        unsafe {
-            // copy the c string from buffer
-            let cstr = core::ffi::CStr::from_ptr(buffer.as_ptr() as *const i8);
-            cstr.to_str().map(|s| s.to_string()).map_err(|e| e.into())
-        }
+        String::from_utf8(raw_buffer).map_err(|e| e.into())
     }
 }
 
