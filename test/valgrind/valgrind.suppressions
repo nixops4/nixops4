@@ -1,0 +1,35 @@
+{
+  ignore bdwgc 1a
+  Memcheck:Cond
+  ...
+  fun:GC_push_all_eager
+  ...
+}
+{
+  ignore bdwgc 1b
+  Memcheck:Value8
+  ...
+  fun:GC_push_all_eager
+  ...
+}
+{
+  ignore bdwgc 2a
+  Memcheck:Cond
+  ...
+  fun:GC_stopped_mark
+  ...
+}
+{
+  ignore bdwgc 2b
+  Memcheck:Value8
+  ...
+  fun:GC_stopped_mark
+  ...
+}
+{
+  ignore bdwgc 2c
+  Memcheck:Addr8
+  ...
+  fun:GC_stopped_mark
+  ...
+}

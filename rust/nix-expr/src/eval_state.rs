@@ -106,6 +106,24 @@ impl EvalState {
         let r = unsafe { raw::nix_get_type(self.context.ptr(), value.raw_ptr()) };
         Ok(ValueType::from_raw(r))
     }
+    /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
+    fn get_string(&self, value: &Value) -> Result<String> {
+        let c_str_raw = unsafe { raw::nix_get_string(self.context.ptr(), value.raw_ptr()) };
+        self.context.check_err()?;
+        let cstring = unsafe { std::ffi::CStr::from_ptr(c_str_raw) };
+        let str = cstring
+            .to_str()
+            .map_err(|e| anyhow::format_err!("Nix string is not valid UTF-8: {}", e))?;
+        Ok(str.to_owned())
+    }
+    /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
+    pub fn require_string(&self, value: &Value) -> Result<String> {
+        let t = self.value_type(value)?;
+        if t != ValueType::String {
+            bail!("expected a string, but got a {:?}", t);
+        }
+        self.get_string(value)
+    }
 
     fn new_value_uninitialized(&self) -> Value {
         let value = unsafe { raw::nix_alloc_value(self.context.ptr(), self.raw_ptr()) };
@@ -229,6 +247,90 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             assert!(t == ValueType::String);
+            let s = es.require_string(&v).unwrap();
+            assert!(s == "hello");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_string_unexpected_bool() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es
+                .eval_from_string("true".to_string(), "<test>".to_string())
+                .unwrap();
+            es.force(&v).unwrap();
+            let r = es.require_string(&v);
+            assert!(r.is_err());
+            // TODO: safe print value (like Nix would)
+            assert_eq!(
+                r.unwrap_err().to_string(),
+                "expected a string, but got a Bool"
+            );
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_value_string_unexpected_path_value() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es
+                .eval_from_string("/foo".to_string(), "<test>".to_string())
+                .unwrap();
+            es.force(&v).unwrap();
+            let r = es.require_string(&v);
+            assert!(r.is_err());
+            assert_eq!(
+                r.unwrap_err().to_string(),
+                "expected a string, but got a Path"
+            );
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_value_string_bad_utf() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es
+                .eval_from_string(
+                    "builtins.substring 0 1 \"ü\"".to_string(),
+                    "<test>".to_string(),
+                )
+                .unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::String);
+            let r = es.require_string(&v);
+            assert!(r.is_err());
+            assert!(r
+                .unwrap_err()
+                .to_string()
+                .contains("Nix string is not valid UTF-8"));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_string_unexpected_context() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es
+                .eval_from_string("(derivation { name = \"hello\"; system = \"dummy\"; builder = \"cmd.exe\"; }).outPath".to_string(), "<test>".to_string())
+                .unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::String);
+            // TODO
+            // let r = es.require_string_without_context(&v);
+            // assert!(r.is_err());
+            // assert!(r.unwrap_err().to_string().contains("unexpected context"));
         })
         .unwrap();
     }
