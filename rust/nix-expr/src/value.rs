@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 // TODO: test: cloning a thunk does not duplicate the evaluation.
 
 /** The type of a value (or thunk) */
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum ValueType {
     AttrSet,
     Bool,
