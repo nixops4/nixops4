@@ -24,7 +24,7 @@ pub fn get(key: &str) -> Result<String> {
         raw::setting_get(
             ctx.ptr(),
             key.as_ptr(),
-            callback_get_vec_u8 as *mut std::ffi::c_void,
+            Some(callback_get_vec_u8),
             callback_get_vec_u8_data(&mut raw_buffer),
         )
     };
