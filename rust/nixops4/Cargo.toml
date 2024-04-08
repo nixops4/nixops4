@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 nixops4-core = { path = "../nixops4-core" }
+clap = "4.5.4"
 
 [[bin]]
 name = "nixops4"
