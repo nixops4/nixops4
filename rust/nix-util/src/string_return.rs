@@ -16,6 +16,10 @@ pub unsafe extern "C" fn callback_get_vec_u8(
     (*ret).extend_from_slice(slice);
 }
 
+pub fn callback_get_vec_u8_data(vec: &mut Vec<u8>) -> *mut std::os::raw::c_void {
+    vec as *mut Vec<u8> as *mut std::os::raw::c_void
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

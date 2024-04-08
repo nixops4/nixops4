@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_util::context::Context;
-use nix_util::string_return::callback_get_vec_u8;
+use nix_util::string_return::{callback_get_vec_u8, callback_get_vec_u8_data};
 use std::ffi::CString;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
@@ -84,7 +84,7 @@ impl Store {
                 self.context.ptr(),
                 self.inner.ptr(),
                 Some(callback_get_vec_u8),
-                &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
+                callback_get_vec_u8_data(&mut raw_buffer),
             )
         };
         self.context.check_err()?;

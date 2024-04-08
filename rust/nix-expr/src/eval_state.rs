@@ -347,9 +347,7 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto").unwrap();
             let es = EvalState::new(store).unwrap();
-            let v = es
-                .eval_from_string("[ ]".to_string(), "<test>".to_string())
-                .unwrap();
+            let v = es.eval_from_string("[ ]", "<test>").unwrap();
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             assert!(t == ValueType::List);
