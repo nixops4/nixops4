@@ -33,3 +33,19 @@
   fun:GC_stopped_mark
   ...
 }
+{
+  ignore bdwgc 3a
+  Memcheck:Cond
+  fun:GC_is_black_listed
+  ...
+  fun:GC_generic_malloc
+  ...
+}
+{
+  ignore bdwgc 3b
+  Memcheck:Cond
+  fun:GC_is_black_listed
+  ...
+  fun:GC_generic_malloc_many
+  ...
+}
