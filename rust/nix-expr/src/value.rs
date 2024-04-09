@@ -4,6 +4,8 @@ use std::ptr::{null_mut, NonNull};
 
 // TODO: test: cloning a thunk does not duplicate the evaluation.
 
+pub type Int = i64;
+
 /** The type of a value (or thunk) */
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValueType {
