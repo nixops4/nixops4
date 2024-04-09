@@ -123,6 +123,19 @@ impl EvalState {
         Ok(i)
     }
 
+    /// Create a new value containing the passed string.
+    /// Returns a string value without any string context.
+    pub fn new_value_str(&self, s: &str) -> Result<Value> {
+        let s = CString::new(s).with_context(|| "new_value_str: contains null byte")?;
+        let v = unsafe {
+            let value = self.new_value_uninitialized();
+            raw::init_string(self.context.ptr(), value.raw_ptr(), s.as_ptr());
+            value
+        };
+        self.context.check_err()?;
+        Ok(v)
+    }
+
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&self, value: &Value) -> Result<String> {
         let mut raw_buffer: Vec<u8> = Vec::new();
@@ -424,6 +437,55 @@ mod tests {
             // let r = es.require_string_without_context(&v);
             // assert!(r.is_err());
             // assert!(r.unwrap_err().to_string().contains("unexpected context"));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_new_string() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es.new_value_str("hello").unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::String);
+            let s = es.require_string(&v).unwrap();
+            assert!(s == "hello");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_new_string_empty() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es.new_value_str("").unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::String);
+            let s = es.require_string(&v).unwrap();
+            assert!(s == "");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_new_string_invalid() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let r = es.new_value_str("hell\0no");
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("contains null byte") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
         })
         .unwrap();
     }
