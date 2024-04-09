@@ -1,4 +1,4 @@
-use crate::value::{Value, ValueType};
+use crate::value::{Int, Value, ValueType};
 use anyhow::Context as _;
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
@@ -114,6 +114,15 @@ impl EvalState {
         let r = unsafe { raw::get_type(self.context.ptr(), value.raw_ptr()) };
         Ok(ValueType::from_raw(r))
     }
+    pub fn require_int(&self, v: &Value) -> Result<Int> {
+        let t = self.value_type(v).unwrap();
+        if t != ValueType::Int {
+            bail!("expected an int, but got a {:?}", t);
+        }
+        let i = unsafe { raw::get_int(self.context.ptr(), v.raw_ptr()) };
+        Ok(i)
+    }
+
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&self, value: &Value) -> Result<String> {
         let mut raw_buffer: Vec<u8> = Vec::new();
@@ -293,6 +302,21 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             assert!(t == ValueType::Bool);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_int() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es.eval_from_string("1", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::Int);
+            let i = es.require_int(&v).unwrap();
+            assert!(i == 1);
         })
         .unwrap();
     }
