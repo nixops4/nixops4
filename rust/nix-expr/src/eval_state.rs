@@ -9,6 +9,7 @@ use nix_util::context::Context;
 use nix_util::result_string_init;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use std::ffi::CString;
+use std::os::raw::c_uint;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
 
@@ -122,6 +123,34 @@ impl EvalState {
         }
         let i = unsafe { raw::get_int(self.context.ptr(), v.raw_ptr()) };
         Ok(i)
+    }
+    /// Evaluate, and require that the value is an attrset.
+    /// Returns a list of the keys in the attrset.
+    pub fn require_attrs_names(&self, v: &Value) -> Result<Vec<String>> {
+        let t = self.value_type(v)?;
+        if t != ValueType::AttrSet {
+            bail!("expected an attrset, but got a {:?}", t);
+        }
+        let n = unsafe { raw::get_attrs_size(self.context.ptr(), v.raw_ptr()) as usize };
+        self.context.check_err()?;
+        let mut attrs = Vec::with_capacity(n);
+        unsafe {
+            for i in 0..n {
+                let cstr_ptr: *const i8 = raw::get_attr_name_byidx(
+                    self.context.ptr(),
+                    v.raw_ptr(),
+                    self.raw_ptr(),
+                    i as c_uint,
+                );
+                self.context.check_err()?;
+                let cstr = std::ffi::CStr::from_ptr(cstr_ptr);
+                let s = cstr.to_str().map_err(|e| {
+                    anyhow::format_err!("Nix attrset key is not valid UTF-8: {}", e)
+                })?;
+                attrs.insert(i, s.to_owned());
+            }
+        }
+        Ok(attrs)
     }
 
     /// Create a new value containing the passed string.
@@ -362,6 +391,53 @@ mod tests {
             assert!(t == ValueType::Int);
             let i = es.require_int(&v).unwrap();
             assert!(i == 1);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_attrs_names_empty() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es.eval_from_string("{ }", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let attrs = es.require_attrs_names(&v).unwrap();
+            assert_eq!(attrs.len(), 0);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_require_attrs_names_bad_type() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let v = es.eval_from_string("1", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let r = es.require_attrs_names(&v);
+            assert!(r.is_err());
+            assert_eq!(
+                r.unwrap_err().to_string(),
+                "expected an attrset, but got a Int"
+            );
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_value_attrs_names_example() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let expr = r#"{ a = throw "nope a"; b = throw "nope b"; }"#;
+            let v = es.eval_from_string(expr, "<test>").unwrap();
+            let attrs = es.require_attrs_names(&v).unwrap();
+            assert_eq!(attrs.len(), 2);
+            assert_eq!(attrs[0], "a");
+            assert_eq!(attrs[1], "b");
         })
         .unwrap();
     }
