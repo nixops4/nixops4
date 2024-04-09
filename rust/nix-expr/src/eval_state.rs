@@ -187,6 +187,23 @@ impl EvalState {
         Ok(RealisedString { s, paths })
     }
 
+    /// Eagerly apply a function to an argument.
+    pub fn call(&self, f: Value, a: Value) -> Result<Value> {
+        let v = unsafe {
+            let value = self.new_value_uninitialized();
+            raw::value_call(
+                self.context.ptr(),
+                self.raw_ptr(),
+                f.raw_ptr(),
+                a.raw_ptr(),
+                value.raw_ptr(),
+            );
+            value
+        };
+        self.context.check_err()?;
+        Ok(v)
+    }
+
     fn new_value_uninitialized(&self) -> Value {
         let value = unsafe { raw::alloc_value(self.context.ptr(), self.raw_ptr()) };
         Value::new(value)
@@ -480,6 +497,65 @@ mod tests {
             assert_eq!(names[0], "just-a-file");
             assert_eq!(names[1], "letsbuild");
             assert_eq!(names[2], "not-actually-built-yet.drv");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let v = es.call(f, a).unwrap();
+            es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::Int);
+            let i = es.require_int(&v).unwrap();
+            assert!(i == 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_fail_body() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("true", "<test>").unwrap();
+            let r = es.call(f, a);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("cannot coerce") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_fail_args() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let f = es.eval_from_string("{x}: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("{}", "<test>").unwrap();
+            let r = es.call(f, a);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("called without required argument") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
         })
         .unwrap();
     }
