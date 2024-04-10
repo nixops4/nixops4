@@ -4,7 +4,7 @@ use nixops4_core;
 use anyhow::Result;
 use clap::Command;
 use eval_client::EvalClient;
-use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest};
+use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, SimpleRequest};
 use std::process::exit;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -26,19 +26,24 @@ fn main() {
                 Some(("list", _)) => {
                     EvalClient::with(|mut c| {
                         let flake_id = c.next_id();
+                        let deployments_id = c.next_id();
                         // TODO: use better file path string type more
                         let cwd = std::env::current_dir()
                             .unwrap()
                             .to_string_lossy()
                             .to_string();
                         c.send(&EvalRequest::LoadFlake(AssignRequest {
-                            assign_to: flake_id.clone(),
+                            assign_to: flake_id,
                             payload: FlakeRequest { abspath: cwd },
                         }))?;
-                        c.send(&EvalRequest::ListDeployments(flake_id.clone()))?;
+                        c.send(&EvalRequest::ListDeployments(SimpleRequest {
+                            assign_to: deployments_id,
+                            payload: flake_id,
+                        }))?;
                         let deployments = c.receive_until(|client| {
-                            client.check_error(flake_id.clone())?;
-                            let x = client.get_deployments(flake_id.clone());
+                            client.check_error(flake_id)?;
+                            client.check_error(deployments_id)?;
+                            let x = client.get_deployments(flake_id);
                             Ok(x.map(|x| x.clone()))
                         })?;
                         for d in deployments {
