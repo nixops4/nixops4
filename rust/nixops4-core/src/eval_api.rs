@@ -66,18 +66,33 @@ pub struct ResourceType;
 /// No promises are made about this interface.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
-    LoadFlake(AssignRequest<FlakeType, FlakeRequest>),
-    ListDeployments(Id<FlakeType>),
-    // ListResources(id),
-    // LoadResource(id, String),
+    LoadFlake(AssignRequest<FlakeRequest>),
+    ListDeployments(SimpleRequest<Id<FlakeType>>),
+}
+
+pub trait RequestIdType {
+    /// `Id` type associated with the result of the request
+    type IdType: Clone;
 }
 
 // TODO: probably better to use identifiers for _all_ requests; simplifies error handling which. I've got it wrong because the data structure doesn't match the code very well - the code should be more general and handle errors near the main loop instead of in each individual request handler.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssignRequest<T, R> {
+pub struct AssignRequest<R: RequestIdType> {
     /// Unique id provided by the client.
-    pub assign_to: Id<T>,
+    pub assign_to: Id<R::IdType>,
     pub payload: R,
+}
+impl<Req: RequestIdType> RequestIdType for AssignRequest<Req> {
+    type IdType = Req::IdType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimpleRequest<P> {
+    pub assign_to: Id<AnyType>,
+    pub payload: P,
+}
+impl<P> RequestIdType for SimpleRequest<P> {
+    type IdType = AnyType;
 }
 
 /// This interface is internal to NixOps4. It is used to communicate between the CLI and the evaluator.
@@ -93,6 +108,9 @@ pub enum EvalResponse {
 pub struct FlakeRequest {
     /// The path to the flake to load.
     pub abspath: String,
+}
+impl RequestIdType for FlakeRequest {
+    type IdType = FlakeType;
 }
 
 /// Facade for nixops4-eval
@@ -152,7 +170,10 @@ mod tests {
 
     #[test]
     fn test_eval_request_list_deployments() {
-        let req = EvalRequest::ListDeployments(Id::new(1));
+        let req = EvalRequest::ListDeployments(SimpleRequest {
+            assign_to: Id::new(2),
+            payload: Id::new(1),
+        });
         let s = eval_request_to_json(&req).unwrap();
         eprintln!("{}", s);
         let req2 = eval_request_from_json(&s).unwrap();

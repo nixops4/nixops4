@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use nix_expr::{eval_state::EvalState, value::Value};
-use nixops4_core::eval_api::{EvalRequest, EvalResponse, Id, IdNum};
+use nixops4_core::eval_api::{
+    AssignRequest, EvalRequest, EvalResponse, Id, IdNum, RequestIdType, SimpleRequest,
+};
 
 pub trait Respond {
     fn call(&mut self, response: EvalResponse) -> Result<()>;
@@ -24,6 +26,17 @@ impl EvaluationDriver {
 
     fn respond(&mut self, response: EvalResponse) -> Result<()> {
         self.respond.call(response)
+    }
+
+    fn assign_value<T>(&mut self, id: Id<T>, value: Value) -> Result<()> {
+        if let Some(_value) = self.values.get(&id.num()) {
+            return self.respond(EvalResponse::Error(
+                id.any(),
+                "id already used: ".to_string() + &id.num().to_string(),
+            ));
+        }
+        self.values.insert(id.num(), value);
+        Ok(())
     }
 
     pub fn handle_assign_value<T>(
@@ -56,40 +69,63 @@ impl EvaluationDriver {
         self.eval_state.call(get_flake, flakeref)
     }
 
+    /// Helper function that helps with error handling and saving the result.
+    ///
+    /// # Parameters:
+    /// - handler: do the work. Errors are reported to the client.
+    /// - save: save the result. Errors terminate the evaluator process.
+    ///
+    // We may need more of these helper functions for different types of requests.
+    fn handle_assign_request<R: RequestIdType, A>(
+        &mut self,
+        request: &AssignRequest<R>,
+        handler: impl FnOnce(&mut Self, &R) -> Result<A>,
+        save: impl FnOnce(&mut Self, Id<R::IdType>, A) -> Result<()>,
+    ) -> Result<()> {
+        let r = handler(self, &request.payload);
+        match r {
+            Ok(a) => save(self, request.assign_to, a),
+            Err(e) => self.respond(EvalResponse::Error(request.assign_to.any(), e.to_string())),
+        }
+    }
+
+    /// Helper function that helps with error handling and responding with the result.
+    ///
+    // We may need more of these helper functions for different types of requests.
+    fn handle_simple_request<Req>(
+        &mut self,
+        request: &SimpleRequest<Req>,
+        handler: impl FnOnce(&mut Self, &Req) -> Result<EvalResponse>,
+    ) -> Result<()> {
+        let r = handler(self, &request.payload);
+        match r {
+            Ok(resp) => self.respond(resp),
+            Err(e) => self.respond(EvalResponse::Error(request.assign_to.any(), e.to_string())),
+        }
+    }
+
     pub fn perform_request(&mut self, request: &EvalRequest) -> Result<()> {
         match request {
-            EvalRequest::LoadFlake(req) => {
-                self.handle_assign_value(req.assign_to.clone(), |this| {
-                    // TODO require local flake
-                    let flakeref_string = req.payload.abspath.to_string();
-                    this.get_flake(flakeref_string.as_str())
-                })
-            }
-            EvalRequest::ListDeployments(flake_id) => {
-                let flake = match self.values.get(&flake_id.num()) {
+            EvalRequest::LoadFlake(req) => self.handle_assign_request(
+                req,
+                |this, req| this.get_flake(req.abspath.as_str()),
+                EvaluationDriver::assign_value,
+            ),
+            EvalRequest::ListDeployments(req) => self.handle_simple_request(req, |this, req| {
+                let flake = match this.values.get(&req.num()) {
                     Some(flake) => flake,
                     None => {
-                        return self.respond(EvalResponse::Error(
-                            flake_id.any(),
-                            "flake id not found".to_string(),
-                        ));
+                        bail!("flake id not found");
                     }
                 };
-                let deployments = (|| {
-                    let outputs = self.eval_state.require_attrs_select(&flake, "outputs")?;
-                    let deployments_opt = self
-                        .eval_state
-                        .require_attrs_select_opt(&outputs, "nixops4Deployments")?;
-                    deployments_opt
-                        .map_or(Ok(Vec::new()), |v| self.eval_state.require_attrs_names(&v))
-                })();
-                match deployments {
-                    Ok(deployments) => {
-                        self.respond(EvalResponse::ListDeployments(*flake_id, deployments))
-                    }
-                    Err(e) => self.respond(EvalResponse::Error(flake_id.any(), e.to_string())),
-                }
-            }
+                let outputs = this.eval_state.require_attrs_select(&flake, "outputs")?;
+                let deployments_opt = this
+                    .eval_state
+                    .require_attrs_select_opt(&outputs, "nixops4Deployments")?;
+                let deployments = deployments_opt
+                    .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
+                Ok(EvalResponse::ListDeployments(*req, deployments))
+            }),
         }
     }
 }
@@ -102,7 +138,7 @@ mod tests {
     use ctor::ctor;
     use nix_expr::eval_state::{gc_registering_current_thread, EvalState};
     use nix_store::store::Store;
-    use nixops4_core::eval_api::{AssignRequest, FlakeRequest, Ids};
+    use nixops4_core::eval_api::{AssignRequest, FlakeRequest, Ids, SimpleRequest};
     use tempdir::TempDir;
 
     struct TestRespond {
@@ -210,6 +246,7 @@ mod tests {
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
+            let deployments_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
@@ -221,7 +258,10 @@ mod tests {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
-            driver.perform_request(&EvalRequest::ListDeployments(flake_id))?;
+            driver.perform_request(&EvalRequest::ListDeployments(SimpleRequest {
+                assign_to: deployments_id,
+                payload: flake_id,
+            }))?;
             {
                 let r = responses.lock().unwrap();
                 if r.len() != 1 {
@@ -271,6 +311,7 @@ mod tests {
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
+            let deployments_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
@@ -279,7 +320,7 @@ mod tests {
                 .perform_request(&EvalRequest::LoadFlake(assign_request))
                 .unwrap();
             driver
-                .perform_request(&EvalRequest::ListDeployments(flake_id))
+                .perform_request(&EvalRequest::ListDeployments(SimpleRequest{ assign_to : deployments_id, payload : flake_id }))
                 .unwrap();
             {
                 let r = responses.lock().unwrap();
@@ -288,7 +329,7 @@ mod tests {
                 }
                 match &r[0] {
                     EvalResponse::Error(id, msg) => {
-                        assert_eq!(id, &flake_id.any());
+                        assert_eq!(id, &deployments_id.any());
                         if !msg.contains("so this is the error message from the nixops4Deployments attribute value") {
                             panic!("unexpected error message: {}", msg);
                         }
@@ -331,6 +372,7 @@ mod tests {
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
+            let deployments_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
@@ -345,7 +387,10 @@ mod tests {
                 }
             }
             driver
-                .perform_request(&EvalRequest::ListDeployments(flake_id))
+                .perform_request(&EvalRequest::ListDeployments(SimpleRequest {
+                    assign_to: deployments_id,
+                    payload: flake_id,
+                }))
                 .unwrap();
             {
                 let r = responses.lock().unwrap();
