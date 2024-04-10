@@ -34,6 +34,10 @@ impl Context {
         }
         Ok(())
     }
+    /// NIX_ERR_KEY is returned when e.g. an attribute is missing. Return true if the error is of this type.
+    pub fn is_key_error(&self) -> bool {
+        unsafe { raw::err_code(self.inner.as_ptr()) == raw::NIX_ERR_KEY }
+    }
 }
 
 impl Drop for Context {
