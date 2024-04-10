@@ -21,14 +21,18 @@
           inputs.pre-commit-hooks-nix.flakeModule
           inputs.nix-cargo-integration.flakeModule
           ./rust/nci.nix
+          ./test/nixos/flake-module.nix
         ];
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
 
-          packages.default = pkgs.callPackage ./package.nix {
+          packages.default = config.packages.nixops4;
+
+          packages.nixops4 = pkgs.callPackage ./package.nix {
             nixops4-cli-rust = config.packages.nixops4-release;
             nixops4-eval = config.packages.nixops4-eval-release;
           };
+
           packages.nix = inputs'.nix.packages.nix;
 
           pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
