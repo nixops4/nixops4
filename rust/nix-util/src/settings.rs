@@ -35,6 +35,7 @@ pub fn get(key: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ctor::ctor;
 
     #[ctor::ctor]
     fn setup() {
