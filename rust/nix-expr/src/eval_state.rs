@@ -348,27 +348,32 @@ impl Drop for EvalState {
     }
 }
 
+/// Initialize the Nix library for testing. This includes some modifications to the Nix settings, that must not be used in production.
+/// Use at your own peril, in rust test suites.
+pub fn test_init() {
+    (|| -> Result<()> {
+        init()?;
+        // If it reinvokes the test suite,
+        // settings::set("build-hook", "")?;
+
+        // When testing in the sandbox, the default build dir would be a parent of the storeDir,
+        // which causes an error. So we set a custom build dir here.
+        nix_util::settings::set("sandbox-build-dir", "/custom-build-dir-for-test")?;
+        Ok(())
+    })()
+    .unwrap();
+    std::env::set_var("_NIX_TEST_NO_SANDBOX", "1");
+}
+
 #[cfg(test)]
 mod tests {
     use ctor::ctor;
-    use nix_util::settings;
 
     use super::*;
 
     #[ctor]
     fn setup() {
-        (|| -> Result<()> {
-            init()?;
-            // If it reinvokes the test suite,
-            // settings::set("build-hook", "")?;
-
-            // When testing in the sandbox, the default build dir would be a parent of the storeDir,
-            // which causes an error. So we set a custom build dir here.
-            settings::set("sandbox-build-dir", "/custom-build-dir-for-test")?;
-            Ok(())
-        })()
-        .unwrap();
-        std::env::set_var("_NIX_TEST_NO_SANDBOX", "1");
+        test_init();
     }
 
     #[test]
