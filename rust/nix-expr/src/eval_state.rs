@@ -152,6 +152,42 @@ impl EvalState {
         Ok(attrs)
     }
 
+    pub fn require_attrs_select(&self, v: &Value, attr_name: &str) -> Result<Value> {
+        let r = self.require_attrs_select_opt(v, attr_name)?;
+        match r {
+            Some(v) => Ok(v),
+            None => self.context.check_err().and_then(|_| {
+                // should be unreachable
+                bail!("attribute not found: {}", attr_name)
+            }),
+        }
+    }
+
+    /// Evaluate, require that the value is an attrset, and select an attribute by name.
+    pub fn require_attrs_select_opt(&self, v: &Value, attr_name: &str) -> Result<Option<Value>> {
+        let t = self.value_type(v)?;
+        if t != ValueType::AttrSet {
+            bail!("expected an attrset, but got a {:?}", t);
+        }
+        let attr_name = CString::new(attr_name)
+            .with_context(|| "require_attrs_select_opt: attrName contains null byte")?;
+        // c_void should be Value; why was void generated?
+        let v = unsafe {
+            raw::get_attr_byname(
+                self.context.ptr(),
+                v.raw_ptr(),
+                self.raw_ptr(),
+                attr_name.as_ptr(),
+            )
+        };
+        if self.context.is_key_error() {
+            Ok(None)
+        } else {
+            self.context.check_err()?;
+            Ok(Some(Value::new(v)))
+        }
+    }
+
     /// Create a new value containing the passed string.
     /// Returns a string value without any string context.
     pub fn new_value_str(&self, s: &str) -> Result<Value> {
@@ -435,6 +471,80 @@ mod tests {
             assert_eq!(attrs[1], "b");
         })
         .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_attrs_select() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let expr = r#"{ a = "aye"; b = "bee"; }"#;
+            let v = es.eval_from_string(expr, "<test>").unwrap();
+            let a = es.require_attrs_select(&v, "a").unwrap();
+            let b = es.require_attrs_select(&v, "b").unwrap();
+            assert_eq!(es.require_string(&a).unwrap(), "aye");
+            assert_eq!(es.require_string(&b).unwrap(), "bee");
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_require_attrs_select_error() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let expr = r#"{ a = throw "oh no the error"; }"#;
+            let v = es.eval_from_string(expr, "<test>").unwrap();
+            let r = es.require_attrs_select(&v, "a");
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("oh no the error") {
+                        eprintln!("unexpected error message: {}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_require_attrs_select_opt() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let expr = r#"{ a = "aye"; b = "bee"; }"#;
+            let v = es.eval_from_string(expr, "<test>").unwrap();
+            let a = es.require_attrs_select_opt(&v, "a").unwrap().unwrap();
+            let b = es.require_attrs_select_opt(&v, "b").unwrap().unwrap();
+            assert_eq!(es.require_string(&a).unwrap(), "aye");
+            assert_eq!(es.require_string(&b).unwrap(), "bee");
+            let c = es.require_attrs_select_opt(&v, "c").unwrap();
+            assert!(c.is_none());
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_require_attrs_select_opt_error() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store).unwrap();
+            let expr = r#"{ a = throw "oh no the error"; }"#;
+            let v = es.eval_from_string(expr, "<test>").unwrap();
+            let r = es.require_attrs_select_opt(&v, "a");
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("oh no the error") {
+                        eprintln!("unexpected error message: {}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap()
     }
 
     #[test]
