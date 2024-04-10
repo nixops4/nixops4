@@ -1,5 +1,4 @@
 use anyhow::Result;
-use ctor::ctor;
 use nix_c_raw as raw;
 
 use crate::{
@@ -36,6 +35,7 @@ pub fn get(key: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ctor::ctor;
 
     #[ctor]
     fn setup() {
