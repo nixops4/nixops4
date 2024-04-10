@@ -1,17 +1,19 @@
 [package]
-name = "nixops4"
+name = "nixops4-eval"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.79"
 nixops4-core = { path = "../nixops4-core" }
-# runtime dependency
-nixops4-eval = { path = "../nixops4-eval" }
-clap = "4.5.4"
+nix-expr = { path = "../nix-expr" }
+nix-store = { path = "../nix-store" }
+nix-util = { path = "../nix-util" }
+anyhow = "1.0.81"
+tempdir = "0.3.7"
+ctor = "0.2.7"
 
 [[bin]]
-name = "nixops4"
+name = "nixops4-eval"
 path = "src/main.rs"
