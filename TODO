@@ -1,0 +1,20 @@
+- [ ] LICENSE
+  - c_headers is available under MIT or Apache 2
+
+- [ ] Throw custom exception
+
+- [ ] Don't use file descriptors 1/2/3
+
+- [ ] Review C bindings interface esp wrt string ownership
+
+- [ ] Review C bindings for laziness
+  - Add lazy apply (thunk)
+  - Unnecessary force before return
+
+- [ ] Update thunk on function application, preserving thunks for retry
+
+- [ ] Consistent error handling, with Nix-like presentation in the CLI
+
+- [ ] Move rust bindings to separate repo
+
+- [ ] Build a manual
