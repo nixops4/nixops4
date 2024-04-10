@@ -5,6 +5,7 @@ members = [
     "nix-util",
     "nix-store",
     "nixops4-core",
+    "nixops4-eval",
     "nixops4",
 ]
 resolver = "2"
