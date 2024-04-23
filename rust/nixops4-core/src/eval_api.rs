@@ -68,6 +68,9 @@ pub struct ResourceType;
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
     ListDeployments(SimpleRequest<Id<FlakeType>>),
+    LoadDeployment(AssignRequest<DeploymentRequest>),
+    ListResources(SimpleRequest<Id<DeploymentType>>),
+    LoadResource(AssignRequest<ResourceRequest>),
 }
 
 pub trait RequestIdType {
@@ -102,6 +105,9 @@ impl<P> RequestIdType for SimpleRequest<P> {
 pub enum EvalResponse {
     Error(Id<AnyType>, String),
     ListDeployments(Id<FlakeType>, Vec<String>),
+    CheckResource(ResourceSpec),
+    UpdateResource(ResourceSpec),
+    DestroyResource(ResourceSpec),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +117,45 @@ pub struct FlakeRequest {
 }
 impl RequestIdType for FlakeRequest {
     type IdType = FlakeType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeploymentRequest {
+    /// The flake to load the deployment from.
+    pub flake: Id<FlakeType>,
+    /// The name of the deployment to load.
+    pub name: String,
+}
+impl RequestIdType for DeploymentRequest {
+    type IdType = DeploymentType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceRequest {
+    /// The deployment to load the resource from.
+    pub deployment: Id<DeploymentType>,
+    /// The name of the resource to load.
+    pub name: String,
+}
+impl RequestIdType for ResourceRequest {
+    type IdType = ResourceType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceSpec {
+    /// Deployment this resource is part of
+    pub id: Id<DeploymentType>,
+    /// Name of the resource in the deployment
+    pub name: String,
+
+    // Value of the resource
+    /// Type of the resource, e.g. `"stdio-simple"`
+    pub resource_api: String,
+    /// Arbitrary JSON input for the resource
+    pub inputs_json: String,
+    /// Realised store paths
+    // TODO: use unreleased derivable paths for better performance
+    pub store_paths: Vec<String>,
 }
 
 /// Facade for nixops4-eval

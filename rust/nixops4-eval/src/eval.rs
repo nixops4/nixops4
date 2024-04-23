@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Result};
-use nix_expr::{eval_state::EvalState, value::Value};
+use nix_expr::{
+    eval_state::{EvalState, FUNCTION_ANONYMOUS},
+    value::Value,
+};
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, Id, IdNum, RequestIdType, SimpleRequest,
+    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, RequestIdType, SimpleRequest,
 };
 
 pub trait Respond {
@@ -104,6 +107,21 @@ impl EvaluationDriver {
         }
     }
 
+    fn get_value<T>(&self, id: Id<T>) -> Result<&Value> {
+        self.values
+            .get(&id.num())
+            .ok_or_else(|| anyhow::anyhow!("id not found: {}", id.num().to_string()))
+    }
+
+    fn get_flake_deployments_value(&self, flake: Id<FlakeType>) -> Result<Value> {
+        let flake = self.get_value(flake)?;
+        let outputs = self.eval_state.require_attrs_select(&flake, "outputs")?;
+        let deployments = self
+            .eval_state
+            .require_attrs_select(&outputs, "nixops4Deployments")?;
+        Ok(deployments.clone())
+    }
+
     pub fn perform_request(&mut self, request: &EvalRequest) -> Result<()> {
         match request {
             EvalRequest::LoadFlake(req) => self.handle_assign_request(
@@ -112,12 +130,7 @@ impl EvaluationDriver {
                 EvaluationDriver::assign_value,
             ),
             EvalRequest::ListDeployments(req) => self.handle_simple_request(req, |this, req| {
-                let flake = match this.values.get(&req.num()) {
-                    Some(flake) => flake,
-                    None => {
-                        bail!("flake id not found");
-                    }
-                };
+                let flake = this.get_value(req.to_owned())?;
                 let outputs = this.eval_state.require_attrs_select(&flake, "outputs")?;
                 let deployments_opt = this
                     .eval_state
@@ -126,6 +139,79 @@ impl EvaluationDriver {
                     .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
                 Ok(EvalResponse::ListDeployments(*req, deployments))
             }),
+            EvalRequest::LoadDeployment(req) => self.handle_assign_request(
+                req,
+                |this, req| {
+                    // basic lookup
+                    let es = &this.eval_state;
+                    let deployments = this.get_flake_deployments_value(req.flake)?;
+                    let deployment = es.require_attrs_select(&deployments, &req.name)?;
+
+                    // check _type attr
+                    {
+                        let tag = es.require_attrs_select(&deployment, "_type")?;
+                        let str = es.require_string(&tag)?;
+                        if str != "nixops4Deployment" {
+                            bail!("expected _type to be 'nixops4Deployment', got: {}", str);
+                        }
+                    }
+
+                    let eval_expr = r#"
+                        # primops
+                        loadResourceAttr:
+                        loadResourceSkeleton:
+                        # user expr
+                        deploymentFunction:
+                        let
+                          arg = {
+                            inherit resources;
+                          };
+                          resources =
+                            builtins.mapAttrs
+                              (name: value:
+                                builtins.mapAttrs
+                                  (loadResourceAttr name)
+                                  (loadResourceSkeleton name value)
+                              )
+                              fixpoint.deployment.resources;
+                          fixpoint = deploymentFunction arg;
+                        in
+                          fixpoint
+                    "#;
+
+                    let deployment_function =
+                        es.require_attrs_select(&deployment, "deploymentFunction")?;
+
+                    let load_resource_attr = es.new_value_function(
+                        FUNCTION_ANONYMOUS.as_ptr(),
+                        Box::new(|es, [resource_name, attr_name, _]| {
+                            let resource_name = es.require_string(resource_name)?;
+                            let attr_name = es.require_string(attr_name)?;
+                            es.new_value_str(format!("{}.{}", resource_name, attr_name).as_str())
+                        }),
+                    )?;
+
+                    let load_resource_skeleton = es.new_value_function(
+                        FUNCTION_ANONYMOUS.as_ptr(),
+                        Box::new(|es, [resource_name, value, _]| {
+                            let resource_name = es.require_string(resource_name)?;
+                            es.new_value_str(format!("{}.skeleton", resource_name).as_str())
+                        }),
+                    )?;
+
+                    // invoke it
+                    let fixpoint = {
+                        let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
+                        let v = es.call(v, load_resource_attr)?;
+                        let v = es.call(v, load_resource_skeleton)?;
+                        es.call(v, deployment_function)
+                    }?;
+
+                    Ok(fixpoint.clone())
+                },
+                EvaluationDriver::assign_value,
+            ),
+            _ => unimplemented!(),
         }
     }
 }
@@ -138,7 +224,9 @@ mod tests {
     use ctor::ctor;
     use nix_expr::eval_state::{gc_registering_current_thread, EvalState};
     use nix_store::store::Store;
-    use nixops4_core::eval_api::{AssignRequest, FlakeRequest, Ids, SimpleRequest};
+    use nixops4_core::eval_api::{
+        AssignRequest, DeploymentRequest, FlakeRequest, Ids, SimpleRequest,
+    };
     use tempdir::TempDir;
 
     struct TestRespond {
@@ -406,6 +494,90 @@ mod tests {
                         assert_eq!(names[1], "b");
                     }
                     _ => panic!("expected EvalResponse::ListDeployments"),
+                }
+            }
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_eval_driver_flake_example() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4Deployments = {
+                        example = {
+                            _type = "nixops4Deployment";
+                            deploymentFunction = { resources }:
+                            {
+                                resources = {
+                                    a = {
+                                        _type = "nixops4SimpleResource";
+                                        exe = "__test:dummy";
+                                        inputs = {
+                                            foo = "bar";
+                                        };
+                                    };
+                                    b = {
+                                        _type = "nixops4SimpleResource";
+                                        exe = "__test:dummy";
+                                        inputs = {
+                                            qux = resources.a.foo2;
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::new("test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let eval_state = EvalState::new(store, []).unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = Box::new(TestRespond {
+                responses: responses.clone(),
+            });
+            let mut driver = EvaluationDriver::new(eval_state, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+            };
+            let mut ids = Ids::new();
+            let flake_id = ids.next();
+            let deployment_id = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            driver
+                .perform_request(&EvalRequest::LoadFlake(assign_request))
+                .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                if r.len() != 0 {
+                    panic!("expected 0 responses, got: {:?}", r);
+                }
+            }
+            driver
+                .perform_request(&EvalRequest::LoadDeployment(AssignRequest {
+                    assign_to: deployment_id,
+                    payload: DeploymentRequest {
+                        flake: flake_id,
+                        name: "example".to_string(),
+                    },
+                }))
+                .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                if r.len() != 0 {
+                    panic!("expected 0 responses, got: {:?}", r);
                 }
             }
         })
