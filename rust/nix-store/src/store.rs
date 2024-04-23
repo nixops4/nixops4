@@ -83,7 +83,7 @@ impl Store {
             raw::nix_store_get_uri(
                 self.context.ptr(),
                 self.inner.ptr(),
-                callback_get_vec_u8 as *mut std::ffi::c_void,
+                Some(callback_get_vec_u8),
                 &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
             )
         };

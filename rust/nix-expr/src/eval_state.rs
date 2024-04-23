@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_store::store::Store;
 use nix_util::context::Context;
+use nix_util::string_return::callback_get_vec_u8;
 use std::ffi::CString;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
@@ -108,13 +109,18 @@ impl EvalState {
     }
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&self, value: &Value) -> Result<String> {
-        let c_str_raw = unsafe { raw::nix_get_string(self.context.ptr(), value.raw_ptr()) };
+        let mut raw_buffer: Vec<u8> = Vec::new();
+        unsafe {
+            raw::nix_get_string(
+                self.context.ptr(),
+                value.raw_ptr(),
+                Some(callback_get_vec_u8),
+                &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
+            )
+        };
         self.context.check_err()?;
-        let cstring = unsafe { std::ffi::CStr::from_ptr(c_str_raw) };
-        let str = cstring
-            .to_str()
-            .map_err(|e| anyhow::format_err!("Nix string is not valid UTF-8: {}", e))?;
-        Ok(str.to_owned())
+        String::from_utf8(raw_buffer)
+            .map_err(|e| anyhow::format_err!("Nix string is not valid UTF-8: {}", e))
     }
     /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
     pub fn require_string(&self, value: &Value) -> Result<String> {
