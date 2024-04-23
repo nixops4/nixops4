@@ -116,6 +116,7 @@ impl<'a> EvalClient<'a> {
             eval_api::EvalResponse::ListDeployments(id, deployments) => {
                 self.deployments.insert(id, deployments);
             }
+            _ => {}
         }
         Ok(())
     }
