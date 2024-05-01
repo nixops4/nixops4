@@ -214,15 +214,16 @@
         "pre-commit-hooks": "pre-commit-hooks"
       },
       "locked": {
-        "lastModified": 1713862243,
-        "narHash": "sha256-mfJSQyO7je+/WSBmnl/LTGvqrzv3k1F0kEd7Wg+VXw4=",
-        "owner": "nixos",
+        "lastModified": 1714582044,
+        "narHash": "sha256-+I7oZyclF/qcQxJYCsKRfYDk5Yzo/Xug/XhI+bSrnx8=",
+        "owner": "hercules-ci",
         "repo": "nix",
-        "rev": "1cfc9da472f8dcfa7f521e544531d5e4daf2076c",
+        "rev": "38974360102e67aaf2434fd3f920e2cd1bb3fa75",
         "type": "github"
       },
       "original": {
-        "owner": "nixos",
+        "owner": "hercules-ci",
+        "ref": "fix-eval-state-baseEnv-gc-root",
         "repo": "nix",
         "type": "github"
       }
