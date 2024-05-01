@@ -4,7 +4,7 @@
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
-    nix.url = "github:tweag/nix/nix-c-bindings";
+    nix.url = "github:hercules-ci/nix/fix-eval-state-baseEnv-gc-root";
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
@@ -40,6 +40,15 @@
               LIBCLANG_PATH
               BINDGEN_EXTRA_CLANG_ARGS
               ;
+            NIX_DEBUG_INFO_DIRS =
+              let
+                # TODO: add to Nixpkgs lib
+                getDebug = pkg:
+                  if pkg?debug then pkg.debug
+                  else if pkg?lib then pkg.lib
+                  else pkg;
+              in
+              "${getDebug config.packages.nix}/lib/debug";
             buildInputs = [
               config.packages.nix
             ];
