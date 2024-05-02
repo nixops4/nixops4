@@ -52,7 +52,6 @@ NixOps 4 will be implemented in Rust.
   - (+) This has proven to be a non-issue in `hercules-ci-agent`
 - (-) Haskell has a smaller community than Rust, which could make it harder to find contributors
 - (~) Haskell can be slow to iterate on, unless most iteration can happen through unit tests, which may be tricky for NixOps, of which a large part is integration testing.
-- (-) The Haskell community broadly does not have a good testing culture. (Praise to those who do)
 
 ### C++
 
