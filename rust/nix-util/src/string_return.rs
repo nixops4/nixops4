@@ -20,7 +20,7 @@ mod tests {
     use nix_c_raw as raw;
 
     /// Typecheck the function signature against the generated bindings in nix_c_raw.
-    static _CALLBACK_GET_VEC_U8: raw::nix_get_string_callback = Some(callback_get_vec_u8);
+    static _CALLBACK_GET_VEC_U8: raw::get_string_callback = Some(callback_get_vec_u8);
 
     #[test]
     fn test_callback_get_vec_u8_empty() {

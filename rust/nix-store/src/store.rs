@@ -12,7 +12,7 @@ lazy_static! {
     static ref INIT: Result<()> = {
         unsafe {
             let context: Context = Context::new();
-            raw::nix_libstore_init(context.ptr());
+            raw::libstore_init(context.ptr());
             context.check_err()
         }
     };
@@ -29,7 +29,7 @@ impl StoreRef {
 impl Drop for StoreRef {
     fn drop(&mut self) {
         unsafe {
-            raw::nix_store_free(self.inner.as_ptr());
+            raw::store_free(self.inner.as_ptr());
         }
     }
 }
@@ -54,7 +54,7 @@ impl Store {
 
         let uri_ptr = CString::new(url)?;
         let store = unsafe {
-            raw::nix_store_open(
+            raw::store_open(
                 context.ptr(),
                 uri_ptr.as_ptr(),
                 null_mut::<*mut *const i8>(),
@@ -80,7 +80,7 @@ impl Store {
     pub fn get_uri(&self) -> Result<String> {
         let mut raw_buffer: Vec<u8> = Vec::new();
         unsafe {
-            raw::nix_store_get_uri(
+            raw::store_get_uri(
                 self.context.ptr(),
                 self.inner.ptr(),
                 Some(callback_get_vec_u8),

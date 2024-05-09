@@ -17,7 +17,7 @@ lazy_static! {
         }
         let context: Context = Context::new();
         unsafe {
-            raw::nix_libexpr_init(context.ptr());
+            raw::libexpr_init(context.ptr());
         }
         context.check_err()?;
         Ok(())
@@ -46,7 +46,7 @@ impl EvalState {
         init()?;
 
         let eval_state = unsafe {
-            raw::nix_state_create(
+            raw::state_create(
                 context.ptr(),
                 /* searchPath */ null_mut(),
                 store.raw_ptr(),
@@ -75,7 +75,7 @@ impl EvalState {
         let value = self.new_value_uninitialized();
         unsafe {
             let ctx_ptr = self.context.ptr();
-            raw::nix_expr_eval_from_string(
+            raw::expr_eval_from_string(
                 ctx_ptr,
                 self.raw_ptr(),
                 expr_ptr.as_ptr(),
@@ -89,13 +89,13 @@ impl EvalState {
     /** Try turn any Value into a Value that isn't a Thunk. */
     pub fn force(&self, v: &Value) -> Result<()> {
         unsafe {
-            raw::nix_value_force(self.context.ptr(), self.raw_ptr(), v.raw_ptr());
+            raw::value_force(self.context.ptr(), self.raw_ptr(), v.raw_ptr());
         }
         self.context.check_err()
     }
     pub fn value_is_thunk(&self, value: &Value) -> bool {
         let r = unsafe {
-            raw::nix_get_type(self.context.ptr(), value.raw_ptr()) == raw::ValueType_NIX_TYPE_THUNK
+            raw::get_type(self.context.ptr(), value.raw_ptr()) == raw::ValueType_NIX_TYPE_THUNK
         };
         self.context.check_err().unwrap();
         r
@@ -104,14 +104,14 @@ impl EvalState {
         if self.value_is_thunk(value) {
             self.force(value)?;
         }
-        let r = unsafe { raw::nix_get_type(self.context.ptr(), value.raw_ptr()) };
+        let r = unsafe { raw::get_type(self.context.ptr(), value.raw_ptr()) };
         Ok(ValueType::from_raw(r))
     }
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&self, value: &Value) -> Result<String> {
         let mut raw_buffer: Vec<u8> = Vec::new();
         unsafe {
-            raw::nix_get_string(
+            raw::get_string(
                 self.context.ptr(),
                 value.raw_ptr(),
                 Some(callback_get_vec_u8),
@@ -132,14 +132,14 @@ impl EvalState {
     }
 
     fn new_value_uninitialized(&self) -> Value {
-        let value = unsafe { raw::nix_alloc_value(self.context.ptr(), self.raw_ptr()) };
+        let value = unsafe { raw::alloc_value(self.context.ptr(), self.raw_ptr()) };
         Value::new(value)
     }
 }
 
 pub fn gc_now() {
     unsafe {
-        raw::nix_gc_now();
+        raw::gc_now();
     }
 }
 
@@ -182,7 +182,7 @@ pub fn gc_register_my_thread() -> Result<()> {
 impl Drop for EvalState {
     fn drop(&mut self) {
         unsafe {
-            raw::nix_state_free(self.raw_ptr());
+            raw::state_free(self.raw_ptr());
         }
     }
 }

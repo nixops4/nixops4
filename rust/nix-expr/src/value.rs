@@ -58,7 +58,7 @@ impl Drop for Value {
     fn drop(&mut self) {
         let context = Context::new();
         unsafe {
-            raw::nix_gc_decref(context.ptr(), self.inner.as_ptr());
+            raw::gc_decref(context.ptr(), self.inner.as_ptr());
         }
         // ignore error from context, because drop should not panic
     }
@@ -66,7 +66,7 @@ impl Drop for Value {
 impl Clone for Value {
     fn clone(&self) -> Self {
         let context = Context::new();
-        unsafe { raw::nix_gc_incref(context.ptr(), self.inner.as_ptr()) };
+        unsafe { raw::gc_incref(context.ptr(), self.inner.as_ptr()) };
         context.check_err().unwrap();
         Value { inner: self.inner }
     }

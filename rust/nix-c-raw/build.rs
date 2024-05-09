@@ -2,6 +2,14 @@ use bindgen;
 use std::env;
 use std::path::PathBuf;
 
+#[derive(Debug)]
+struct StripNixPrefix {}
+impl bindgen::callbacks::ParseCallbacks for StripNixPrefix {
+    fn item_name(&self, name: &str) -> Option<String> {
+        name.strip_prefix("nix_").map(String::from)
+    }
+}
+
 fn main() {
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=include/nix-c-raw.h");
@@ -14,6 +22,7 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(StripNixPrefix {}))
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
