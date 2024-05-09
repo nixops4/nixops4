@@ -52,8 +52,9 @@ impl EvalState {
                 store.raw_ptr(),
             )
         };
+        context.check_err()?;
         if eval_state.is_null() {
-            bail!("nix_state_create returned a null pointer");
+            panic!("nix_state_create returned a null pointer without an error");
         }
         Ok(EvalState {
             eval_state: NonNull::new(eval_state).unwrap(),
@@ -152,7 +153,7 @@ where
     if unsafe { raw::GC_thread_is_registered() } != 0 {
         return Ok(f());
     } else {
-        gc_register_my_thread().unwrap();
+        gc_register_my_thread()?;
         let r = f();
         unsafe {
             raw::GC_unregister_my_thread();

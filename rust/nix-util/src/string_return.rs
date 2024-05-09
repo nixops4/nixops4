@@ -1,6 +1,8 @@
 /// Callback for nix_store_get_uri and other functions that return a string.
 ///
 /// This function is used by the other nix_* crates, and you should never need to call it yourself.
+///
+/// Some functions in the nix library "return" strings without giving you ownership over them, by letting you pass a callback function that gets to look at that string. This callback simply turns that string pointer into an owned rust String.
 pub unsafe extern "C" fn callback_get_vec_u8(
     start: *const ::std::os::raw::c_char,
     n: std::os::raw::c_uint,

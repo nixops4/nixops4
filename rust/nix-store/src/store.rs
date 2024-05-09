@@ -62,7 +62,7 @@ impl Store {
         };
         context.check_err()?;
         if store.is_null() {
-            bail!("nix_c_store_open returned a null pointer");
+            panic!("nix_c_store_open returned a null pointer without an error");
         }
         let store = Store {
             inner: StoreRef {

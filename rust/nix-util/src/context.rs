@@ -11,6 +11,8 @@ impl Context {
     pub fn new() -> Self {
         let ctx = unsafe { raw::c_context_create() };
         if ctx.is_null() {
+            // We've failed to allocate a (relatively small) Context struct.
+            // We're almost certainly going to crash anyways.
             panic!("nix_c_context_create returned a null pointer");
         }
         let ctx = Context {
@@ -24,7 +26,7 @@ impl Context {
     pub fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
         if err != raw::NIX_OK.try_into().unwrap() {
-            // msgp is a borrowed pointer, so we don't need to free it
+            // msgp is a borrowed pointer (pointing into the context), so we don't need to free it
             let msgp = unsafe { raw::err_msg(null_mut(), self.inner.as_ptr(), null_mut()) };
             // Turn the i8 pointer into a Rust string by copying
             let msg: &str = unsafe { core::ffi::CStr::from_ptr(msgp).to_str()? };

@@ -1,6 +1,6 @@
 use nix_c_raw as raw;
 use nix_util::context::Context;
-use std::ptr::NonNull;
+use std::ptr::{null_mut, NonNull};
 
 // TODO: test: cloning a thunk does not duplicate the evaluation.
 
@@ -35,6 +35,7 @@ impl ValueType {
             raw::ValueType_NIX_TYPE_PATH => ValueType::Path,
             raw::ValueType_NIX_TYPE_STRING => ValueType::String,
             raw::ValueType_NIX_TYPE_THUNK => ValueType::Thunk,
+            // This would happen if a new type of value is added in Nix.
             _ => ValueType::Unknown,
         }
     }
@@ -56,17 +57,17 @@ impl Value {
 }
 impl Drop for Value {
     fn drop(&mut self) {
-        let context = Context::new();
         unsafe {
-            raw::gc_decref(context.ptr(), self.inner.as_ptr());
+            // ignoring error because the only failure mode is leaking memory
+            raw::gc_decref(null_mut(), self.inner.as_ptr());
         }
-        // ignore error from context, because drop should not panic
     }
 }
 impl Clone for Value {
     fn clone(&self) -> Self {
         let context = Context::new();
         unsafe { raw::gc_incref(context.ptr(), self.inner.as_ptr()) };
+        // can't return an error here, but we don't want to ignore the error either as it means we could use-after-free
         context.check_err().unwrap();
         Value { inner: self.inner }
     }
