@@ -169,7 +169,7 @@ pub fn gc_register_my_thread() -> Result<()> {
             return Ok(());
         }
         let mut sb: raw::GC_stack_base = raw::GC_stack_base {
-            mem_base: 0 as *mut _,
+            mem_base: null_mut(),
         };
         let r = raw::GC_get_stack_base(&mut sb);
         if r as u32 != raw::GC_SUCCESS {
