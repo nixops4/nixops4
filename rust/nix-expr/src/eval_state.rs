@@ -380,6 +380,7 @@ pub fn test_init() {
 #[cfg(test)]
 mod tests {
     use ctor::ctor;
+    use std::io::Write as _;
 
     use super::*;
 
@@ -396,6 +397,37 @@ mod tests {
             let _e = EvalState::new(store).unwrap();
         })
         .unwrap();
+    }
+
+    #[test]
+    fn eval_state_lookup_path() {
+        let import_expression = "import <test_file0> + import <test_file1>";
+        let integer0 = 83;
+        let integer1 = 103;
+        let mut test_file0 = tempfile::NamedTempFile::new().unwrap();
+        let mut test_file1 = tempfile::NamedTempFile::new().unwrap();
+        writeln!(test_file0, "{integer0}").unwrap();
+        writeln!(test_file1, "{integer1}").unwrap();
+        gc_registering_current_thread(|| {
+            let es = EvalState::new(Store::open("auto").unwrap(), []).unwrap();
+            assert!(es.eval_from_string(import_expression, "<test>").is_err());
+
+            let es = EvalState::new(
+                Store::open("auto").unwrap(),
+                [
+                    format!("test_file0={}", test_file0.path().to_str().unwrap()).as_str(),
+                    format!("test_file1={}", test_file1.path().to_str().unwrap()).as_str(),
+                ],
+            )
+            .unwrap();
+            let v = es
+                .require_int(&es.eval_from_string(import_expression, "<test>").unwrap())
+                .unwrap();
+            assert_eq!(v, integer0 + integer1);
+        })
+        .unwrap();
+        test_file0.close().unwrap();
+        test_file1.close().unwrap();
     }
 
     #[test]
