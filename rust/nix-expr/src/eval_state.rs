@@ -10,9 +10,9 @@ use raw::{
     nix_realised_string_get_buffer_size, nix_realised_string_get_buffer_start,
     nix_realised_string_get_store_path_count,
 };
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 use std::os::raw::c_uint;
-use std::ptr::null_mut;
+use std::ptr::null;
 use std::ptr::NonNull;
 
 lazy_static! {
@@ -50,17 +50,30 @@ pub struct EvalState {
     context: Context,
 }
 impl EvalState {
-    pub fn new(store: Store) -> Result<Self> {
+    pub fn new<'a>(lookup_path: impl Iterator<Item = &'a str>, store: Store) -> Result<Self> {
         let context = Context::new();
+
+        // this intermediate value must be here and must not be moved
+        // because it owns the data the `*const c_char` pointers point to.
+        let lookup_path: Vec<CString> = lookup_path
+            .map(|path| {
+                CString::new(path).with_context(|| {
+                    format!("EvalState::new: lookup_path `{path}` contains null byte")
+                })
+            })
+            .collect::<Result<_>>()?;
+
+        // this intermediate value owns the data the `*mut *const c_char` pointer points to.
+        let mut lookup_path: Vec<*const c_char> = lookup_path
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(std::iter::once(null())) // signal the end of the array
+            .collect();
 
         init()?;
 
         let eval_state = unsafe {
-            raw::nix_state_create(
-                context.ptr(),
-                /* searchPath */ null_mut(),
-                store.raw_ptr(),
-            )
+            raw::nix_state_create(context.ptr(), lookup_path.as_mut_ptr(), store.raw_ptr())
         };
         if eval_state.is_null() {
             bail!("nix_state_create returned a null pointer");
