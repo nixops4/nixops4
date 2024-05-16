@@ -368,6 +368,7 @@ pub fn test_init() {
 #[cfg(test)]
 mod tests {
     use ctor::ctor;
+    use std::fs::read_dir;
 
     use super::*;
 
@@ -836,5 +837,76 @@ mod tests {
             }
         })
         .unwrap();
+    }
+    #[test]
+    fn store_open_params() {
+        gc_registering_current_thread(|| {
+            let store = tempfile::tempdir().unwrap();
+            let store_path = store.path().to_str().unwrap();
+            let state = tempfile::tempdir().unwrap();
+            let state_path = state.path().to_str().unwrap();
+            let log = tempfile::tempdir().unwrap();
+            let log_path = log.path().to_str().unwrap();
+
+            let es = EvalState::new(
+                Store::open(
+                    "local",
+                    &HashMap::from([
+                        ("store", store_path),
+                        ("state", state_path),
+                        ("log", log_path),
+                    ]),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+            let expr = r#"
+                ''
+                    a derivation output: ${
+                        derivation { name = "letsbuild";
+                            system = builtins.currentSystem;
+                            builder = "/bin/sh";
+                            args = [ "-c" "echo foo > $out" ];
+                            }}
+                    a path: ${builtins.toFile "just-a-file" "ooh file good"}
+                    a derivation path by itself: ${
+                        builtins.unsafeDiscardOutputDependency
+                            (derivation {
+                                name = "not-actually-built-yet";
+                                system = builtins.currentSystem;
+                                builder = "/bin/sh";
+                                args = [ "-c" "echo foo > $out" ];
+                            }).drvPath}
+                ''
+            "#;
+            let derivations: [&[u8]; 3] = [
+                b"letsbuild.drv",
+                b"just-a-file",
+                b"not-actually-built-yet.drv",
+            ];
+            let _ = es.eval_from_string(expr, "<test>").unwrap();
+
+            // assert that all three `derivations` are inside the store and the `state` directory is not empty either.
+            let store_contents: Vec<_> = read_dir(store.path())
+                .unwrap()
+                .map(|dir_entry| dir_entry.unwrap().file_name())
+                .collect();
+            for derivation in derivations {
+                assert!(store_contents
+                    .iter()
+                    .find(|f| f.as_encoded_bytes().ends_with(derivation))
+                    .is_some());
+            }
+            assert!(!empty(read_dir(state.path()).unwrap()));
+
+            store.close().unwrap();
+            state.close().unwrap();
+            log.close().unwrap();
+        })
+        .unwrap();
+    }
+    fn empty(foldable: impl IntoIterator) -> bool {
+        foldable.into_iter().all(|_| false)
     }
 }
