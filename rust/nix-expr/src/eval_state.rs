@@ -175,6 +175,11 @@ impl EvalState {
             paths
         };
 
+        // We've converted the nix_realised_string to a native struct containing copies, so we can free it now.
+        unsafe {
+            raw::realised_string_free(rs);
+        }
+
         Ok(RealisedString { s, paths })
     }
 
