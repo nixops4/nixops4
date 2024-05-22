@@ -6,9 +6,20 @@ pub struct StorePath {
     raw: *mut raw::StorePath,
 }
 impl StorePath {
+    /**
+     * This is a low level function that you shouldn't have to call unless you are developing the Nix bindings.
+     *
+     * Construct a new `StorePath` by first cloning the C store path.
+     * This does not take ownership of the C store path, so it should be a borrowed value, or you should free it.
+     */
     pub fn new_raw_clone(raw: *const raw::StorePath) -> Self {
         Self::new_raw(unsafe { raw::store_path_clone(raw as *mut raw::StorePath) })
     }
+    /**
+     * This is a low level function that you shouldn't have to call unless you are developing the Nix bindings.
+     *
+     * Takes ownership of a C `nix_store_path`. It will be freed when the `StorePath` is dropped.
+     */
     pub fn new_raw(raw: *mut raw::StorePath) -> Self {
         StorePath { raw }
     }
