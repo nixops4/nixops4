@@ -250,7 +250,10 @@ mod tests {
     fn setup() {
         (|| -> Result<()> {
             init()?;
-            // If it reinvokes the test suite,
+            // During development, we encountered a problem where the build hook
+            // would cause the test suite to reinvokes itself, causing an infinite loop.
+            // While _NIX_TEST_NO_SANDBOX=1 should prevent this, we may also set the
+            // build hook to "" to prevent this.
             // settings::set("build-hook", "")?;
 
             // When testing in the sandbox, the default build dir would be a parent of the storeDir,
