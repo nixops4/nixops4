@@ -2,8 +2,8 @@ use anyhow::Result;
 use nix_c_raw as raw;
 
 use crate::{
-    context,
-    string_return::{callback_get_vec_u8, callback_get_vec_u8_data},
+    context, result_string_init,
+    string_return::{callback_get_result_string, callback_get_result_string_data},
 };
 
 pub fn set(key: &str, value: &str) -> Result<()> {
@@ -19,17 +19,17 @@ pub fn set(key: &str, value: &str) -> Result<()> {
 pub fn get(key: &str) -> Result<String> {
     let ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
-    let mut raw_buffer: Vec<u8> = Vec::new();
+    let mut r: Result<String> = result_string_init!();
     unsafe {
         raw::setting_get(
             ctx.ptr(),
             key.as_ptr(),
-            Some(callback_get_vec_u8),
-            callback_get_vec_u8_data(&mut raw_buffer),
+            Some(callback_get_result_string),
+            callback_get_result_string_data(&mut r),
         )
     };
     ctx.check_err()?;
-    String::from_utf8(raw_buffer).map_err(|e| e.into())
+    r
 }
 
 #[cfg(test)]

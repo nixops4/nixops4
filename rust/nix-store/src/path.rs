@@ -1,6 +1,9 @@
 use anyhow::Result;
 use nix_c_raw as raw;
-use nix_util::string_return::{callback_get_vec_u8, callback_get_vec_u8_data};
+use nix_util::{
+    result_string_init,
+    string_return::{callback_get_result_string, callback_get_result_string_data},
+};
 
 pub struct StorePath {
     raw: *mut raw::StorePath,
@@ -25,13 +28,13 @@ impl StorePath {
     }
     pub fn name(&self) -> Result<String> {
         unsafe {
-            let mut vec = Vec::new();
+            let mut r = result_string_init!();
             raw::store_path_name(
                 self.raw,
-                Some(callback_get_vec_u8),
-                callback_get_vec_u8_data(&mut vec),
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r),
             );
-            String::from_utf8(vec).map_err(|e| e.into())
+            r
         }
     }
 }

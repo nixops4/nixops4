@@ -6,7 +6,8 @@ use nix_c_raw as raw;
 use nix_store::path::StorePath;
 use nix_store::store::Store;
 use nix_util::context::Context;
-use nix_util::string_return::callback_get_vec_u8;
+use nix_util::result_string_init;
+use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use std::ffi::CString;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
@@ -116,18 +117,17 @@ impl EvalState {
     }
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&self, value: &Value) -> Result<String> {
-        let mut raw_buffer: Vec<u8> = Vec::new();
+        let mut r = result_string_init!();
         unsafe {
             raw::get_string(
                 self.context.ptr(),
                 value.raw_ptr(),
-                Some(callback_get_vec_u8),
-                &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r),
             )
         };
         self.context.check_err()?;
-        String::from_utf8(raw_buffer)
-            .map_err(|e| anyhow::format_err!("Nix string is not valid UTF-8: {}", e))
+        r
     }
     /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
     pub fn require_string(&self, value: &Value) -> Result<String> {
