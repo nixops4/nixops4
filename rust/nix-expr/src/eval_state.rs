@@ -403,6 +403,8 @@ pub fn test_init() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use ctor::ctor;
     use std::io::Write as _;
 
@@ -417,7 +419,7 @@ mod tests {
     fn eval_state_new_and_drop() {
         gc_registering_current_thread(|| {
             // very basic test: make sure initialization doesn't crash
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let _e = EvalState::new(store, []).unwrap();
         })
         .unwrap();
@@ -433,11 +435,11 @@ mod tests {
         writeln!(test_file0, "{integer0}").unwrap();
         writeln!(test_file1, "{integer1}").unwrap();
         gc_registering_current_thread(|| {
-            let es = EvalState::new(Store::open("auto").unwrap(), []).unwrap();
+            let es = EvalState::new(Store::open("auto", HashMap::new()).unwrap(), []).unwrap();
             assert!(es.eval_from_string(import_expression, "<test>").is_err());
 
             let es = EvalState::new(
-                Store::open("auto").unwrap(),
+                Store::open("auto", HashMap::new()).unwrap(),
                 [
                     format!("test_file0={}", test_file0.path().to_str().unwrap()).as_str(),
                     format!("test_file1={}", test_file1.path().to_str().unwrap()).as_str(),
@@ -457,7 +459,7 @@ mod tests {
     #[test]
     fn eval_state_eval_from_string() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("1", "<test>").unwrap();
             let v2 = v.clone();
@@ -474,7 +476,7 @@ mod tests {
     #[test]
     fn eval_state_value_bool() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("true", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -487,7 +489,7 @@ mod tests {
     #[test]
     fn eval_state_value_int() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("1", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -502,7 +504,7 @@ mod tests {
     #[test]
     fn eval_state_value_attrs_names_empty() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("{ }", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -517,7 +519,7 @@ mod tests {
     #[test]
     fn eval_state_require_attrs_names_bad_type() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("1", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -534,7 +536,7 @@ mod tests {
     #[test]
     fn eval_state_value_attrs_names_example() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = throw "nope a"; b = throw "nope b"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
@@ -549,7 +551,7 @@ mod tests {
     #[test]
     fn eval_state_require_attrs_select() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = "aye"; b = "bee"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
@@ -564,7 +566,7 @@ mod tests {
     #[test]
     fn eval_state_require_attrs_select_error() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = throw "oh no the error"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
@@ -585,7 +587,7 @@ mod tests {
     #[test]
     fn eval_state_require_attrs_select_opt() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = "aye"; b = "bee"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
@@ -602,7 +604,7 @@ mod tests {
     #[test]
     fn eval_state_require_attrs_select_opt_error() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = throw "oh no the error"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
@@ -623,7 +625,7 @@ mod tests {
     #[test]
     fn eval_state_value_string() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("\"hello\"", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -638,7 +640,7 @@ mod tests {
     #[test]
     fn eval_state_value_string_unexpected_bool() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("true", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -656,7 +658,7 @@ mod tests {
     #[test]
     fn eval_state_value_string_unexpected_path_value() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("/foo", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -673,7 +675,7 @@ mod tests {
     #[test]
     fn eval_state_value_string_bad_utf() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es
                 .eval_from_string("builtins.substring 0 1 \"ü\"", "<test>")
@@ -694,7 +696,7 @@ mod tests {
     #[test]
     fn eval_state_value_string_unexpected_context() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es
                 .eval_from_string("(derivation { name = \"hello\"; system = \"dummy\"; builder = \"cmd.exe\"; }).outPath", "<test>")
@@ -713,7 +715,7 @@ mod tests {
     #[test]
     fn eval_state_new_string() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_str("hello").unwrap();
             es.force(&v).unwrap();
@@ -728,7 +730,7 @@ mod tests {
     #[test]
     fn eval_state_new_string_empty() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_str("").unwrap();
             es.force(&v).unwrap();
@@ -743,7 +745,7 @@ mod tests {
     #[test]
     fn eval_state_new_string_invalid() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let r = es.new_value_str("hell\0no");
             match r {
@@ -762,7 +764,7 @@ mod tests {
     #[test]
     fn eval_state_new_int() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_int(42).unwrap();
             es.force(&v).unwrap();
@@ -777,7 +779,7 @@ mod tests {
     #[test]
     fn eval_state_value_attrset() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("{ }", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -790,7 +792,7 @@ mod tests {
     #[test]
     fn eval_state_value_list() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("[ ]", "<test>").unwrap();
             es.force(&v).unwrap();
@@ -803,7 +805,7 @@ mod tests {
     #[test]
     fn eval_state_realise_string() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let expr = r#"
                 ''
@@ -850,7 +852,7 @@ mod tests {
     #[test]
     fn eval_state_call() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("2", "<test>").unwrap();
@@ -886,7 +888,7 @@ mod tests {
     #[test]
     fn eval_state_call_fail_body() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("true", "<test>").unwrap();
@@ -931,7 +933,7 @@ mod tests {
     #[test]
     fn eval_state_call_fail_args() {
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", HashMap::new()).unwrap();
             let es = EvalState::new(store, []).unwrap();
             let f = es.eval_from_string("{x}: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("{}", "<test>").unwrap();

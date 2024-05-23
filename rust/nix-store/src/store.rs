@@ -112,23 +112,25 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
     fn auto_works() {
-        let res = Store::open("auto");
+        let res = Store::open("auto", HashMap::new());
         res.unwrap();
     }
 
     #[test]
     fn invalid_uri_fails() {
-        let res = Store::open("invalid://uri");
+        let res = Store::open("invalid://uri", HashMap::new());
         assert!(res.is_err());
     }
 
     #[test]
     fn get_uri() {
-        let store = Store::open("auto").unwrap();
+        let store = Store::open("auto", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert!(!uri.is_empty());
         // must be ascii
@@ -140,7 +142,7 @@ mod tests {
     #[test]
     #[ignore] // Needs network access
     fn get_uri_nixos_cache() {
-        let store = Store::open("https://cache.nixos.org/").unwrap();
+        let store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert_eq!(uri, "https://cache.nixos.org");
     }
