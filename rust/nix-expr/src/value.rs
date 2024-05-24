@@ -6,7 +6,7 @@ use std::ptr::{null_mut, NonNull};
 
 pub type Int = i64;
 
-/** The type of a value (or thunk) */
+/// The type of a value (or thunk)
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValueType {
     AttrSet,
