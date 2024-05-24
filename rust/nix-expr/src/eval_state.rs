@@ -293,6 +293,8 @@ impl EvalState {
     }
 
     /// Eagerly apply a function to an argument.
+    ///
+    /// For a lazy version, see [`new_value_apply`][`EvalState::new_value_apply`].
     pub fn call(&self, f: Value, a: Value) -> Result<Value> {
         let v = unsafe {
             let value = self.new_value_uninitialized();
@@ -307,6 +309,23 @@ impl EvalState {
         };
         self.context.check_err()?;
         Ok(v)
+    }
+
+    /// Apply a function to an argument, but don't evaluate the result just yet.
+    ///
+    /// For an eager version, see [`call`][`EvalState::call`].
+    pub fn new_value_apply(&self, f: &Value, a: &Value) -> Result<Value> {
+        let value = self.new_value_uninitialized();
+        unsafe {
+            raw::init_apply(
+                self.context.ptr(),
+                value.raw_ptr(),
+                f.raw_ptr(),
+                a.raw_ptr(),
+            );
+        };
+        self.context.check_err()?;
+        Ok(value)
     }
 
     fn new_value_uninitialized(&self) -> Value {
@@ -846,6 +865,23 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_apply() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let v = es.new_value_apply(&f, &a).unwrap();
+            assert!(es.value_is_thunk(&v));
+            es.force(&v).unwrap();
+            let i = es.require_int(&v).unwrap();
+            assert!(i == 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn eval_state_call_fail_body() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto").unwrap();
@@ -867,6 +903,30 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_apply_fail_body() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("true", "<test>").unwrap();
+            // Lazy => no error
+            let r = es.new_value_apply(&f, &a).unwrap();
+            // Force it => error
+            let res = es.force(&r);
+            match res {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("cannot coerce") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn eval_state_call_fail_args() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto").unwrap();
@@ -875,6 +935,30 @@ mod tests {
             let a = es.eval_from_string("{}", "<test>").unwrap();
             let r = es.call(f, a);
             match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("called without required argument") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_apply_fail_args() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto").unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let f = es.eval_from_string("{x}: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("{}", "<test>").unwrap();
+            // Lazy => no error
+            let r = es.new_value_apply(&f, &a).unwrap();
+            // Force it => error
+            let res = es.force(&r);
+            match res {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
                     if !e.to_string().contains("called without required argument") {
