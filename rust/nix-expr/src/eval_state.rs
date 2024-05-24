@@ -875,6 +875,8 @@ mod tests {
             let v = es.new_value_apply(&f, &a).unwrap();
             assert!(es.value_is_thunk(&v));
             es.force(&v).unwrap();
+            let t = es.value_type(&v).unwrap();
+            assert!(t == ValueType::Int);
             let i = es.require_int(&v).unwrap();
             assert!(i == 3);
         })
