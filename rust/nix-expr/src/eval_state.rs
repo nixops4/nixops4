@@ -107,7 +107,7 @@ impl EvalState {
         self.context.check_err()?;
         Ok(value)
     }
-    /** Try turn any Value into a Value that isn't a Thunk. */
+    /// Try turn any Value into a Value that isn't a Thunk.
     pub fn force(&self, v: &Value) -> Result<()> {
         unsafe {
             raw::value_force(self.context.ptr(), self.raw_ptr(), v.raw_ptr());
@@ -340,7 +340,7 @@ pub fn gc_now() {
     }
 }
 
-/** Run a function while making sure that the current thread is registered with the GC. */
+/// Run a function while making sure that the current thread is registered with the GC.
 pub fn gc_registering_current_thread<F, R>(f: F) -> Result<R>
 where
     F: FnOnce() -> R,
