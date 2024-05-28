@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 nix-c-raw = { path = "../nix-c-raw" }
+ctor = "0.2.7"

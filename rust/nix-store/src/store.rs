@@ -2,7 +2,8 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_util::context::Context;
-use nix_util::string_return::callback_get_vec_u8;
+use nix_util::result_string_init;
+use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use std::ffi::CString;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
@@ -78,17 +79,17 @@ impl Store {
     }
 
     pub fn get_uri(&self) -> Result<String> {
-        let mut raw_buffer: Vec<u8> = Vec::new();
+        let mut r = result_string_init!();
         unsafe {
             raw::store_get_uri(
                 self.context.ptr(),
                 self.inner.ptr(),
-                Some(callback_get_vec_u8),
-                &mut raw_buffer as *mut Vec<u8> as *mut std::ffi::c_void,
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r),
             )
         };
         self.context.check_err()?;
-        String::from_utf8(raw_buffer).map_err(|e| e.into())
+        r
     }
 }
 

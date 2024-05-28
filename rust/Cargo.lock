@@ -209,6 +209,7 @@ name = "nix-util"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ctor",
  "nix-c-raw",
 ]
 
