@@ -88,6 +88,25 @@ impl EvalState {
     pub fn store(&self) -> &Store {
         &self.store
     }
+    /// Parses and evaluates a Nix expression `expr`.
+    ///
+    /// Expressions can contain relative paths such as `./.` that are resolved relative to the given `path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use nix_expr::eval_state::EvalState;
+    /// use nix_store::store::Store;
+    /// use nix_expr::value::Value;
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let es = EvalState::new(Store::open("auto")?, [])?;
+    /// let v: Value = es.eval_from_string("42", ".")?;
+    /// assert_eq!(es.require_int(&v)?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[doc(alias = "nix_expr_eval_from_string")]
     pub fn eval_from_string(&self, expr: &str, path: &str) -> Result<Value> {
         let expr_ptr =
             CString::new(expr).with_context(|| "eval_from_string: expr contains null byte")?;
