@@ -134,7 +134,7 @@ impl EvalState {
         }
     }
     pub fn require_int(&self, v: &Value) -> Result<Int> {
-        let t = self.value_type(v).unwrap();
+        let t = self.value_type_forced(v).unwrap();
         if t != ValueType::Int {
             bail!("expected an int, but got a {:?}", t);
         }
@@ -144,7 +144,7 @@ impl EvalState {
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
     pub fn require_attrs_names(&self, v: &Value) -> Result<Vec<String>> {
-        let t = self.value_type(v)?;
+        let t = self.value_type_forced(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
@@ -183,7 +183,7 @@ impl EvalState {
 
     /// Evaluate, require that the value is an attrset, and select an attribute by name.
     pub fn require_attrs_select_opt(&self, v: &Value, attr_name: &str) -> Result<Option<Value>> {
-        let t = self.value_type(v)?;
+        let t = self.value_type_forced(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
@@ -245,7 +245,7 @@ impl EvalState {
     }
     /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
     pub fn require_string(&self, value: &Value) -> Result<String> {
-        let t = self.value_type(value)?;
+        let t = self.value_type_forced(value)?;
         if t != ValueType::String {
             bail!("expected a string, but got a {:?}", t);
         }
@@ -256,7 +256,7 @@ impl EvalState {
         value: &Value,
         is_import_from_derivation: bool,
     ) -> Result<RealisedString> {
-        let t = self.value_type(value)?;
+        let t = self.value_type_forced(value)?;
         if t != ValueType::String {
             bail!("expected a string, but got a {:?}", t);
         }
@@ -467,10 +467,10 @@ mod tests {
             let v = es.eval_from_string("1", "<test>").unwrap();
             let v2 = v.clone();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::Int);
-            let t2 = es.value_type(&v2).unwrap();
-            assert!(t2 == ValueType::Int);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::Int));
+            let t2 = es.value_type_unforced(&v2);
+            assert!(t2 == ValueTypeOrThunk::ValueType(ValueType::Int));
             gc_now();
         })
         .unwrap();
@@ -483,8 +483,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("true", "<test>").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::Bool);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::Bool));
         })
         .unwrap();
     }
@@ -511,8 +511,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("{ }", "<test>").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::AttrSet);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::AttrSet));
             let attrs = es.require_attrs_names(&v).unwrap();
             assert_eq!(attrs.len(), 0);
         })
@@ -632,8 +632,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("\"hello\"", "<test>").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::String);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::String));
             let s = es.require_string(&v).unwrap();
             assert!(s == "hello");
         })
@@ -684,8 +684,8 @@ mod tests {
                 .eval_from_string("builtins.substring 0 1 \"ü\"", "<test>")
                 .unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::String);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::String));
             let r = es.require_string(&v);
             assert!(r.is_err());
             assert!(r
@@ -705,8 +705,8 @@ mod tests {
                 .eval_from_string("(derivation { name = \"hello\"; system = \"dummy\"; builder = \"cmd.exe\"; }).outPath", "<test>")
                 .unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::String);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::String));
             // TODO
             // let r = es.require_string_without_context(&v);
             // assert!(r.is_err());
@@ -722,8 +722,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_str("hello").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::String);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::String));
             let s = es.require_string(&v).unwrap();
             assert!(s == "hello");
         })
@@ -737,8 +737,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_str("").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::String);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::String));
             let s = es.require_string(&v).unwrap();
             assert!(s == "");
         })
@@ -771,8 +771,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.new_value_int(42).unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::Int);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::Int));
             let i = es.require_int(&v).unwrap();
             assert!(i == 42);
         })
@@ -786,8 +786,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("{ }", "<test>").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::AttrSet);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::AttrSet));
         })
         .unwrap();
     }
@@ -799,8 +799,8 @@ mod tests {
             let es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("[ ]", "<test>").unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::List);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::List));
         })
         .unwrap();
     }
@@ -861,8 +861,8 @@ mod tests {
             let a = es.eval_from_string("2", "<test>").unwrap();
             let v = es.call(f, a).unwrap();
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::Int);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::Int));
             let i = es.require_int(&v).unwrap();
             assert!(i == 3);
         })
@@ -878,10 +878,10 @@ mod tests {
             let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("2", "<test>").unwrap();
             let v = es.new_value_apply(&f, &a).unwrap();
-            assert!(es.value_is_thunk(&v));
+            assert!(es.value_type_unforced(&v) == ValueTypeOrThunk::Thunk);
             es.force(&v).unwrap();
-            let t = es.value_type(&v).unwrap();
-            assert!(t == ValueType::Int);
+            let t = es.value_type_unforced(&v);
+            assert!(t == ValueTypeOrThunk::ValueType(ValueType::Int));
             let i = es.require_int(&v).unwrap();
             assert!(i == 3);
         })
