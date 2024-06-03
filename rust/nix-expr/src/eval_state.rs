@@ -1,4 +1,4 @@
-use crate::value::{Int, Value, ValueType};
+use crate::value::{Int, Value, ValueType, ValueTypeOrThunk};
 use anyhow::Context as _;
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
@@ -114,19 +114,24 @@ impl EvalState {
         }
         self.context.check_err()
     }
-    pub fn value_is_thunk(&self, value: &Value) -> bool {
-        let r = unsafe {
-            raw::get_type(self.context.ptr(), value.raw_ptr()) == raw::ValueType_NIX_TYPE_THUNK
-        };
-        self.context.check_err().unwrap();
-        r
-    }
-    pub fn value_type(&self, value: &Value) -> Result<ValueType> {
-        if self.value_is_thunk(value) {
-            self.force(value)?;
-        }
+    pub fn value_type_unforced(&self, value: &Value) -> ValueTypeOrThunk {
         let r = unsafe { raw::get_type(self.context.ptr(), value.raw_ptr()) };
-        Ok(ValueType::from_raw(r))
+        self.context.check_err().unwrap();
+        ValueTypeOrThunk::from_raw(r)
+    }
+    pub fn value_type_forced(&self, value: &Value) -> Result<ValueType> {
+        match self.value_type_unforced(value) {
+            ValueTypeOrThunk::ValueType(a) => Ok(a),
+            ValueTypeOrThunk::Thunk => {
+                self.force(value)?;
+                match self.value_type_unforced(value) {
+                    ValueTypeOrThunk::ValueType(a) => Ok(a),
+                    ValueTypeOrThunk::Thunk => {
+                        panic!("values should not be thunks after having been forced.")
+                    }
+                }
+            }
+        }
     }
     pub fn require_int(&self, v: &Value) -> Result<Int> {
         let t = self.value_type(v).unwrap();

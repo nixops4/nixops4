@@ -19,26 +19,31 @@ pub enum ValueType {
     Null,
     Path,
     String,
-    Thunk,
     Unknown,
 }
 
-impl ValueType {
-    pub(crate) fn from_raw(raw: raw::ValueType) -> ValueType {
+#[derive(Eq, PartialEq, Debug)]
+pub enum ValueTypeOrThunk {
+    ValueType(ValueType),
+    Thunk,
+}
+
+impl ValueTypeOrThunk {
+    pub(crate) fn from_raw(raw: raw::ValueType) -> ValueTypeOrThunk {
         match raw {
-            raw::ValueType_NIX_TYPE_ATTRS => ValueType::AttrSet,
-            raw::ValueType_NIX_TYPE_BOOL => ValueType::Bool,
-            raw::ValueType_NIX_TYPE_EXTERNAL => ValueType::External,
-            raw::ValueType_NIX_TYPE_FLOAT => ValueType::Float,
-            raw::ValueType_NIX_TYPE_FUNCTION => ValueType::Function,
-            raw::ValueType_NIX_TYPE_INT => ValueType::Int,
-            raw::ValueType_NIX_TYPE_LIST => ValueType::List,
-            raw::ValueType_NIX_TYPE_NULL => ValueType::Null,
-            raw::ValueType_NIX_TYPE_PATH => ValueType::Path,
-            raw::ValueType_NIX_TYPE_STRING => ValueType::String,
-            raw::ValueType_NIX_TYPE_THUNK => ValueType::Thunk,
+            raw::ValueType_NIX_TYPE_ATTRS => ValueTypeOrThunk::ValueType(ValueType::AttrSet),
+            raw::ValueType_NIX_TYPE_BOOL => ValueTypeOrThunk::ValueType(ValueType::Bool),
+            raw::ValueType_NIX_TYPE_EXTERNAL => ValueTypeOrThunk::ValueType(ValueType::External),
+            raw::ValueType_NIX_TYPE_FLOAT => ValueTypeOrThunk::ValueType(ValueType::Float),
+            raw::ValueType_NIX_TYPE_FUNCTION => ValueTypeOrThunk::ValueType(ValueType::Function),
+            raw::ValueType_NIX_TYPE_INT => ValueTypeOrThunk::ValueType(ValueType::Int),
+            raw::ValueType_NIX_TYPE_LIST => ValueTypeOrThunk::ValueType(ValueType::List),
+            raw::ValueType_NIX_TYPE_NULL => ValueTypeOrThunk::ValueType(ValueType::Null),
+            raw::ValueType_NIX_TYPE_PATH => ValueTypeOrThunk::ValueType(ValueType::Path),
+            raw::ValueType_NIX_TYPE_STRING => ValueTypeOrThunk::ValueType(ValueType::String),
+            raw::ValueType_NIX_TYPE_THUNK => ValueTypeOrThunk::Thunk,
             // This would happen if a new type of value is added in Nix.
-            _ => ValueType::Unknown,
+            _ => ValueTypeOrThunk::ValueType(ValueType::Unknown),
         }
     }
 }
