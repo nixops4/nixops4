@@ -38,7 +38,7 @@
           # without nightly, and it might do too much.
           pre-commit.settings.hooks.rust-doc-comments = {
             enable = true;
-            files = ".*.rs$";
+            files = "\\.rs$";
             entry = "${pkgs.writeScript "rust-doc-comments" ''
               #!${pkgs.runtimeShell}
               set -uxo pipefail
