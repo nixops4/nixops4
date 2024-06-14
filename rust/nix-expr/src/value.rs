@@ -22,28 +22,29 @@ pub enum ValueType {
     Unknown,
 }
 
-#[derive(Eq, PartialEq, Debug)]
-pub enum ValueTypeOrThunk {
-    ValueType(ValueType),
-    Thunk,
-}
-
-impl ValueTypeOrThunk {
-    pub(crate) fn from_raw(raw: raw::ValueType) -> ValueTypeOrThunk {
+impl ValueType {
+    /// Convert a raw value type to a `ValueType`.
+    ///
+    /// Return `None` if the Value is still a thunk (i.e. not yet evaluated).
+    ///
+    /// Return `Some(ValueType::Unknown)` if the value type is not recognized.
+    pub(crate) fn from_raw(raw: raw::ValueType) -> Option<ValueType> {
         match raw {
-            raw::ValueType_NIX_TYPE_ATTRS => ValueTypeOrThunk::ValueType(ValueType::AttrSet),
-            raw::ValueType_NIX_TYPE_BOOL => ValueTypeOrThunk::ValueType(ValueType::Bool),
-            raw::ValueType_NIX_TYPE_EXTERNAL => ValueTypeOrThunk::ValueType(ValueType::External),
-            raw::ValueType_NIX_TYPE_FLOAT => ValueTypeOrThunk::ValueType(ValueType::Float),
-            raw::ValueType_NIX_TYPE_FUNCTION => ValueTypeOrThunk::ValueType(ValueType::Function),
-            raw::ValueType_NIX_TYPE_INT => ValueTypeOrThunk::ValueType(ValueType::Int),
-            raw::ValueType_NIX_TYPE_LIST => ValueTypeOrThunk::ValueType(ValueType::List),
-            raw::ValueType_NIX_TYPE_NULL => ValueTypeOrThunk::ValueType(ValueType::Null),
-            raw::ValueType_NIX_TYPE_PATH => ValueTypeOrThunk::ValueType(ValueType::Path),
-            raw::ValueType_NIX_TYPE_STRING => ValueTypeOrThunk::ValueType(ValueType::String),
-            raw::ValueType_NIX_TYPE_THUNK => ValueTypeOrThunk::Thunk,
+            raw::ValueType_NIX_TYPE_ATTRS => Some(ValueType::AttrSet),
+            raw::ValueType_NIX_TYPE_BOOL => Some(ValueType::Bool),
+            raw::ValueType_NIX_TYPE_EXTERNAL => Some(ValueType::External),
+            raw::ValueType_NIX_TYPE_FLOAT => Some(ValueType::Float),
+            raw::ValueType_NIX_TYPE_FUNCTION => Some(ValueType::Function),
+            raw::ValueType_NIX_TYPE_INT => Some(ValueType::Int),
+            raw::ValueType_NIX_TYPE_LIST => Some(ValueType::List),
+            raw::ValueType_NIX_TYPE_NULL => Some(ValueType::Null),
+            raw::ValueType_NIX_TYPE_PATH => Some(ValueType::Path),
+            raw::ValueType_NIX_TYPE_STRING => Some(ValueType::String),
+
+            raw::ValueType_NIX_TYPE_THUNK => None,
+
             // This would happen if a new type of value is added in Nix.
-            _ => ValueTypeOrThunk::ValueType(ValueType::Unknown),
+            _ => Some(ValueType::Unknown),
         }
     }
 }
