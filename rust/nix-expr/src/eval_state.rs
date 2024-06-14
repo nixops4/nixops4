@@ -514,6 +514,22 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_require_int_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let f = es.eval_from_string("x: x + 1", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let v = es.new_value_apply(&f, &a).unwrap();
+            let t = es.value_type_unforced(&v);
+            assert!(t == None);
+            let i = es.require_int(&v).unwrap();
+            assert!(i == 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn eval_state_value_attrs_names_empty() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
