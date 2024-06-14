@@ -138,7 +138,7 @@ impl EvalState {
         self.context.check_err().unwrap();
         ValueTypeOrThunk::from_raw(r)
     }
-    pub fn value_type_forced(&self, value: &Value) -> Result<ValueType> {
+    pub fn value_type(&self, value: &Value) -> Result<ValueType> {
         match self.value_type_unforced(value) {
             ValueTypeOrThunk::ValueType(a) => Ok(a),
             ValueTypeOrThunk::Thunk => {
@@ -153,7 +153,7 @@ impl EvalState {
         }
     }
     pub fn require_int(&self, v: &Value) -> Result<Int> {
-        let t = self.value_type_forced(v).unwrap();
+        let t = self.value_type(v).unwrap();
         if t != ValueType::Int {
             bail!("expected an int, but got a {:?}", t);
         }
@@ -163,7 +163,7 @@ impl EvalState {
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
     pub fn require_attrs_names(&self, v: &Value) -> Result<Vec<String>> {
-        let t = self.value_type_forced(v)?;
+        let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
@@ -202,7 +202,7 @@ impl EvalState {
 
     /// Evaluate, require that the value is an attrset, and select an attribute by name.
     pub fn require_attrs_select_opt(&self, v: &Value, attr_name: &str) -> Result<Option<Value>> {
-        let t = self.value_type_forced(v)?;
+        let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
@@ -264,7 +264,7 @@ impl EvalState {
     }
     /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
     pub fn require_string(&self, value: &Value) -> Result<String> {
-        let t = self.value_type_forced(value)?;
+        let t = self.value_type(value)?;
         if t != ValueType::String {
             bail!("expected a string, but got a {:?}", t);
         }
@@ -275,7 +275,7 @@ impl EvalState {
         value: &Value,
         is_import_from_derivation: bool,
     ) -> Result<RealisedString> {
-        let t = self.value_type_forced(value)?;
+        let t = self.value_type(value)?;
         if t != ValueType::String {
             bail!("expected a string, but got a {:?}", t);
         }
