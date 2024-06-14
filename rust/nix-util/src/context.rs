@@ -35,17 +35,20 @@ impl Context {
         Ok(())
     }
 
+    pub fn clear(&self) {
+        unsafe {
+            raw::set_err_msg(
+                self.inner.as_ptr(),
+                raw::NIX_OK.try_into().unwrap(),
+                b"\0".as_ptr() as *const i8,
+            );
+        }
+    }
+
     pub fn check_err_and_clear(&self) -> Result<()> {
         let r = self.check_err();
         if r.is_err() {
-            unsafe {
-                // TODO (https://github.com/NixOS/nix/pull/10910): raw::err_clear
-                raw::set_err_msg(
-                    self.inner.as_ptr(),
-                    raw::NIX_OK.try_into().unwrap(),
-                    b"\0".as_ptr() as *const i8,
-                );
-            }
+            self.clear();
         }
         r
     }
@@ -57,6 +60,19 @@ impl Context {
         let t = f(self.ptr());
         self.check_err_and_clear()?;
         Ok(t)
+    }
+
+    pub fn check_one_call_or_key_none<T, F: FnOnce(*mut raw::c_context) -> T>(
+        &self,
+        f: F,
+    ) -> Result<Option<T>> {
+        let t = f(self.ptr());
+        if self.is_key_error() {
+            self.clear();
+            return Ok(None);
+        }
+        self.check_err_and_clear()?;
+        Ok(Some(t))
     }
 
     /// NIX_ERR_KEY is returned when e.g. an attribute is missing. Return true if the error is of this type.

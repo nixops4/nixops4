@@ -184,20 +184,27 @@ impl EvalState {
         Ok(attrs)
     }
 
-    // TODO: make this the main implementation and move the error handling to require_attrs_select_opt
-    //       that gets rid of the odd self.context.check_err() usage that relies on the context not being reset
+    /// Evaluate, require that the value is an attrset, and select an attribute by name.
     pub fn require_attrs_select(&self, v: &Value, attr_name: &str) -> Result<Value> {
-        let r = self.require_attrs_select_opt(v, attr_name)?;
-        match r {
-            Some(v) => Ok(v),
-            None => self.context.check_err().and_then(|_| {
-                // should be unreachable
-                bail!("attribute not found: {}", attr_name)
-            }),
+        let t = self.value_type(v)?;
+        if t != ValueType::AttrSet {
+            bail!("expected an attrset, but got a {:?}", t);
         }
+        let attr_name = CString::new(attr_name)
+            .with_context(|| "require_attrs_select: attrName contains null byte")?;
+        let v2 = self.context.check_one_call(|ctx_ptr| unsafe {
+            raw::get_attr_byname(ctx_ptr, v.raw_ptr(), self.raw_ptr(), attr_name.as_ptr())
+        })?;
+        Ok(Value::new(v2))
     }
 
     /// Evaluate, require that the value is an attrset, and select an attribute by name.
+    ///
+    /// Return `Err(...)` if `v` is not an attrset, or if some other error occurred.
+    ///
+    /// Return `Ok(None)` if the attribute is not present.
+    ///
+    /// Return `Ok(Some(value))` if the attribute is present.
     pub fn require_attrs_select_opt(&self, v: &Value, attr_name: &str) -> Result<Option<Value>> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
@@ -205,21 +212,10 @@ impl EvalState {
         }
         let attr_name = CString::new(attr_name)
             .with_context(|| "require_attrs_select_opt: attrName contains null byte")?;
-        // c_void should be Value; why was void generated?
-        let v = unsafe {
-            raw::get_attr_byname(
-                self.context.ptr(),
-                v.raw_ptr(),
-                self.raw_ptr(),
-                attr_name.as_ptr(),
-            )
-        };
-        if self.context.is_key_error() {
-            Ok(None)
-        } else {
-            self.context.check_err()?;
-            Ok(Some(Value::new(v)))
-        }
+        let v2 = self.context.check_one_call_or_key_none(|ctx_ptr| unsafe {
+            raw::get_attr_byname(ctx_ptr, v.raw_ptr(), self.raw_ptr(), attr_name.as_ptr())
+        })?;
+        Ok(v2.map(Value::new))
     }
 
     /// Create a new value containing the passed string.
@@ -575,6 +571,18 @@ mod tests {
             let b = es.require_attrs_select(&v, "b").unwrap();
             assert_eq!(es.require_string(&a).unwrap(), "aye");
             assert_eq!(es.require_string(&b).unwrap(), "bee");
+            let missing = es.require_attrs_select(&v, "c");
+            match missing {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    let s = format!("{e:#}");
+                    // TODO: bad error message from Nix
+                    if !s.contains("missing attribute") {
+                        eprintln!("unexpected error message: {}", s);
+                        assert!(false);
+                    }
+                }
+            }
         })
         .unwrap()
     }
