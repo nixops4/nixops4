@@ -529,6 +529,29 @@ mod tests {
         .unwrap();
     }
 
+    /// A helper that turns an expression into a thunk.
+    fn make_thunk(es: &EvalState, expr: &str) -> Value {
+        // This would be silly in real code, but it works for the current Nix implementation.
+        // A Nix implementation that applies the identity function eagerly would be a valid
+        // Nix implementation, but annoying because we'll have to change this helper to do
+        // something more complicated that isn't optimized away.
+        let f = es.eval_from_string("x: x", "<test>").unwrap();
+        let v = es.eval_from_string(expr, "<test>").unwrap();
+        es.new_value_apply(&f, &v).unwrap()
+    }
+
+    #[test]
+    fn make_thunk_helper_works() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let v = make_thunk(&es, "1");
+            let t = es.value_type_unforced(&v);
+            assert!(t == None);
+        })
+        .unwrap();
+    }
+
     #[test]
     fn eval_state_value_attrs_names_empty() {
         gc_registering_current_thread(|| {
@@ -540,6 +563,20 @@ mod tests {
             assert!(t == Some(ValueType::AttrSet));
             let attrs = es.require_attrs_names(&v).unwrap();
             assert_eq!(attrs.len(), 0);
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn eval_state_require_attrs_names_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let v = make_thunk(&es, "{ a = 1; b = 2; }");
+            let t = es.value_type_unforced(&v);
+            assert!(t == None);
+            let attrs = es.require_attrs_names(&v).unwrap();
+            assert_eq!(attrs.len(), 2);
         })
         .unwrap()
     }
@@ -604,6 +641,20 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_require_attrs_select_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let expr = r#"{ a = "aye"; b = "bee"; }"#;
+            let v = make_thunk(&es, expr);
+            assert!(es.value_type_unforced(&v).is_none());
+            let r = es.require_attrs_select(&v, "a");
+            assert!(r.is_ok());
+        })
+        .unwrap()
+    }
+
+    #[test]
     fn eval_state_require_attrs_select_error() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
@@ -642,6 +693,20 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_require_attrs_select_opt_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let expr = r#"{ a = "aye"; b = "bee"; }"#;
+            let v = make_thunk(&es, expr);
+            assert!(es.value_type_unforced(&v).is_none());
+            let r = es.require_attrs_select_opt(&v, "a");
+            assert!(r.is_ok());
+        })
+        .unwrap()
+    }
+
+    #[test]
     fn eval_state_require_attrs_select_opt_error() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
@@ -671,6 +736,19 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type_unforced(&v);
             assert!(t == Some(ValueType::String));
+            let s = es.require_string(&v).unwrap();
+            assert!(s == "hello");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_string_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let v = make_thunk(&es, "\"hello\"");
+            assert!(es.value_type_unforced(&v).is_none());
             let s = es.require_string(&v).unwrap();
             assert!(s == "hello");
         })
