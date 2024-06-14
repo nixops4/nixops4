@@ -135,6 +135,7 @@ impl EvalState {
     }
     pub fn value_type_unforced(&self, value: &Value) -> Option<ValueType> {
         let r = unsafe { raw::get_type(self.context.ptr(), value.raw_ptr()) };
+        // .unwrap(): no reason for this to fail, as it does not evaluate
         self.context.check_err().unwrap();
         ValueType::from_raw(r)
     }
@@ -153,7 +154,7 @@ impl EvalState {
         }
     }
     pub fn require_int(&self, v: &Value) -> Result<Int> {
-        let t = self.value_type(v).unwrap();
+        let t = self.value_type(v)?;
         if t != ValueType::Int {
             bail!("expected an int, but got a {:?}", t);
         }
