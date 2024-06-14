@@ -17,12 +17,9 @@ lazy_static! {
         unsafe {
             raw::GC_allow_register_threads();
         }
-        let context: Context = Context::new();
-        unsafe {
-            raw::libexpr_init(context.ptr());
-        }
-        context.check_err()?;
-        Ok(())
+        Context::new().check_one_call(|ctx_ptr| unsafe {
+            raw::libexpr_init(ctx_ptr);
+        })
     };
 }
 pub fn init() -> Result<()> {
@@ -70,14 +67,13 @@ impl EvalState {
 
         init()?;
 
-        let eval_state =
-            unsafe { raw::state_create(context.ptr(), lookup_path.as_mut_ptr(), store.raw_ptr()) };
-        context.check_err()?;
-        if eval_state.is_null() {
-            panic!("nix_state_create returned a null pointer without an error");
-        }
+        let eval_state = context.check_one_call(|ctx_ptr| unsafe {
+            raw::state_create(ctx_ptr, lookup_path.as_mut_ptr(), store.raw_ptr())
+        })?;
         Ok(EvalState {
-            eval_state: NonNull::new(eval_state).unwrap(),
+            eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
+                panic!("nix_state_create returned a null pointer without an error")
+            }),
             store,
             context,
         })
@@ -112,32 +108,35 @@ impl EvalState {
             CString::new(expr).with_context(|| "eval_from_string: expr contains null byte")?;
         let path_ptr =
             CString::new(path).with_context(|| "eval_from_string: path contains null byte")?;
-        let value = self.new_value_uninitialized();
         unsafe {
-            let ctx_ptr = self.context.ptr();
-            raw::expr_eval_from_string(
-                ctx_ptr,
-                self.raw_ptr(),
-                expr_ptr.as_ptr(),
-                path_ptr.as_ptr(),
-                value.raw_ptr(),
-            );
-        };
-        self.context.check_err()?;
-        Ok(value)
+            let value = self.new_value_uninitialized()?;
+            self.context.check_one_call(|ctx_ptr| {
+                raw::expr_eval_from_string(
+                    ctx_ptr,
+                    self.raw_ptr(),
+                    expr_ptr.as_ptr(),
+                    path_ptr.as_ptr(),
+                    value.raw_ptr(),
+                )
+            })?;
+            Ok(value)
+        }
     }
     /// Try turn any Value into a Value that isn't a Thunk.
     pub fn force(&self, v: &Value) -> Result<()> {
         unsafe {
-            raw::value_force(self.context.ptr(), self.raw_ptr(), v.raw_ptr());
+            self.context.check_one_call(|ctx_ptr| {
+                raw::value_force(ctx_ptr, self.raw_ptr(), v.raw_ptr());
+            })?;
         }
-        self.context.check_err()
+        Ok(())
     }
     pub fn value_type_unforced(&self, value: &Value) -> Option<ValueType> {
-        let r = unsafe { raw::get_type(self.context.ptr(), value.raw_ptr()) };
+        let r = self
+            .context
+            .check_one_call(|ctx_ptr| unsafe { raw::get_type(ctx_ptr, value.raw_ptr()) });
         // .unwrap(): no reason for this to fail, as it does not evaluate
-        self.context.check_err().unwrap();
-        ValueType::from_raw(r)
+        ValueType::from_raw(r.unwrap())
     }
     pub fn value_type(&self, value: &Value) -> Result<ValueType> {
         match self.value_type_unforced(value) {
@@ -158,8 +157,8 @@ impl EvalState {
         if t != ValueType::Int {
             bail!("expected an int, but got a {:?}", t);
         }
-        let i = unsafe { raw::get_int(self.context.ptr(), v.raw_ptr()) };
-        Ok(i)
+        self.context
+            .check_one_call(|ctx_ptr| unsafe { raw::get_int(ctx_ptr, v.raw_ptr()) })
     }
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
@@ -168,28 +167,25 @@ impl EvalState {
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
-        let n = unsafe { raw::get_attrs_size(self.context.ptr(), v.raw_ptr()) as usize };
-        self.context.check_err()?;
+        let n = self.context.check_one_call(|ctx_ptr| unsafe {
+            raw::get_attrs_size(ctx_ptr, v.raw_ptr()) as usize
+        })?;
         let mut attrs = Vec::with_capacity(n);
-        unsafe {
-            for i in 0..n {
-                let cstr_ptr: *const i8 = raw::get_attr_name_byidx(
-                    self.context.ptr(),
-                    v.raw_ptr(),
-                    self.raw_ptr(),
-                    i as c_uint,
-                );
-                self.context.check_err()?;
-                let cstr = std::ffi::CStr::from_ptr(cstr_ptr);
-                let s = cstr.to_str().map_err(|e| {
-                    anyhow::format_err!("Nix attrset key is not valid UTF-8: {}", e)
-                })?;
-                attrs.insert(i, s.to_owned());
-            }
+        for i in 0..n {
+            let cstr_ptr: *const i8 = self.context.check_one_call(|ctx_ptr| unsafe {
+                raw::get_attr_name_byidx(ctx_ptr, v.raw_ptr(), self.raw_ptr(), i as c_uint)
+            })?;
+            let cstr = unsafe { std::ffi::CStr::from_ptr(cstr_ptr) };
+            let s = cstr
+                .to_str()
+                .map_err(|e| anyhow::format_err!("Nix attrset key is not valid UTF-8: {}", e))?;
+            attrs.insert(i, s.to_owned());
         }
         Ok(attrs)
     }
 
+    // TODO: make this the main implementation and move the error handling to require_attrs_select_opt
+    //       that gets rid of the odd self.context.check_err() usage that relies on the context not being reset
     pub fn require_attrs_select(&self, v: &Value, attr_name: &str) -> Result<Value> {
         let r = self.require_attrs_select_opt(v, attr_name)?;
         match r {
@@ -231,21 +227,21 @@ impl EvalState {
     pub fn new_value_str(&self, s: &str) -> Result<Value> {
         let s = CString::new(s).with_context(|| "new_value_str: contains null byte")?;
         let v = unsafe {
-            let value = self.new_value_uninitialized();
-            raw::init_string(self.context.ptr(), value.raw_ptr(), s.as_ptr());
+            let value = self.new_value_uninitialized()?;
+            self.context
+                .check_one_call(|ctx_ptr| raw::init_string(ctx_ptr, value.raw_ptr(), s.as_ptr()))?;
             value
         };
-        self.context.check_err()?;
         Ok(v)
     }
 
     pub fn new_value_int(&self, i: Int) -> Result<Value> {
         let v = unsafe {
-            let value = self.new_value_uninitialized();
-            raw::init_int(self.context.ptr(), value.raw_ptr(), i);
+            let value = self.new_value_uninitialized()?;
+            self.context
+                .check_one_call(|ctx_ptr| raw::init_int(ctx_ptr, value.raw_ptr(), i))?;
             value
         };
-        self.context.check_err()?;
         Ok(v)
     }
 
@@ -253,14 +249,15 @@ impl EvalState {
     fn get_string(&self, value: &Value) -> Result<String> {
         let mut r = result_string_init!();
         unsafe {
-            raw::get_string(
-                self.context.ptr(),
-                value.raw_ptr(),
-                Some(callback_get_result_string),
-                callback_get_result_string_data(&mut r),
-            )
+            self.context.check_one_call(|ctx_ptr| {
+                raw::get_string(
+                    ctx_ptr,
+                    value.raw_ptr(),
+                    Some(callback_get_result_string),
+                    callback_get_result_string_data(&mut r),
+                )
+            })?;
         };
-        self.context.check_err()?;
         r
     }
     /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
@@ -281,15 +278,14 @@ impl EvalState {
             bail!("expected a string, but got a {:?}", t);
         }
 
-        let rs = unsafe {
+        let rs = self.context.check_one_call(|ctx_ptr| unsafe {
             raw::string_realise(
-                self.context.ptr(),
+                ctx_ptr,
                 self.raw_ptr(),
                 value.raw_ptr(),
                 is_import_from_derivation,
             )
-        };
-        self.context.check_err()?;
+        })?;
 
         let s = unsafe {
             let start = raw::realised_string_get_buffer_start(rs) as *const u8;
@@ -321,41 +317,37 @@ impl EvalState {
     ///
     /// For a lazy version, see [`new_value_apply`][`EvalState::new_value_apply`].
     pub fn call(&self, f: Value, a: Value) -> Result<Value> {
-        let v = unsafe {
-            let value = self.new_value_uninitialized();
-            raw::value_call(
-                self.context.ptr(),
-                self.raw_ptr(),
-                f.raw_ptr(),
-                a.raw_ptr(),
-                value.raw_ptr(),
-            );
-            value
-        };
-        self.context.check_err()?;
-        Ok(v)
+        unsafe {
+            let value = self.new_value_uninitialized()?;
+            self.context.check_one_call(|ctx_ptr| {
+                raw::value_call(
+                    ctx_ptr,
+                    self.raw_ptr(),
+                    f.raw_ptr(),
+                    a.raw_ptr(),
+                    value.raw_ptr(),
+                )
+            })?;
+            Ok(value)
+        }
     }
 
     /// Apply a function to an argument, but don't evaluate the result just yet.
     ///
     /// For an eager version, see [`call`][`EvalState::call`].
     pub fn new_value_apply(&self, f: &Value, a: &Value) -> Result<Value> {
-        let value = self.new_value_uninitialized();
-        unsafe {
-            raw::init_apply(
-                self.context.ptr(),
-                value.raw_ptr(),
-                f.raw_ptr(),
-                a.raw_ptr(),
-            );
-        };
-        self.context.check_err()?;
-        Ok(value)
+        let value = self.new_value_uninitialized()?;
+        self.context.check_one_call(|ctx_ptr| unsafe {
+            raw::init_apply(ctx_ptr, value.raw_ptr(), f.raw_ptr(), a.raw_ptr());
+            value
+        })
     }
 
-    fn new_value_uninitialized(&self) -> Value {
-        let value = unsafe { raw::alloc_value(self.context.ptr(), self.raw_ptr()) };
-        Value::new(value)
+    fn new_value_uninitialized(&self) -> Result<Value> {
+        let value = self
+            .context
+            .check_one_call(|ctx_ptr| unsafe { raw::alloc_value(ctx_ptr, self.raw_ptr()) })?;
+        Ok(Value::new(value))
     }
 }
 
