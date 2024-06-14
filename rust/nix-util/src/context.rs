@@ -20,10 +20,22 @@ impl Context {
         };
         ctx
     }
-    pub fn ptr(&self) -> *mut raw::c_context {
+
+    /// This is currently private because of the switch to `check_one_call`, which is more ergonomic.
+    /// The pattern its callers use make it hard to forget to use this function.
+    ///
+    /// If we have a good use case for `check_err`, we can expose it again.
+    fn ptr(&self) -> *mut raw::c_context {
         self.inner.as_ptr()
     }
-    pub fn check_err(&self) -> Result<()> {
+
+    /// Check the error code and return an error if it's not `NIX_OK`.
+    ///
+    /// This is currently private because of the switch to `check_one_call`, which is more ergonomic.
+    /// The pattern its callers use make it hard to forget to use this function.
+    ///
+    /// If we have a good use case for `check_err`, we can expose it again.
+    fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
         if err != raw::NIX_OK.try_into().unwrap() {
             // msgp is a borrowed pointer (pointing into the context), so we don't need to free it
@@ -35,7 +47,7 @@ impl Context {
         Ok(())
     }
 
-    pub fn clear(&self) {
+    fn clear(&self) {
         unsafe {
             raw::set_err_msg(
                 self.inner.as_ptr(),
@@ -67,17 +79,12 @@ impl Context {
         f: F,
     ) -> Result<Option<T>> {
         let t = f(self.ptr());
-        if self.is_key_error() {
+        if unsafe { raw::err_code(self.inner.as_ptr()) == raw::NIX_ERR_KEY } {
             self.clear();
             return Ok(None);
         }
         self.check_err_and_clear()?;
         Ok(Some(t))
-    }
-
-    /// NIX_ERR_KEY is returned when e.g. an attribute is missing. Return true if the error is of this type.
-    pub fn is_key_error(&self) -> bool {
-        unsafe { raw::err_code(self.inner.as_ptr()) == raw::NIX_ERR_KEY }
     }
 }
 

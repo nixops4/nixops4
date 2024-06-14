@@ -74,9 +74,10 @@ impl Drop for Value {
 impl Clone for Value {
     fn clone(&self) -> Self {
         let context = Context::new();
-        unsafe { raw::gc_incref(context.ptr(), self.inner.as_ptr()) };
+        context
+            .check_one_call(|ctx_ptr| unsafe { raw::gc_incref(ctx_ptr, self.inner.as_ptr()) })
+            .unwrap();
         // can't return an error here, but we don't want to ignore the error either as it means we could use-after-free
-        context.check_err().unwrap();
         Value { inner: self.inner }
     }
 }

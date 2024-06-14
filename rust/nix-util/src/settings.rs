@@ -10,25 +10,23 @@ pub fn set(key: &str, value: &str) -> Result<()> {
     let ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let value = std::ffi::CString::new(value)?;
-    unsafe {
-        raw::setting_set(ctx.ptr(), key.as_ptr(), value.as_ptr());
-    };
-    ctx.check_err()
+    ctx.check_one_call(|ctx_ptr| unsafe {
+        raw::setting_set(ctx_ptr, key.as_ptr(), value.as_ptr());
+    })
 }
 
 pub fn get(key: &str) -> Result<String> {
     let ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let mut r: Result<String> = result_string_init!();
-    unsafe {
+    ctx.check_one_call(|ctx_ptr| unsafe {
         raw::setting_get(
-            ctx.ptr(),
+            ctx_ptr,
             key.as_ptr(),
             Some(callback_get_result_string),
             callback_get_result_string_data(&mut r),
         )
-    };
-    ctx.check_err()?;
+    })?;
     r
 }
 
@@ -39,10 +37,10 @@ mod tests {
     #[ctor::ctor]
     fn setup() {
         let ctx = context::Context::new();
-        unsafe {
-            nix_c_raw::libstore_init(ctx.ptr());
-        };
-        ctx.check_err().unwrap();
+        ctx.check_one_call(|ctx_ptr| unsafe {
+            nix_c_raw::libstore_init(ctx_ptr);
+        })
+        .unwrap();
     }
 
     #[test]

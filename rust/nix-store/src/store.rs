@@ -11,11 +11,9 @@ use std::ptr::NonNull;
 /* TODO make Nix itself thread safe */
 lazy_static! {
     static ref INIT: Result<()> = {
-        unsafe {
-            let context: Context = Context::new();
-            raw::libstore_init(context.ptr());
-            context.check_err()
-        }
+        Context::new().check_one_call(|ctx_ptr| unsafe {
+            raw::libstore_init(ctx_ptr);
+        })
     };
 }
 
@@ -76,9 +74,9 @@ impl Store {
             .chain(std::iter::once(null_mut())) // signal the end of the array
             .collect();
 
-        let store =
-            unsafe { raw::store_open(context.ptr(), uri_ptr.as_ptr(), params.as_mut_ptr()) };
-        context.check_err()?;
+        let store = context.check_one_call(|ctx_ptr| unsafe {
+            raw::store_open(ctx_ptr, uri_ptr.as_ptr(), params.as_mut_ptr())
+        })?;
         if store.is_null() {
             panic!("nix_c_store_open returned a null pointer without an error");
         }
@@ -97,15 +95,14 @@ impl Store {
 
     pub fn get_uri(&self) -> Result<String> {
         let mut r = result_string_init!();
-        unsafe {
+        self.context.check_one_call(|ctx_ptr| unsafe {
             raw::store_get_uri(
-                self.context.ptr(),
+                ctx_ptr,
                 self.inner.ptr(),
                 Some(callback_get_result_string),
                 callback_get_result_string_data(&mut r),
             )
-        };
-        self.context.check_err()?;
+        })?;
         r
     }
 }
