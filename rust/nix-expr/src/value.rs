@@ -1,5 +1,5 @@
 use nix_c_raw as raw;
-use nix_util::context::Context;
+use nix_util::{check_call, context::Context};
 use std::ptr::{null_mut, NonNull};
 
 // TODO: test: cloning a thunk does not duplicate the evaluation.
@@ -73,10 +73,12 @@ impl Drop for Value {
 }
 impl Clone for Value {
     fn clone(&self) -> Self {
-        let mut context = Context::new();
-        context
-            .check_one_call(|ctx_ptr| unsafe { raw::gc_incref(ctx_ptr, self.inner.as_ptr()) })
-            .unwrap();
+        // TODO: Is it worth allocating a new Context here? Ideally cloning is cheap.
+        //       this is very unlikely to error, and it is not recoverable
+        //       Maybe try without, and try again with context to report details?
+        unsafe {
+            check_call!(raw::gc_incref[&mut Context::new(), self.inner.as_ptr()]).unwrap();
+        }
         // can't return an error here, but we don't want to ignore the error either as it means we could use-after-free
         Value { inner: self.inner }
     }

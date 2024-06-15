@@ -61,15 +61,6 @@ impl Context {
         r
     }
 
-    /// Run the function, and check the error, then reset the error.
-    /// Make at most one call to a Nix function in `f`.
-    /// Do not use if the context isn't fresh or cleared (e.g. with `check_err_and_clear`).
-    pub fn check_one_call<T, F: FnOnce(*mut raw::c_context) -> T>(&mut self, f: F) -> Result<T> {
-        let t = f(self.ptr());
-        self.check_err_and_clear()?;
-        Ok(t)
-    }
-
     pub fn check_one_call_or_key_none<T, F: FnOnce(*mut raw::c_context) -> T>(
         &mut self,
         f: F,

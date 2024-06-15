@@ -2,7 +2,7 @@ use anyhow::Result;
 use nix_c_raw as raw;
 
 use crate::{
-    context, result_string_init,
+    check_call, context, result_string_init,
     string_return::{callback_get_result_string, callback_get_result_string_data},
 };
 
@@ -10,23 +10,19 @@ pub fn set(key: &str, value: &str) -> Result<()> {
     let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let value = std::ffi::CString::new(value)?;
-    ctx.check_one_call(|ctx_ptr| unsafe {
-        raw::setting_set(ctx_ptr, key.as_ptr(), value.as_ptr());
-    })
+    unsafe {
+        check_call!(raw::setting_set[&mut ctx, key.as_ptr(), value.as_ptr()])?;
+    }
+    Ok(())
 }
 
 pub fn get(key: &str) -> Result<String> {
     let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let mut r: Result<String> = result_string_init!();
-    ctx.check_one_call(|ctx_ptr| unsafe {
-        raw::setting_get(
-            ctx_ptr,
-            key.as_ptr(),
-            Some(callback_get_result_string),
-            callback_get_result_string_data(&mut r),
-        )
-    })?;
+    unsafe {
+        check_call!(raw::setting_get[&mut ctx, key.as_ptr(), Some(callback_get_result_string), callback_get_result_string_data(&mut r)])?;
+    }
     r
 }
 

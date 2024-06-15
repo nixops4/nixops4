@@ -16,10 +16,9 @@ lazy_static! {
     static ref INIT: Result<()> = {
         unsafe {
             raw::GC_allow_register_threads();
+            check_call!(raw::libexpr_init[&mut Context::new()])?;
+            Ok(())
         }
-        Context::new().check_one_call(|ctx_ptr| unsafe {
-            raw::libexpr_init(ctx_ptr);
-        })
     };
 }
 pub fn init() -> Result<()> {
@@ -67,9 +66,9 @@ impl EvalState {
 
         init()?;
 
-        let eval_state = context.check_one_call(|ctx_ptr| unsafe {
-            raw::state_create(ctx_ptr, lookup_path.as_mut_ptr(), store.raw_ptr())
-        })?;
+        let eval_state = unsafe {
+            check_call!(raw::state_create[&mut context, lookup_path.as_mut_ptr(), store.raw_ptr()])
+        }?;
         Ok(EvalState {
             eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
                 panic!("nix_state_create returned a null pointer without an error")
@@ -128,9 +127,12 @@ impl EvalState {
         Ok(())
     }
     pub fn value_type_unforced(&mut self, value: &Value) -> Option<ValueType> {
-        let r = self
-            .context
-            .check_one_call(|ctx_ptr| unsafe { raw::get_type(ctx_ptr, value.raw_ptr()) });
+        let r = unsafe {
+            check_call!(raw::get_type[
+                &mut self.context,
+                value.raw_ptr()
+            ])
+        };
         // .unwrap(): no reason for this to fail, as it does not evaluate
         ValueType::from_raw(r.unwrap())
     }
@@ -153,8 +155,7 @@ impl EvalState {
         if t != ValueType::Int {
             bail!("expected an int, but got a {:?}", t);
         }
-        self.context
-            .check_one_call(|ctx_ptr| unsafe { raw::get_int(ctx_ptr, v.raw_ptr()) })
+        unsafe { check_call!(raw::get_int[&mut self.context, v.raw_ptr()]) }
     }
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
@@ -163,10 +164,8 @@ impl EvalState {
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
         }
-        let n = self.context.check_one_call(|ctx_ptr| unsafe {
-            raw::get_attrs_size(ctx_ptr, v.raw_ptr()) as usize
-        })?;
-        let mut attrs = Vec::with_capacity(n);
+        let n = unsafe { check_call!(raw::get_attrs_size[&mut self.context, v.raw_ptr()]) }?;
+        let mut attrs = Vec::with_capacity(n as usize);
         for i in 0..n {
             let cstr_ptr: *const i8 = unsafe {
                 check_call!(raw::get_attr_name_byidx[
@@ -180,7 +179,7 @@ impl EvalState {
             let s = cstr
                 .to_str()
                 .map_err(|e| anyhow::format_err!("Nix attrset key is not valid UTF-8: {}", e))?;
-            attrs.insert(i, s.to_owned());
+            attrs.insert(i as usize, s.to_owned());
         }
         Ok(attrs)
     }
@@ -239,8 +238,7 @@ impl EvalState {
         let s = CString::new(s).with_context(|| "new_value_str: contains null byte")?;
         let v = unsafe {
             let value = self.new_value_uninitialized()?;
-            self.context
-                .check_one_call(|ctx_ptr| raw::init_string(ctx_ptr, value.raw_ptr(), s.as_ptr()))?;
+            check_call!(raw::init_string[&mut self.context, value.raw_ptr(), s.as_ptr()])?;
             value
         };
         Ok(v)
@@ -249,8 +247,7 @@ impl EvalState {
     pub fn new_value_int(&mut self, i: Int) -> Result<Value> {
         let v = unsafe {
             let value = self.new_value_uninitialized()?;
-            self.context
-                .check_one_call(|ctx_ptr| raw::init_int(ctx_ptr, value.raw_ptr(), i))?;
+            check_call!(raw::init_int[&mut self.context, value.raw_ptr(), i])?;
             value
         };
         Ok(v)
@@ -260,14 +257,12 @@ impl EvalState {
     fn get_string(&mut self, value: &Value) -> Result<String> {
         let mut r = result_string_init!();
         unsafe {
-            self.context.check_one_call(|ctx_ptr| {
-                raw::get_string(
-                    ctx_ptr,
-                    value.raw_ptr(),
-                    Some(callback_get_result_string),
-                    callback_get_result_string_data(&mut r),
-                )
-            })?;
+            check_call!(raw::get_string[
+                &mut self.context,
+                value.raw_ptr(),
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r)
+            ])?;
         };
         r
     }

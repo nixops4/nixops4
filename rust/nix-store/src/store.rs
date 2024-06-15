@@ -2,18 +2,17 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_util::context::Context;
-use nix_util::result_string_init;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
+use nix_util::{check_call, result_string_init};
 use std::ffi::{c_char, CString};
 use std::ptr::null_mut;
 use std::ptr::NonNull;
 
 /* TODO make Nix itself thread safe */
 lazy_static! {
-    static ref INIT: Result<()> = {
-        Context::new().check_one_call(|ctx_ptr| unsafe {
-            raw::libstore_init(ctx_ptr);
-        })
+    static ref INIT: Result<()> = unsafe {
+        check_call!(raw::libstore_init[&mut Context::new()])?;
+        Ok(())
     };
 }
 
@@ -74,9 +73,9 @@ impl Store {
             .chain(std::iter::once(null_mut())) // signal the end of the array
             .collect();
 
-        let store = context.check_one_call(|ctx_ptr| unsafe {
-            raw::store_open(ctx_ptr, uri_ptr.as_ptr(), params.as_mut_ptr())
-        })?;
+        let store = unsafe {
+            check_call!(raw::store_open[&mut context, uri_ptr.as_ptr(), params.as_mut_ptr()])
+        }?;
         if store.is_null() {
             panic!("nix_c_store_open returned a null pointer without an error");
         }
@@ -95,14 +94,9 @@ impl Store {
 
     pub fn get_uri(&mut self) -> Result<String> {
         let mut r = result_string_init!();
-        self.context.check_one_call(|ctx_ptr| unsafe {
-            raw::store_get_uri(
-                ctx_ptr,
-                self.inner.ptr(),
-                Some(callback_get_result_string),
-                callback_get_result_string_data(&mut r),
-            )
-        })?;
+        unsafe {
+            check_call!(raw::store_get_uri[&mut self.context, self.inner.ptr(), Some(callback_get_result_string), callback_get_result_string_data(&mut r)])
+        }?;
         r
     }
 }
