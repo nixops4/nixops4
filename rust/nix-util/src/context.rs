@@ -96,11 +96,12 @@ impl Drop for Context {
 macro_rules! check_call {
     ($f:path[$ctx:expr $(, $arg:expr)*]) => {
         {
-            let ret = $f($ctx.ptr() $(, $arg)*);
-            match $ctx.check_err() {
+            let ctx : &mut $crate::context::Context = $ctx;
+            let ret = $f(ctx.ptr() $(, $arg)*);
+            match ctx.check_err() {
                 Ok(_) => Ok(ret),
                 Err(e) => {
-                    $ctx.clear();
+                    ctx.clear();
                     Err(e)
                 }
             }
@@ -141,5 +142,22 @@ mod tests {
     fn context_new_and_drop() {
         // don't crash
         let _c = Context::new();
+    }
+
+    fn set_dummy_err(ctx_ptr: *mut raw::c_context) {
+        unsafe {
+            raw::set_err_msg(
+                ctx_ptr,
+                raw::NIX_ERR_UNKNOWN.try_into().unwrap(),
+                b"dummy error message\0".as_ptr() as *const i8,
+            );
+        }
+    }
+
+    #[test]
+    fn check_call_dynamic_context() {
+        let r = check_call!(set_dummy_err[&mut Context::new()]);
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err().to_string(), "dummy error message");
     }
 }

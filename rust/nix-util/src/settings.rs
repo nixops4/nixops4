@@ -40,7 +40,7 @@ mod tests {
     fn setup() {
         let mut ctx = context::Context::new();
         unsafe {
-            check_call!(raw::libstore_init[ctx]).unwrap();
+            check_call!(raw::libstore_init[&mut ctx]).unwrap();
         }
     }
 

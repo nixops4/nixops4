@@ -111,8 +111,8 @@ impl EvalState {
         unsafe {
             let value = self.new_value_uninitialized()?;
             check_call!(raw::expr_eval_from_string[
-                self.context,
-                self.raw_ptr(),
+                &mut self.context,
+                self.eval_state.as_ptr(),
                 expr_ptr.as_ptr(),
                 path_ptr.as_ptr(),
                 value.raw_ptr()
@@ -122,7 +122,9 @@ impl EvalState {
     }
     /// Try turn any Value into a Value that isn't a Thunk.
     pub fn force(&mut self, v: &Value) -> Result<()> {
-        unsafe { check_call!(raw::value_force[self.context, self.raw_ptr(), v.raw_ptr()]) }?;
+        unsafe {
+            check_call!(raw::value_force[&mut self.context, self.eval_state.as_ptr(), v.raw_ptr()])
+        }?;
         Ok(())
     }
     pub fn value_type_unforced(&mut self, value: &Value) -> Option<ValueType> {
@@ -168,9 +170,9 @@ impl EvalState {
         for i in 0..n {
             let cstr_ptr: *const i8 = unsafe {
                 check_call!(raw::get_attr_name_byidx[
-                    self.context,
+                    &mut self.context,
                     v.raw_ptr(),
-                    self.raw_ptr(),
+                    self.eval_state.as_ptr(),
                     i as c_uint
                 ])
             }?;
@@ -193,9 +195,9 @@ impl EvalState {
             .with_context(|| "require_attrs_select: attrName contains null byte")?;
         let v2 = unsafe {
             check_call!(raw::get_attr_byname[
-                self.context,
+                &mut self.context,
                 v.raw_ptr(),
-                self.raw_ptr(),
+                self.eval_state.as_ptr(),
                 attr_name.as_ptr()
             ])
         }?;
@@ -289,8 +291,8 @@ impl EvalState {
 
         let rs = unsafe {
             check_call!(raw::string_realise[
-                self.context,
-                self.raw_ptr(),
+                &mut self.context,
+                self.eval_state.as_ptr(),
                 value.raw_ptr(),
                 is_import_from_derivation
             ])
@@ -329,8 +331,8 @@ impl EvalState {
         let value = self.new_value_uninitialized()?;
         unsafe {
             check_call!(raw::value_call[
-                self.context,
-                self.raw_ptr(),
+                &mut self.context,
+                self.eval_state.as_ptr(),
                 f.raw_ptr(),
                 a.raw_ptr(),
                 value.raw_ptr()
@@ -346,7 +348,7 @@ impl EvalState {
         let value = self.new_value_uninitialized()?;
         unsafe {
             check_call!(raw::init_apply[
-                self.context,
+                &mut self.context,
                 value.raw_ptr(),
                 f.raw_ptr(),
                 a.raw_ptr()
@@ -356,7 +358,8 @@ impl EvalState {
     }
 
     fn new_value_uninitialized(&mut self) -> Result<Value> {
-        let value = unsafe { check_call!(raw::alloc_value[self.context, self.raw_ptr()]) }?;
+        let value =
+            unsafe { check_call!(raw::alloc_value[&mut self.context, self.eval_state.as_ptr()]) }?;
         Ok(Value::new(value))
     }
 }
