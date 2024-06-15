@@ -18,6 +18,7 @@ lazy_static! {
 
 struct StoreRef {
     inner: NonNull<raw::Store>,
+    owned: bool,
 }
 impl StoreRef {
     pub fn ptr(&self) -> *mut raw::Store {
@@ -26,8 +27,10 @@ impl StoreRef {
 }
 impl Drop for StoreRef {
     fn drop(&mut self) {
-        unsafe {
-            raw::store_free(self.inner.as_ptr());
+        if self.owned {
+            unsafe {
+                raw::store_free(self.inner.as_ptr());
+            }
         }
     }
 }
@@ -82,10 +85,25 @@ impl Store {
         let store = Store {
             inner: StoreRef {
                 inner: NonNull::new(store).unwrap(),
+                owned: true,
             },
             context,
         };
         Ok(store)
+    }
+
+    /// Wrap an existing raw::Store, to provide the same conveniences, such as
+    /// a pre-allocated Context.
+    ///
+    /// Make sure that the raw::Store is owned by something else for the lifetime of
+    /// this Store.
+    pub fn new_borrowed_unsafe(inner: *mut raw::Store) -> Self {
+        let inner = StoreRef {
+            inner: NonNull::new(inner).unwrap(),
+            owned: false,
+        };
+        let context = Context::new();
+        Store { inner, context }
     }
 
     pub fn raw_ptr(&self) -> *mut raw::Store {
