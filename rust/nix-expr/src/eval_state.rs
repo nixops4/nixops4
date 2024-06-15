@@ -4,11 +4,10 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_store::path::StorePath;
-use nix_store::store::{Store, StoreRef};
+use nix_store::store::Store;
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
-use std::borrow::BorrowMut;
 use std::ffi::{c_char, CString};
 use std::ffi::{c_int, c_void};
 use std::mem::ManuallyDrop;
@@ -42,6 +41,7 @@ pub struct RealisedString {
 
 pub struct EvalState {
     eval_state: NonNull<raw::EvalState>,
+    eval_state_owned: bool,
     store: Store,
     context: Context,
 }
@@ -76,9 +76,30 @@ impl EvalState {
             eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
                 panic!("nix_state_create returned a null pointer without an error")
             }),
+            eval_state_owned: true,
             store,
             context,
         })
+    }
+
+    /// Create a new EvalState that borrows the given raw::EvalState.
+    ///
+    /// This is intended for situations where an existing raw::EvalState must be
+    /// used, and we want to provide the same conveniences, such as a pre-allocated
+    /// context, etc.
+    ///
+    /// Make sure that the raw::Store is owned by something else for the lifetime of
+    /// this Store.
+    pub fn new_borrowed_unsafe(
+        eval_state_ptr: *mut raw::EvalState,
+        store_ptr: *mut raw::Store,
+    ) -> Self {
+        EvalState {
+            eval_state: NonNull::new(eval_state_ptr).unwrap(),
+            eval_state_owned: false,
+            store: Store::new_borrowed_unsafe(store_ptr),
+            context: Context::new(),
+        }
     }
     pub fn raw_ptr(&self) -> *mut raw::EvalState {
         self.eval_state.as_ptr()
@@ -474,8 +495,10 @@ pub fn gc_register_my_thread() -> Result<()> {
 
 impl Drop for EvalState {
     fn drop(&mut self) {
-        unsafe {
-            raw::state_free(self.raw_ptr());
+        if self.eval_state_owned {
+            unsafe {
+                raw::state_free(self.raw_ptr());
+            }
         }
     }
 }
@@ -503,18 +526,8 @@ unsafe extern "C" fn function_adapter(
         .collect();
     let args_slice = args_vec.as_slice();
 
-    // TODO: implement Clone for EvalState; this leaks
-    let mut hack = ManuallyDrop::new(EvalState {
-        eval_state: NonNull::new(state).unwrap(),
-        store: Store {
-            inner: StoreRef {
-                inner: NonNull::new(primop_info.eval_state.store.raw_ptr()).unwrap(),
-            },
-            context: Context::new(),
-        },
-        context: Context::new(),
-    });
-    let r = primop_info.function.as_ref()(hack.borrow_mut(), args_slice);
+    let mut es = EvalState::new_borrowed_unsafe(state, primop_info.eval_state.store.raw_ptr());
+    let r = primop_info.function.as_ref()(&mut es, args_slice);
 
     match r {
         Ok(v) => unsafe {
