@@ -96,6 +96,24 @@ impl Drop for Context {
     }
 }
 
+#[macro_export]
+macro_rules! check_call {
+    ($f:path[$ctx:expr $(, $arg:expr)*]) => {
+        {
+            let ret = $f($ctx.ptr() $(, $arg)*);
+            match $ctx.check_err() {
+                Ok(_) => Ok(ret),
+                Err(e) => {
+                    $ctx.clear();
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+pub use check_call;
+
 #[cfg(test)]
 mod tests {
     use super::*;
