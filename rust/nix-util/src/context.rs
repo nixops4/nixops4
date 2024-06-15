@@ -21,21 +21,17 @@ impl Context {
         ctx
     }
 
-    /// This is currently private because of the switch to `check_one_call`, which is more ergonomic.
-    /// The pattern its callers use make it hard to forget to use this function.
+    /// Access the C context pointer.
     ///
-    /// If we have a good use case for `check_err`, we can expose it again.
-    fn ptr(&self) -> *mut raw::c_context {
+    /// We recommend to use `check_call!` if possible.
+    pub fn ptr(&mut self) -> *mut raw::c_context {
         self.inner.as_ptr()
     }
 
     /// Check the error code and return an error if it's not `NIX_OK`.
     ///
-    /// This is currently private because of the switch to `check_one_call`, which is more ergonomic.
-    /// The pattern its callers use make it hard to forget to use this function.
-    ///
-    /// If we have a good use case for `check_err`, we can expose it again.
-    fn check_err(&self) -> Result<()> {
+    /// We recommend to use `check_call!` if possible.
+    pub fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
         if err != raw::NIX_OK.try_into().unwrap() {
             // msgp is a borrowed pointer (pointing into the context), so we don't need to free it
@@ -113,6 +109,29 @@ macro_rules! check_call {
 }
 
 pub use check_call;
+
+// TODO: Generalize this macro to work with any error code or any error handling logic
+#[macro_export]
+macro_rules! check_call_opt_key {
+    ($f:path[$ctx:expr, $($arg:expr),*]) => {
+        {
+            let ret = $f($ctx.ptr(), $($arg,)*);
+            if unsafe { raw::err_code($ctx.ptr()) == raw::NIX_ERR_KEY } {
+                $ctx.clear();
+                return Ok(None);
+            }
+            match $ctx.check_err() {
+                Ok(_) => Ok(Some(ret)),
+                Err(e) => {
+                    $ctx.clear();
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+pub use check_call_opt_key;
 
 #[cfg(test)]
 mod tests {
