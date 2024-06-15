@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub fn set(key: &str, value: &str) -> Result<()> {
-    let ctx = context::Context::new();
+    let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let value = std::ffi::CString::new(value)?;
     ctx.check_one_call(|ctx_ptr| unsafe {
@@ -16,7 +16,7 @@ pub fn set(key: &str, value: &str) -> Result<()> {
 }
 
 pub fn get(key: &str) -> Result<String> {
-    let ctx = context::Context::new();
+    let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let mut r: Result<String> = result_string_init!();
     ctx.check_one_call(|ctx_ptr| unsafe {
@@ -32,15 +32,16 @@ pub fn get(key: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::check_call;
+
     use super::*;
 
     #[ctor::ctor]
     fn setup() {
-        let ctx = context::Context::new();
-        ctx.check_one_call(|ctx_ptr| unsafe {
-            nix_c_raw::libstore_init(ctx_ptr);
-        })
-        .unwrap();
+        let mut ctx = context::Context::new();
+        unsafe {
+            check_call!(raw::libstore_init[ctx]).unwrap();
+        }
     }
 
     #[test]

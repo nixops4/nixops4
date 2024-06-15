@@ -47,7 +47,7 @@ impl Context {
         Ok(())
     }
 
-    fn clear(&self) {
+    pub fn clear(&mut self) {
         unsafe {
             raw::set_err_msg(
                 self.inner.as_ptr(),
@@ -57,7 +57,7 @@ impl Context {
         }
     }
 
-    pub fn check_err_and_clear(&self) -> Result<()> {
+    pub fn check_err_and_clear(&mut self) -> Result<()> {
         let r = self.check_err();
         if r.is_err() {
             self.clear();
@@ -68,14 +68,14 @@ impl Context {
     /// Run the function, and check the error, then reset the error.
     /// Make at most one call to a Nix function in `f`.
     /// Do not use if the context isn't fresh or cleared (e.g. with `check_err_and_clear`).
-    pub fn check_one_call<T, F: FnOnce(*mut raw::c_context) -> T>(&self, f: F) -> Result<T> {
+    pub fn check_one_call<T, F: FnOnce(*mut raw::c_context) -> T>(&mut self, f: F) -> Result<T> {
         let t = f(self.ptr());
         self.check_err_and_clear()?;
         Ok(t)
     }
 
     pub fn check_one_call_or_key_none<T, F: FnOnce(*mut raw::c_context) -> T>(
-        &self,
+        &mut self,
         f: F,
     ) -> Result<Option<T>> {
         let t = f(self.ptr());

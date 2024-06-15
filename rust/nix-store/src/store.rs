@@ -52,7 +52,7 @@ impl Store {
             }
         }
 
-        let context: Context = Context::new();
+        let mut context: Context = Context::new();
 
         let uri_ptr = CString::new(url)?;
 
@@ -93,7 +93,7 @@ impl Store {
         self.inner.ptr()
     }
 
-    pub fn get_uri(&self) -> Result<String> {
+    pub fn get_uri(&mut self) -> Result<String> {
         let mut r = result_string_init!();
         self.context.check_one_call(|ctx_ptr| unsafe {
             raw::store_get_uri(
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn get_uri() {
-        let store = Store::open("auto", HashMap::new()).unwrap();
+        let mut store = Store::open("auto", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert!(!uri.is_empty());
         // must be ascii
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     #[ignore] // Needs network access
     fn get_uri_nixos_cache() {
-        let store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
+        let mut store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert_eq!(uri, "https://cache.nixos.org");
     }

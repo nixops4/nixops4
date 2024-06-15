@@ -73,7 +73,7 @@ impl Drop for Value {
 }
 impl Clone for Value {
     fn clone(&self) -> Self {
-        let context = Context::new();
+        let mut context = Context::new();
         context
             .check_one_call(|ctx_ptr| unsafe { raw::gc_incref(ctx_ptr, self.inner.as_ptr()) })
             .unwrap();
