@@ -4,10 +4,11 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_store::path::StorePath;
-use nix_store::store::Store;
+use nix_store::store::{Store, StoreRef};
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
+use std::borrow::BorrowMut;
 use std::ffi::{c_char, CString};
 use std::ffi::{c_int, c_void};
 use std::mem::ManuallyDrop;
@@ -360,7 +361,7 @@ impl EvalState {
         Ok(Value::new(value))
     }
 
-    pub fn thunk(&self, f: Box<dyn Fn(&EvalState) -> Result<Value>>) -> Result<Value> {
+    pub fn thunk(&mut self, f: Box<dyn Fn(&mut EvalState) -> Result<Value>>) -> Result<Value> {
         // Nix doesn't have a function for creating a thunk, so we have to
         // create a function and pass it a dummy argument.
         let f = self.new_value_function(
@@ -374,9 +375,9 @@ impl EvalState {
     /// This is also known as a "primop" in Nix, short for primitive operation.
     /// The `builtins.*` are examples of primops.
     pub fn new_value_function<const N: usize>(
-        &self,
+        &mut self,
         name: *const i8,
-        f: Box<dyn Fn(&EvalState, &[Value; N]) -> Result<Value>>,
+        f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
     ) -> Result<Value> {
         if N == 0 {
             return self.thunk(Box::new(move |eval_state| {
@@ -407,23 +408,25 @@ impl EvalState {
             }));
             user_data.as_ref() as *const PrimOpInfo as *mut c_void
         };
-        let op = self.context.check_one_call(|ctx_ptr| unsafe {
-            raw::alloc_primop(
-                ctx_ptr,
+        let op = unsafe {
+            check_call!(raw::alloc_primop[&mut self.context,
                 FUNCTION_ADAPTER,
                 N as c_int,
                 name,
                 args.as_mut_ptr(), /* TODO add an extra const to bindings to avoid mut here. */
                 FUNCTION_ANONYMOUS_DOC.as_ptr(),
-                user_data,
-            )
-        })?;
-        let value = self.new_value_uninitialized()?;
-        self.context.check_one_call(|ctx_ptr| unsafe {
-            // Then use it in a value
-            raw::init_primop(ctx_ptr, value.raw_ptr(), op);
-        })?;
-        Ok(value)
+                user_data
+            ])
+        }?;
+        unsafe {
+            let value = self.new_value_uninitialized()?;
+            check_call!(raw::init_primop[
+                &mut self.context,
+                value.raw_ptr(),
+                op
+            ])?;
+            Ok(value)
+        }
     }
 }
 
@@ -481,19 +484,18 @@ impl Drop for EvalState {
 struct PrimOpInfo<'a> {
     arity: usize,
     // Something like Haskell's Dynamic
-    function: Box<dyn Fn(&EvalState, &[Value]) -> Result<Value>>,
+    function: Box<dyn Fn(&mut EvalState, &[Value]) -> Result<Value>>,
     eval_state: &'a EvalState,
 }
 
 unsafe extern "C" fn function_adapter(
     user_data: *mut ::std::os::raw::c_void,
     context_out: *mut raw::c_context,
-    _state: *mut raw::EvalState,
+    state: *mut raw::EvalState,
     args: *mut *mut raw::Value,
     ret: *mut raw::Value,
 ) {
-    let primop_info = (user_data as *const PrimOpInfo).as_ref().unwrap();
-    let eval_state = primop_info.eval_state;
+    let primop_info = (user_data as *mut PrimOpInfo).as_ref().unwrap();
     let args_raw_slice = unsafe { std::slice::from_raw_parts(args, primop_info.arity) };
     let args_vec: Vec<Value> = args_raw_slice
         .iter()
@@ -501,7 +503,18 @@ unsafe extern "C" fn function_adapter(
         .collect();
     let args_slice = args_vec.as_slice();
 
-    let r = primop_info.function.as_ref()(eval_state, args_slice);
+    // TODO: implement Clone for EvalState; this leaks
+    let mut hack = ManuallyDrop::new(EvalState {
+        eval_state: NonNull::new(state).unwrap(),
+        store: Store {
+            inner: StoreRef {
+                inner: NonNull::new(primop_info.eval_state.store.raw_ptr()).unwrap(),
+            },
+            context: Context::new(),
+        },
+        context: Context::new(),
+    });
+    let r = primop_info.function.as_ref()(hack.borrow_mut(), args_slice);
 
     match r {
         Ok(v) => unsafe {
@@ -1302,7 +1315,7 @@ mod tests {
     fn eval_state_primop_anon_call() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
-            let es = EvalState::new(store, []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
             let bias: Arc<Mutex<Int>> = Arc::new(Mutex::new(0));
             let bias_control = bias.clone();
             let f = es
@@ -1321,7 +1334,8 @@ mod tests {
             }
             let a = es.new_value_int(2).unwrap();
             let b = es.new_value_int(3).unwrap();
-            let v = es.call(es.call(f, a).unwrap(), b).unwrap();
+            let fa: Value = es.call(f, a).unwrap();
+            let v = es.call(fa, b).unwrap();
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             assert!(t == ValueType::Int);
@@ -1335,7 +1349,7 @@ mod tests {
     fn eval_state_primop_anon_call_throw() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
-            let es = EvalState::new(store, []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
             let f = es
                 .new_value_function(
                     FUNCTION_ANONYMOUS.as_ptr(),
@@ -1364,7 +1378,7 @@ mod tests {
     fn eval_state_primop_anon_call_no_args() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
-            let es = EvalState::new(store, []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
             let v = es
                 .new_value_function(
                     FUNCTION_ANONYMOUS.as_ptr(),
@@ -1385,7 +1399,7 @@ mod tests {
     fn eval_state_primop_anon_call_no_args_lazy() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
-            let es = EvalState::new(store, []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
             let v = es
                 .new_value_function(
                     FUNCTION_ANONYMOUS.as_ptr(),

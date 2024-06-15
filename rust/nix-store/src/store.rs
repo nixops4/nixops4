@@ -16,8 +16,10 @@ lazy_static! {
     };
 }
 
-struct StoreRef {
-    inner: NonNull<raw::Store>,
+// FIXME: Make private, implement Clone
+pub struct StoreRef {
+    // FIXME: Make private, implement Clone
+    pub inner: NonNull<raw::Store>,
 }
 impl StoreRef {
     pub fn ptr(&self) -> *mut raw::Store {
@@ -33,9 +35,11 @@ impl Drop for StoreRef {
 }
 
 pub struct Store {
-    inner: StoreRef,
+    // FIXME: Make private, implement Clone
+    pub inner: StoreRef,
     /* An error context to reuse. This way we don't have to allocate them for each store operation. */
-    context: Context,
+    // FIXME: Make private, implement Clone
+    pub context: Context,
 }
 impl Store {
     pub fn open<'a, 'b>(
