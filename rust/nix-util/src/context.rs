@@ -107,15 +107,16 @@ pub use check_call;
 macro_rules! check_call_opt_key {
     ($f:path[$ctx:expr, $($arg:expr),*]) => {
         {
-            let ret = $f($ctx.ptr(), $($arg,)*);
-            if unsafe { raw::err_code($ctx.ptr()) == raw::NIX_ERR_KEY } {
-                $ctx.clear();
+            let ctx : &mut $crate::context::Context = $ctx;
+            let ret = $f(ctx.ptr(), $($arg,)*);
+            if unsafe { raw::err_code(ctx.ptr()) == raw::NIX_ERR_KEY } {
+                ctx.clear();
                 return Ok(None);
             }
-            match $ctx.check_err() {
+            match ctx.check_err() {
                 Ok(_) => Ok(Some(ret)),
                 Err(e) => {
-                    $ctx.clear();
+                    ctx.clear();
                     Err(e)
                 }
             }
