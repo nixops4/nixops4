@@ -4,7 +4,7 @@
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
-    nix.url = "github:hercules-ci/nix/fix-eval-state-baseEnv-gc-root";
+    nix.url = "github:NixOS/nix";
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
@@ -31,6 +31,26 @@
           pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
           pre-commit.settings.hooks.rustfmt.enable = true;
           pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
+
+          # Check that we're using ///-style doc comments in Rust code.
+          #
+          # Unfortunately, rustfmt won't do this for us yet - at least not
+          # without nightly, and it might do too much.
+          pre-commit.settings.hooks.rust-doc-comments = {
+            enable = true;
+            files = "\\.rs$";
+            entry = "${pkgs.writeScript "rust-doc-comments" ''
+              #!${pkgs.runtimeShell}
+              set -uxo pipefail
+              grep -n -C3 --color=always -F '/**' "$@"
+              r=$?
+              set -e
+              if [ $r -eq 0 ]; then
+                echo "Please replace /**-style comments by /// style comments in Rust code."
+                exit 1
+              fi
+            ''}";
+          };
 
           devShells.default = pkgs.mkShell {
             name = "nixops4-devshell";

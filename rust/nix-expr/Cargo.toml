@@ -12,3 +12,4 @@ nix-util = { path = "../nix-util" }
 nix-c-raw = { path = "../nix-c-raw" }
 lazy_static = "1.4.0"
 ctor = "0.2.7"
+tempfile = "3.10.1"
