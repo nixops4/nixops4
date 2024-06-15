@@ -113,8 +113,8 @@ impl EvaluationDriver {
             .ok_or_else(|| anyhow::anyhow!("id not found: {}", id.num().to_string()))
     }
 
-    fn get_flake_deployments_value(&self, flake: Id<FlakeType>) -> Result<Value> {
-        let flake = self.get_value(flake)?;
+    fn get_flake_deployments_value(&mut self, flake: Id<FlakeType>) -> Result<Value> {
+        let flake = self.get_value(flake)?.clone();
         let outputs = self.eval_state.require_attrs_select(&flake, "outputs")?;
         let deployments = self
             .eval_state
@@ -130,7 +130,7 @@ impl EvaluationDriver {
                 EvaluationDriver::assign_value,
             ),
             EvalRequest::ListDeployments(req) => self.handle_simple_request(req, |this, req| {
-                let flake = this.get_value(req.to_owned())?;
+                let flake = this.get_value(req.to_owned())?.clone();
                 let outputs = this.eval_state.require_attrs_select(&flake, "outputs")?;
                 let deployments_opt = this
                     .eval_state
@@ -143,8 +143,8 @@ impl EvaluationDriver {
                 req,
                 |this, req| {
                     // basic lookup
-                    let es = &this.eval_state;
-                    let deployments = this.get_flake_deployments_value(req.flake)?;
+                    let deployments = { this.get_flake_deployments_value(req.flake)? }.clone();
+                    let es = &mut this.eval_state;
                     let deployment = es.require_attrs_select(&deployments, &req.name)?;
 
                     // check _type attr
@@ -193,7 +193,7 @@ impl EvaluationDriver {
 
                     let load_resource_skeleton = es.new_value_function(
                         FUNCTION_ANONYMOUS.as_ptr(),
-                        Box::new(|es, [resource_name, value, _]| {
+                        Box::new(|es, [resource_name, _value, _]| {
                             let resource_name = es.require_string(resource_name)?;
                             es.new_value_str(format!("{}.skeleton", resource_name).as_str())
                         }),
@@ -538,7 +538,7 @@ mod tests {
         std::fs::write(&flake_path, flake_nix).unwrap();
 
         gc_registering_current_thread(|| {
-            let store = Store::open("auto").unwrap();
+            let store = Store::open("auto", []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {

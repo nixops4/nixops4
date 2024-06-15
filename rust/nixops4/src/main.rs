@@ -1,9 +1,9 @@
 mod eval_client;
 
-use nixops4_core;
 use anyhow::Result;
 use clap::Command;
 use eval_client::EvalClient;
+use nixops4_core;
 use nixops4_core::eval_api::{
     AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id, SimpleRequest,
 };
@@ -20,7 +20,7 @@ fn root_command() -> Command {
         )
 }
 
-/** Convenience function that sets up an evaluator with a flake, asynchronously with regard to evaluation. */
+/// Convenience function that sets up an evaluator with a flake, asynchronously with regard to evaluation.
 fn with_flake<T>(f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>) -> Result<T> {
     EvalClient::with(|mut c| {
         let flake_id = c.next_id();
@@ -42,7 +42,7 @@ fn main() {
     let r: Result<()> = match matches.subcommand() {
         Some(("deployments", sub_matches)) => {
             match sub_matches.subcommand() {
-                Some(("list", _)) => with_flake(|mut c, flake_id| {
+                Some(("list", _)) => with_flake(|c, flake_id| {
                     let deployments_id = c.next_id();
                     c.send(&EvalRequest::ListDeployments(SimpleRequest {
                         assign_to: deployments_id,
