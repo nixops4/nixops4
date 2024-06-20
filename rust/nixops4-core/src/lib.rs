@@ -1,3 +1,5 @@
+pub mod eval_api;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
