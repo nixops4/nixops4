@@ -55,5 +55,47 @@
         partitions.dev.module = {
           imports = [ ./dev/flake-module.nix ];
         };
+        flake = {
+          nixops4Deployments.default = {
+            _type = "nixops4Deployment";
+            deploymentFunction = { resources }:
+              let
+                # TODO get this `providers.local` attrset from a flake output
+                providers.local = {
+                  type = "stdio";
+                  command = "nixops4-resources-local";
+                  args = [ ];
+                  types.file.outputs = { };
+                  types.exec.outputs = {
+                    # If we assign example values, we might make the deployment "buildable" in pure nix. Not a full build, but ensuring that dependencies are available.
+                    stdout.example = "";
+                  };
+                };
+              in
+              {
+                resources = {
+                  thefile = {
+                    # _type = "nixops4Resource";
+                    provider = providers.local;
+                    type = "file";
+                    inputs = {
+                      name = "/tmp/hello-nixops4";
+                      contents = resources.hello.stdout;
+                    };
+                  };
+                  hello = {
+                    # _type = "nixops4Resource";
+                    provider = providers.local;
+                    type = "exec";
+                    inputs = {
+                      command = "bash";
+                      args = [ "-c" "echo 'Hello, NixOps4!'" ];
+                      stdin = null;
+                    };
+                  };
+                };
+              };
+          };
+        };
       });
 }

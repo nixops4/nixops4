@@ -6,7 +6,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use nixops4_core::eval_api::{self, EvalRequest, FlakeType, Id, IdNum, Ids};
+use nixops4_core::eval_api::{
+    self, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids,
+};
 
 // struct ProcessWithHandles<'a> {
 //     process: Arc<std::process::Child>,
@@ -15,6 +17,8 @@ use nixops4_core::eval_api::{self, EvalRequest, FlakeType, Id, IdNum, Ids};
 //     response_bufreader: std::io::BufReader<&'a mut ChildStdout>,
 // }
 
+const DEBUG: bool = true;
+
 pub struct EvalClient<'a> {
     // process: &'a mut std::process::Child,
     response_bufreader: &'a mut std::io::BufReader<&'a mut ChildStdout>,
@@ -22,6 +26,7 @@ pub struct EvalClient<'a> {
     command_handle: &'a mut std::process::ChildStdin,
     ids: Ids,
     deployments: HashMap<Id<FlakeType>, Vec<String>>,
+    resources: HashMap<Id<DeploymentType>, Vec<String>>,
     errors: HashMap<IdNum, String>,
 }
 impl<'a> EvalClient<'a> {
@@ -43,44 +48,47 @@ impl<'a> EvalClient<'a> {
             command_handle: process2.stdin.as_mut().unwrap(),
             ids: Ids::new(),
             deployments: HashMap::new(),
+            resources: HashMap::new(),
             errors: HashMap::new(),
         };
         f(c)
     }
     pub fn send(&mut self, request: &EvalRequest) -> Result<()> {
-        self.command_handle
-            .write_all(eval_api::eval_request_to_json(request)?.as_bytes())?;
+        let json = eval_api::eval_request_to_json(request)?;
+        if DEBUG {
+            eprintln!("\x1b[35msending: {}\x1b[0m", json);
+        }
+        self.command_handle.write_all(json.as_bytes())?;
         self.command_handle.write_all(b"\n")?;
         self.command_handle.flush()?;
         Ok(())
     }
+    fn receive(&mut self) -> Result<eval_api::EvalResponse> {
+        let mut line = String::new();
+        let n = self.response_bufreader.read_line(&mut line);
+        match n {
+            Err(e) => {
+                Err(e).context("error reading from nixops4-eval process stdout")?;
+            }
+            Ok(0) => {
+                Err(anyhow::anyhow!("nixops4-eval process closed its stdout"))?;
+            }
+            Ok(_) => {}
+        }
+        if DEBUG {
+            eprintln!("\x1b[32mreceived: {}\x1b[0m", line.trim_end());
+        }
+        let response = eval_api::eval_response_from_json(line.as_str())?;
+        Ok(response)
+    }
     pub fn receive_until<T>(
         &mut self,
-        cond: impl Fn(&EvalClient<'a>) -> Result<Option<T>>,
+        cond: impl Fn(&mut EvalClient<'a>, &EvalResponse) -> Result<Option<T>>,
     ) -> Result<T> {
         loop {
-            // read line from response_handle
-            // parse line as json
-            // match json as eval_response
-            // match eval_response as T
-            // return T
-            let mut line = String::new();
-            let n = self.response_bufreader.read_line(&mut line);
-            match n {
-                Err(e) => {
-                    Err(e).context("error reading from nixops4-eval process stdout")?;
-                }
-                Ok(0) => {
-                    Err(anyhow::anyhow!("nixops4-eval process closed its stdout"))?;
-                }
-                Ok(_) => {}
-            }
-
-            {
-                let response = eval_api::eval_response_from_json(line.as_str())?;
-                self.handle_response(response)?;
-            }
-            let r = cond(self)?;
+            let response = self.receive()?;
+            self.handle_response(&response)?;
+            let r = cond(self, &response)?;
             match r {
                 Some(r) => return Ok(r),
                 None => continue,
@@ -108,13 +116,20 @@ impl<'a> EvalClient<'a> {
         self.deployments.get(&id)
     }
 
-    fn handle_response(&mut self, response: eval_api::EvalResponse) -> Result<()> {
+    pub fn get_resources(&self, id: Id<DeploymentType>) -> Option<&Vec<String>> {
+        self.resources.get(&id)
+    }
+
+    fn handle_response(&mut self, response: &eval_api::EvalResponse) -> Result<()> {
         match response {
             eval_api::EvalResponse::Error(id, error) => {
-                self.errors.insert(id.num(), error);
+                self.errors.insert(id.num(), error.clone());
             }
             eval_api::EvalResponse::ListDeployments(id, deployments) => {
-                self.deployments.insert(id, deployments);
+                self.deployments.insert(*id, deployments.clone());
+            }
+            eval_api::EvalResponse::ListResources(id, resources) => {
+                self.resources.insert(*id, resources.clone());
             }
             _ => {}
         }

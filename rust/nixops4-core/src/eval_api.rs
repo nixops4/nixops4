@@ -2,6 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub struct Ids {
     counter: u64,
@@ -23,7 +24,7 @@ pub type IdNum = u64;
 /// The type parameter T is used to check that the id is only used for the type it was created for.
 /// This is a compile-time check only, and only serves to help the programmer.
 ///
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Id<T> {
     id: IdNum,
     // nothing, just to accept the compile-type only T
@@ -51,6 +52,22 @@ impl<T> Hash for Id<T> {
     }
 }
 impl<T: Clone> Copy for Id<T> {}
+impl<T> PartialEq for Id<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl<T> Eq for Id<T> {}
+impl<T> PartialOrd for Id<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+impl<T> Ord for Id<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnyType;
@@ -71,6 +88,10 @@ pub enum EvalRequest {
     LoadDeployment(AssignRequest<DeploymentRequest>),
     ListResources(SimpleRequest<Id<DeploymentType>>),
     LoadResource(AssignRequest<ResourceRequest>),
+    GetResource(SimpleRequest<Id<ResourceType>>),
+    ListResourceInputs(SimpleRequest<Id<ResourceType>>),
+    GetResourceInput(SimpleRequest<Property>),
+    PutResourceOutput(NamedProperty, Value),
 }
 
 pub trait RequestIdType {
@@ -91,6 +112,7 @@ impl<Req: RequestIdType> RequestIdType for AssignRequest<Req> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimpleRequest<P> {
+    // FIXME: more like message id for errors
     pub assign_to: Id<AnyType>,
     pub payload: P,
 }
@@ -105,9 +127,37 @@ impl<P> RequestIdType for SimpleRequest<P> {
 pub enum EvalResponse {
     Error(Id<AnyType>, String),
     ListDeployments(Id<FlakeType>, Vec<String>),
-    CheckResource(ResourceSpec),
-    UpdateResource(ResourceSpec),
-    DestroyResource(ResourceSpec),
+    ListResources(Id<DeploymentType>, Vec<String>),
+    ResourceProviderInfo(ResourceProviderInfo),
+    ResourceInputs(Id<ResourceType>, Vec<String>),
+    ResourceInputDependency(ResourceInputDependency),
+    ResourceInputValue(Property, Value),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceProviderInfo {
+    pub id: Id<ResourceType>,
+    pub provider: Value,
+    pub resource_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceInputDependency {
+    pub dependent: Property,
+    pub dependency: NamedProperty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NamedProperty {
+    pub resource: String,
+    pub name: String,
+}
+
+/// Can be input property or output property
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Property {
+    pub resource: Id<ResourceType>,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
