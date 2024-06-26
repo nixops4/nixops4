@@ -11,6 +11,7 @@ use nix_util::{check_call, check_call_opt_key, result_string_init};
 use std::ffi::{c_char, CString};
 use std::os::raw::c_uint;
 use std::ptr::{null, null_mut, NonNull};
+use std::sync::Arc;
 
 lazy_static! {
     static ref INIT: Result<()> = {
@@ -37,8 +38,24 @@ pub struct RealisedString {
     pub paths: Vec<StorePath>,
 }
 
-pub struct EvalState {
+struct EvalStateRef {
     eval_state: NonNull<raw::EvalState>,
+}
+impl EvalStateRef {
+    fn as_ptr(&self) -> *mut raw::EvalState {
+        self.eval_state.as_ptr()
+    }
+}
+impl Drop for EvalStateRef {
+    fn drop(&mut self) {
+        unsafe {
+            raw::state_free(self.eval_state.as_ptr());
+        }
+    }
+}
+
+pub struct EvalState {
+    eval_state: Arc<EvalStateRef>,
     store: Store,
     context: Context,
 }
@@ -74,8 +91,10 @@ impl EvalState {
             ))
         }?;
         Ok(EvalState {
-            eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
-                panic!("nix_state_create returned a null pointer without an error")
+            eval_state: Arc::new(EvalStateRef {
+                eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
+                    panic!("nix_state_create returned a null pointer without an error")
+                }),
             }),
             store,
             context,
@@ -412,10 +431,12 @@ pub fn gc_register_my_thread() -> Result<()> {
     }
 }
 
-impl Drop for EvalState {
-    fn drop(&mut self) {
-        unsafe {
-            raw::state_free(self.raw_ptr());
+impl Clone for EvalState {
+    fn clone(&self) -> Self {
+        EvalState {
+            eval_state: self.eval_state.clone(),
+            store: self.store.clone(),
+            context: Context::new(),
         }
     }
 }
