@@ -7,6 +7,7 @@ use nix_util::{check_call, result_string_init};
 use std::ffi::{c_char, CString};
 use std::ptr::null_mut;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 /* TODO make Nix itself thread safe */
 lazy_static! {
@@ -33,7 +34,7 @@ impl Drop for StoreRef {
 }
 
 pub struct Store {
-    inner: StoreRef,
+    inner: Arc<StoreRef>,
     /* An error context to reuse. This way we don't have to allocate them for each store operation. */
     context: Context,
 }
@@ -84,9 +85,9 @@ impl Store {
             panic!("nix_c_store_open returned a null pointer without an error");
         }
         let store = Store {
-            inner: StoreRef {
+            inner: Arc::new(StoreRef {
                 inner: NonNull::new(store).unwrap(),
-            },
+            }),
             context,
         };
         Ok(store)
@@ -107,6 +108,15 @@ impl Store {
             ))
         }?;
         r
+    }
+}
+
+impl Clone for Store {
+    fn clone(&self) -> Self {
+        Store {
+            inner: self.inner.clone(),
+            context: Context::new(),
+        }
     }
 }
 
