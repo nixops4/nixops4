@@ -39,6 +39,8 @@ pub struct StoreWeak {
 }
 impl StoreWeak {
     /// Upgrade the weak reference to a proper [Store].
+    ///
+    /// If no normal reference to the [Store] is around anymore elsewhere, this fails by returning `None`.
     pub fn upgrade(&self) -> Option<Store> {
         self.inner.upgrade().map(|inner| Store {
             inner,

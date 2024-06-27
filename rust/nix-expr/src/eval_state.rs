@@ -4,14 +4,14 @@ use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_store::path::StorePath;
-use nix_store::store::Store;
+use nix_store::store::{Store, StoreWeak};
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
 use std::ffi::{c_char, CString};
 use std::os::raw::c_uint;
 use std::ptr::{null, null_mut, NonNull};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 lazy_static! {
     static ref INIT: Result<()> = {
@@ -36,6 +36,26 @@ pub fn init() -> Result<()> {
 pub struct RealisedString {
     pub s: String,
     pub paths: Vec<StorePath>,
+}
+
+/// A [Weak] reference to an [EvalState]
+pub struct EvalStateWeak {
+    inner: Weak<EvalStateRef>,
+    store: StoreWeak,
+}
+impl EvalStateWeak {
+    /// Upgrade the weak reference to a proper [EvalState].
+    ///
+    /// If no normal reference to the [EvalState] is around anymore elsewhere, this fails by returning `None`.
+    pub fn upgrade(&self) -> Option<EvalState> {
+        self.inner.upgrade().and_then(|eval_state| {
+            self.store.upgrade().map(|store| EvalState {
+                eval_state: eval_state,
+                store: store,
+                context: Context::new(),
+            })
+        })
+    }
 }
 
 struct EvalStateRef {
@@ -106,6 +126,13 @@ impl EvalState {
     pub fn store(&self) -> &Store {
         &self.store
     }
+    pub fn weak_ref(&self) -> EvalStateWeak {
+        EvalStateWeak {
+            inner: Arc::downgrade(&self.eval_state),
+            store: self.store.weak_ref(),
+        }
+    }
+
     /// Parses and evaluates a Nix expression `expr`.
     ///
     /// Expressions can contain relative paths such as `./.` that are resolved relative to the given `path`.
@@ -477,6 +504,32 @@ mod tests {
             // very basic test: make sure initialization doesn't crash
             let store = Store::open("auto", HashMap::new()).unwrap();
             let _e = EvalState::new(store, []).unwrap();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn weak_ref() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let es = EvalState::new(store, []).unwrap();
+            let weak = es.weak_ref();
+            let _es = weak.upgrade().unwrap();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn weak_ref_gone() {
+        gc_registering_current_thread(|| {
+            let weak = {
+                let store = Store::open("auto", HashMap::new()).unwrap();
+                let es = EvalState::new(store, []).unwrap();
+                es.weak_ref()
+            };
+            assert!(weak.upgrade().is_none());
+            assert!(weak.store.upgrade().is_none());
+            assert!(weak.inner.upgrade().is_none());
         })
         .unwrap();
     }
