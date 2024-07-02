@@ -225,12 +225,12 @@ impl EvalState {
         let attr_name = CString::new(attr_name)
             .with_context(|| "require_attrs_select_opt: attrName contains null byte")?;
         let v2 = unsafe {
-            check_call_opt_key!(raw::get_attr_byname[
+            check_call_opt_key!(raw::get_attr_byname(
                 &mut self.context,
                 v.raw_ptr(),
                 self.eval_state.as_ptr(),
                 attr_name.as_ptr()
-            ])
+            ))
         }?;
         Ok(v2.map(Value::new))
     }

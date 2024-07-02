@@ -105,10 +105,10 @@ pub use check_call;
 // TODO: Generalize this macro to work with any error code or any error handling logic
 #[macro_export]
 macro_rules! check_call_opt_key {
-    ($f:path[$ctx:expr, $($arg:expr),*]) => {
+    ($($f:ident)::+($ctx:expr, $($arg:expr),*)) => {
         {
             let ctx : &mut $crate::context::Context = $ctx;
-            let ret = $f(ctx.ptr(), $($arg,)*);
+            let ret = $($f)::*(ctx.ptr(), $($arg,)*);
             if unsafe { raw::err_code(ctx.ptr()) == raw::NIX_ERR_KEY } {
                 ctx.clear();
                 return Ok(None);
