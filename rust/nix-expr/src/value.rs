@@ -77,7 +77,7 @@ impl Clone for Value {
         //       this is very unlikely to error, and it is not recoverable
         //       Maybe try without, and try again with context to report details?
         unsafe {
-            check_call!(raw::gc_incref[&mut Context::new(), self.inner.as_ptr()]).unwrap();
+            check_call!(raw::gc_incref(&mut Context::new(), self.inner.as_ptr())).unwrap();
         }
         // can't return an error here, but we don't want to ignore the error either as it means we could use-after-free
         Value { inner: self.inner }

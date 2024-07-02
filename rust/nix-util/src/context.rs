@@ -85,10 +85,10 @@ impl Drop for Context {
 
 #[macro_export]
 macro_rules! check_call {
-    ($f:path[$ctx:expr $(, $arg:expr)*]) => {
+    ($($f:ident)::+($ctx:expr $(, $arg:expr)*)) => {
         {
             let ctx : &mut $crate::context::Context = $ctx;
-            let ret = $f(ctx.ptr() $(, $arg)*);
+            let ret = $($f)::*(ctx.ptr() $(, $arg)*);
             match ctx.check_err() {
                 Ok(_) => Ok(ret),
                 Err(e) => {
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn check_call_dynamic_context() {
-        let r = check_call!(set_dummy_err[&mut Context::new()]);
+        let r = check_call!(set_dummy_err(&mut Context::new()));
         assert!(r.is_err());
         assert_eq!(r.unwrap_err().to_string(), "dummy error message");
     }
