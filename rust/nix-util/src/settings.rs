@@ -11,7 +11,7 @@ pub fn set(key: &str, value: &str) -> Result<()> {
     let key = std::ffi::CString::new(key)?;
     let value = std::ffi::CString::new(value)?;
     unsafe {
-        check_call!(raw::setting_set[&mut ctx, key.as_ptr(), value.as_ptr()])?;
+        check_call!(raw::setting_set(&mut ctx, key.as_ptr(), value.as_ptr()))?;
     }
     Ok(())
 }
@@ -21,7 +21,12 @@ pub fn get(key: &str) -> Result<String> {
     let key = std::ffi::CString::new(key)?;
     let mut r: Result<String> = result_string_init!();
     unsafe {
-        check_call!(raw::setting_get[&mut ctx, key.as_ptr(), Some(callback_get_result_string), callback_get_result_string_data(&mut r)])?;
+        check_call!(raw::setting_get(
+            &mut ctx,
+            key.as_ptr(),
+            Some(callback_get_result_string),
+            callback_get_result_string_data(&mut r)
+        ))?;
     }
     r
 }
@@ -36,7 +41,7 @@ mod tests {
     fn setup() {
         let mut ctx = context::Context::new();
         unsafe {
-            check_call!(raw::libstore_init[&mut ctx]).unwrap();
+            check_call!(raw::libstore_init(&mut ctx)).unwrap();
         }
     }
 
