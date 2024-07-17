@@ -20,9 +20,17 @@ impl Context {
         };
         ctx
     }
-    pub fn ptr(&self) -> *mut raw::c_context {
+
+    /// Access the C context pointer.
+    ///
+    /// We recommend to use `check_call!` if possible.
+    pub fn ptr(&mut self) -> *mut raw::c_context {
         self.inner.as_ptr()
     }
+
+    /// Check the error code and return an error if it's not `NIX_OK`.
+    ///
+    /// We recommend to use `check_call!` if possible.
     pub fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
         if err != raw::NIX_OK.try_into().unwrap() {
@@ -34,6 +42,37 @@ impl Context {
         }
         Ok(())
     }
+
+    pub fn clear(&mut self) {
+        unsafe {
+            raw::set_err_msg(
+                self.inner.as_ptr(),
+                raw::NIX_OK.try_into().unwrap(),
+                b"\0".as_ptr() as *const i8,
+            );
+        }
+    }
+
+    pub fn check_err_and_clear(&mut self) -> Result<()> {
+        let r = self.check_err();
+        if r.is_err() {
+            self.clear();
+        }
+        r
+    }
+
+    pub fn check_one_call_or_key_none<T, F: FnOnce(*mut raw::c_context) -> T>(
+        &mut self,
+        f: F,
+    ) -> Result<Option<T>> {
+        let t = f(self.ptr());
+        if unsafe { raw::err_code(self.inner.as_ptr()) == raw::NIX_ERR_KEY } {
+            self.clear();
+            return Ok(None);
+        }
+        self.check_err_and_clear()?;
+        Ok(Some(t))
+    }
 }
 
 impl Drop for Context {
@@ -44,6 +83,49 @@ impl Drop for Context {
     }
 }
 
+#[macro_export]
+macro_rules! check_call {
+    ($($f:ident)::+($ctx:expr $(, $arg:expr)*)) => {
+        {
+            let ctx : &mut $crate::context::Context = $ctx;
+            let ret = $($f)::*(ctx.ptr() $(, $arg)*);
+            match ctx.check_err() {
+                Ok(_) => Ok(ret),
+                Err(e) => {
+                    ctx.clear();
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+pub use check_call;
+
+// TODO: Generalize this macro to work with any error code or any error handling logic
+#[macro_export]
+macro_rules! check_call_opt_key {
+    ($($f:ident)::+($ctx:expr, $($arg:expr),*)) => {
+        {
+            let ctx : &mut $crate::context::Context = $ctx;
+            let ret = $($f)::*(ctx.ptr(), $($arg,)*);
+            if unsafe { raw::err_code(ctx.ptr()) == raw::NIX_ERR_KEY } {
+                ctx.clear();
+                return Ok(None);
+            }
+            match ctx.check_err() {
+                Ok(_) => Ok(Some(ret)),
+                Err(e) => {
+                    ctx.clear();
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+pub use check_call_opt_key;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +134,22 @@ mod tests {
     fn context_new_and_drop() {
         // don't crash
         let _c = Context::new();
+    }
+
+    fn set_dummy_err(ctx_ptr: *mut raw::c_context) {
+        unsafe {
+            raw::set_err_msg(
+                ctx_ptr,
+                raw::NIX_ERR_UNKNOWN.try_into().unwrap(),
+                b"dummy error message\0".as_ptr() as *const i8,
+            );
+        }
+    }
+
+    #[test]
+    fn check_call_dynamic_context() {
+        let r = check_call!(set_dummy_err(&mut Context::new()));
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err().to_string(), "dummy error message");
     }
 }

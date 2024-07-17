@@ -2,47 +2,47 @@ use anyhow::Result;
 use nix_c_raw as raw;
 
 use crate::{
-    context, result_string_init,
+    check_call, context, result_string_init,
     string_return::{callback_get_result_string, callback_get_result_string_data},
 };
 
 pub fn set(key: &str, value: &str) -> Result<()> {
-    let ctx = context::Context::new();
+    let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let value = std::ffi::CString::new(value)?;
     unsafe {
-        raw::setting_set(ctx.ptr(), key.as_ptr(), value.as_ptr());
-    };
-    ctx.check_err()
+        check_call!(raw::setting_set(&mut ctx, key.as_ptr(), value.as_ptr()))?;
+    }
+    Ok(())
 }
 
 pub fn get(key: &str) -> Result<String> {
-    let ctx = context::Context::new();
+    let mut ctx = context::Context::new();
     let key = std::ffi::CString::new(key)?;
     let mut r: Result<String> = result_string_init!();
     unsafe {
-        raw::setting_get(
-            ctx.ptr(),
+        check_call!(raw::setting_get(
+            &mut ctx,
             key.as_ptr(),
             Some(callback_get_result_string),
-            callback_get_result_string_data(&mut r),
-        )
-    };
-    ctx.check_err()?;
+            callback_get_result_string_data(&mut r)
+        ))?;
+    }
     r
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::check_call;
+
     use super::*;
 
     #[ctor::ctor]
     fn setup() {
-        let ctx = context::Context::new();
+        let mut ctx = context::Context::new();
         unsafe {
-            nix_c_raw::libstore_init(ctx.ptr());
-        };
-        ctx.check_err().unwrap();
+            check_call!(raw::libstore_init(&mut ctx)).unwrap();
+        }
     }
 
     #[test]
