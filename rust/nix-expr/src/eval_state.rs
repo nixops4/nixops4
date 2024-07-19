@@ -9,7 +9,7 @@ use nix_store::store::{Store, StoreWeak};
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CString};
 use std::os::raw::c_uint;
 use std::ptr::{null, null_mut, NonNull};
 use std::sync::{Arc, Weak};
@@ -416,16 +416,6 @@ impl EvalState {
         Ok(Value::new(value))
     }
 
-    pub fn thunk(&mut self, f: Box<dyn Fn(&mut EvalState) -> Result<Value>>) -> Result<Value> {
-        // Nix doesn't have a function for creating a thunk, so we have to
-        // create a function and pass it a dummy argument.
-        let f = self.new_value_function(
-            FUNCTION_ANONYMOUS.as_ptr(),
-            Box::new(move |eval_state, _dummy: &[Value; 1]| f(eval_state)),
-        )?;
-        self.new_value_apply(&f, &f)
-    }
-
     /// Create a new Nix function that is implemented by a Rust function.
     /// This is also known as a "primop" in Nix, short for primitive operation.
     /// Most of the `builtins.*` values are examples of primops, but
@@ -440,38 +430,6 @@ impl EvalState {
             ))?;
         };
         Ok(value)
-    }
-
-    /// A worse quality shortcut for calling [new_value_primop].
-    pub fn new_value_function<const N: usize>(
-        &mut self,
-        name: *const i8,
-        f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
-    ) -> Result<Value> {
-        if N == 0 {
-            return self.thunk(Box::new(move |eval_state| {
-                f(eval_state, {
-                    let empty: &[Value] = &[];
-                    empty.try_into().unwrap()
-                })
-            }));
-        }
-
-        let name = unsafe { CStr::from_ptr(name) };
-
-        let args: [&CStr; N] = [FUNCTION_ANONYMOUS_ARG.as_ref(); N];
-
-        let prim = primop::PrimOp::new(
-            self,
-            primop::PrimOpMeta {
-                name,
-                args,
-                doc: FUNCTION_ANONYMOUS_DOC.as_ref(),
-            },
-            f,
-        )?;
-
-        self.new_value_primop(prim)
     }
 }
 
@@ -527,11 +485,6 @@ impl Clone for EvalState {
     }
 }
 
-lazy_static! {
-    pub static ref FUNCTION_ANONYMOUS: CString = CString::new("anonymous-primop").unwrap();
-    static ref FUNCTION_ANONYMOUS_ARG: CString = CString::new("x").unwrap();
-    static ref FUNCTION_ANONYMOUS_DOC: CString = CString::new("anonymous primop").unwrap();
-}
 /// Initialize the Nix library for testing. This includes some modifications to the Nix settings, that must not be used in production.
 /// Use at your own peril, in rust test suites.
 pub fn test_init() {
@@ -555,6 +508,7 @@ mod tests {
     use cstr::cstr;
     use ctor::ctor;
     use std::collections::HashMap;
+    use std::ffi::CStr;
     use std::fs::read_dir;
     use std::io::Write as _;
     use std::sync::{Arc, Mutex};
@@ -562,6 +516,60 @@ mod tests {
     #[ctor]
     fn setup() {
         test_init();
+    }
+
+    lazy_static! {
+        pub static ref FUNCTION_ANONYMOUS: CString = CString::new("anonymous-primop").unwrap();
+        static ref FUNCTION_ANONYMOUS_ARG: CString = CString::new("x").unwrap();
+        static ref FUNCTION_ANONYMOUS_DOC: CString = CString::new("anonymous primop").unwrap();
+    }
+    pub fn thunk(
+        es: &mut EvalState,
+        f: Box<dyn Fn(&mut EvalState) -> Result<Value>>,
+    ) -> Result<Value> {
+        // Nix doesn't have a function for creating a thunk, so we have to
+        // create a function and pass it a dummy argument.
+        let f = new_value_function(
+            es,
+            FUNCTION_ANONYMOUS.as_ptr(),
+            Box::new(move |eval_state, _dummy: &[Value; 1]| f(eval_state)),
+        )?;
+        es.new_value_apply(&f, &f)
+    }
+
+    /// A worse quality shortcut for calling [new_value_primop].
+    pub fn new_value_function<const N: usize>(
+        es: &mut EvalState,
+        name: *const i8,
+        f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
+    ) -> Result<Value> {
+        if N == 0 {
+            return thunk(
+                es,
+                Box::new(move |eval_state| {
+                    f(eval_state, {
+                        let empty: &[Value] = &[];
+                        empty.try_into().unwrap()
+                    })
+                }),
+            );
+        }
+
+        let name = unsafe { CStr::from_ptr(name) };
+
+        let args: [&CStr; N] = [FUNCTION_ANONYMOUS_ARG.as_ref(); N];
+
+        let prim = primop::PrimOp::new(
+            es,
+            primop::PrimOpMeta {
+                name,
+                args,
+                doc: FUNCTION_ANONYMOUS_DOC.as_ref(),
+            },
+            f,
+        )?;
+
+        es.new_value_primop(prim)
     }
 
     #[test]
@@ -1340,17 +1348,17 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let bias: Arc<Mutex<Int>> = Arc::new(Mutex::new(0));
             let bias_control = bias.clone();
-            let f = es
-                .new_value_function(
-                    FUNCTION_ANONYMOUS.as_ptr(),
-                    Box::new(move |es, [a, b]| {
-                        let a = es.require_int(a)?;
-                        let b = es.require_int(b)?;
-                        let c = *bias.lock().unwrap();
-                        Ok(es.new_value_int(a + b + c)?)
-                    }),
-                )
-                .unwrap();
+            let f = new_value_function(
+                &mut es,
+                FUNCTION_ANONYMOUS.as_ptr(),
+                Box::new(move |es, [a, b]| {
+                    let a = es.require_int(a)?;
+                    let b = es.require_int(b)?;
+                    let c = *bias.lock().unwrap();
+                    Ok(es.new_value_int(a + b + c)?)
+                }),
+            )
+            .unwrap();
             {
                 *bias_control.lock().unwrap() = 10;
             }
@@ -1372,15 +1380,15 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let f = es
-                .new_value_function(
-                    FUNCTION_ANONYMOUS.as_ptr(),
-                    Box::new(move |es, [a]| {
-                        let a = es.require_int(a)?;
-                        bail!("error with arg [{}]", a);
-                    }),
-                )
-                .unwrap();
+            let f = new_value_function(
+                &mut es,
+                FUNCTION_ANONYMOUS.as_ptr(),
+                Box::new(move |es, [a]| {
+                    let a = es.require_int(a)?;
+                    bail!("error with arg [{}]", a);
+                }),
+            )
+            .unwrap();
             let a = es.new_value_int(2).unwrap();
             let r = es.call(f, a);
             match r {
@@ -1401,12 +1409,12 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let v = es
-                .new_value_function(
-                    FUNCTION_ANONYMOUS.as_ptr(),
-                    Box::new(move |es, []| Ok(es.new_value_int(42)?)),
-                )
-                .unwrap();
+            let v = new_value_function(
+                &mut es,
+                FUNCTION_ANONYMOUS.as_ptr(),
+                Box::new(move |es, []| Ok(es.new_value_int(42)?)),
+            )
+            .unwrap();
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             eprintln!("{:?}", t);
@@ -1422,14 +1430,14 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let v = es
-                .new_value_function(
-                    FUNCTION_ANONYMOUS.as_ptr(),
-                    Box::new(move |_es, []| {
-                        bail!("error message in test case eval_state_primop_anon_call_no_args_lazy")
-                    }),
-                )
-                .unwrap();
+            let v = new_value_function(
+                &mut es,
+                FUNCTION_ANONYMOUS.as_ptr(),
+                Box::new(move |_es, []| {
+                    bail!("error message in test case eval_state_primop_anon_call_no_args_lazy")
+                }),
+            )
+            .unwrap();
             let r = es.force(&v);
             match r {
                 Ok(_) => panic!("expected an error"),
