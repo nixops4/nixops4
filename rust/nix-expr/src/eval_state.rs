@@ -539,7 +539,6 @@ mod tests {
     use cstr::cstr;
     use ctor::ctor;
     use std::collections::HashMap;
-    use std::ffi::CStr;
     use std::fs::read_dir;
     use std::io::Write as _;
     use std::sync::{Arc, Mutex};
@@ -547,39 +546,6 @@ mod tests {
     #[ctor]
     fn setup() {
         test_init();
-    }
-
-    /// A worse quality shortcut for calling [new_value_primop].
-    pub fn new_value_function<const N: usize>(
-        es: &mut EvalState,
-        name: &CStr,
-        f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
-    ) -> Result<Value> {
-        if N == 0 {
-            return es.new_value_thunk(
-                "test_thunk",
-                Box::new(move |eval_state| {
-                    f(eval_state, {
-                        let empty: &[Value] = &[];
-                        empty.try_into().unwrap()
-                    })
-                }),
-            );
-        }
-
-        let args: [&CStr; N] = [cstr!("arg"); N];
-
-        let prim = primop::PrimOp::new(
-            es,
-            primop::PrimOpMeta {
-                name,
-                args,
-                doc: cstr!("anonymous test function"),
-            },
-            f,
-        )?;
-
-        es.new_value_primop(prim)
     }
 
     #[test]
@@ -1358,9 +1324,14 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let bias: Arc<Mutex<Int>> = Arc::new(Mutex::new(0));
             let bias_control = bias.clone();
-            let f = new_value_function(
+
+            let primop = primop::PrimOp::new(
                 &mut es,
-                cstr!("testFunction"),
+                primop::PrimOpMeta {
+                    name: cstr!("testFunction"),
+                    args: [cstr!("a"), cstr!("b")],
+                    doc: cstr!("anonymous test function"),
+                },
                 Box::new(move |es, [a, b]| {
                     let a = es.require_int(a)?;
                     let b = es.require_int(b)?;
@@ -1369,6 +1340,9 @@ mod tests {
                 }),
             )
             .unwrap();
+
+            let f = es.new_value_primop(primop).unwrap();
+
             {
                 *bias_control.lock().unwrap() = 10;
             }
@@ -1390,14 +1364,24 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let f = new_value_function(
-                &mut es,
-                cstr!("throwingTestFunction"),
-                Box::new(move |es, [a]| {
-                    let a = es.require_int(a)?;
-                    bail!("error with arg [{}]", a);
-                }),
-            )
+            let f = {
+                let es: &mut EvalState = &mut es;
+                let prim = primop::PrimOp::new(
+                    es,
+                    primop::PrimOpMeta {
+                        name: cstr!("throwingTestFunction"),
+                        args: [cstr!("arg")],
+                        doc: cstr!("anonymous test function"),
+                    },
+                    Box::new(move |es, [a]| {
+                        let a = es.require_int(a)?;
+                        bail!("error with arg [{}]", a);
+                    }),
+                )
+                .unwrap();
+
+                es.new_value_primop(prim)
+            }
             .unwrap();
             let a = es.new_value_int(2).unwrap();
             let r = es.call(f, a);
@@ -1419,12 +1403,12 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let v = new_value_function(
-                &mut es,
-                cstr!("zeroArgTestFunction"),
-                Box::new(move |es, []| Ok(es.new_value_int(42)?)),
-            )
-            .unwrap();
+            let v = es
+                .new_value_thunk(
+                    "test_thunk",
+                    Box::new(move |es: &mut EvalState| Ok(es.new_value_int(42)?)),
+                )
+                .unwrap();
             es.force(&v).unwrap();
             let t = es.value_type(&v).unwrap();
             eprintln!("{:?}", t);
@@ -1440,14 +1424,14 @@ mod tests {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", []).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
-            let v = new_value_function(
-                &mut es,
-                cstr!("zeroArgTestFunction"),
-                Box::new(move |_es, []| {
-                    bail!("error message in test case eval_state_primop_anon_call_no_args_lazy")
-                }),
-            )
-            .unwrap();
+            let v = es
+                .new_value_thunk(
+                    "test_thunk",
+                    Box::new(move |_| {
+                        bail!("error message in test case eval_state_primop_anon_call_no_args_lazy")
+                    }),
+                )
+                .unwrap();
             let r = es.force(&v);
             match r {
                 Ok(_) => panic!("expected an error"),
