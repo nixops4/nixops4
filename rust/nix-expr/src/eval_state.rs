@@ -549,16 +549,10 @@ mod tests {
         test_init();
     }
 
-    lazy_static! {
-        pub static ref FUNCTION_ANONYMOUS: CString = CString::new("anonymous-primop").unwrap();
-        static ref FUNCTION_ANONYMOUS_ARG: CString = CString::new("x").unwrap();
-        static ref FUNCTION_ANONYMOUS_DOC: CString = CString::new("anonymous primop").unwrap();
-    }
-
     /// A worse quality shortcut for calling [new_value_primop].
     pub fn new_value_function<const N: usize>(
         es: &mut EvalState,
-        name: *const i8,
+        name: &CStr,
         f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
     ) -> Result<Value> {
         if N == 0 {
@@ -573,16 +567,14 @@ mod tests {
             );
         }
 
-        let name = unsafe { CStr::from_ptr(name) };
-
-        let args: [&CStr; N] = [FUNCTION_ANONYMOUS_ARG.as_ref(); N];
+        let args: [&CStr; N] = [cstr!("arg"); N];
 
         let prim = primop::PrimOp::new(
             es,
             primop::PrimOpMeta {
                 name,
                 args,
-                doc: FUNCTION_ANONYMOUS_DOC.as_ref(),
+                doc: cstr!("anonymous test function"),
             },
             f,
         )?;
@@ -1368,7 +1360,7 @@ mod tests {
             let bias_control = bias.clone();
             let f = new_value_function(
                 &mut es,
-                FUNCTION_ANONYMOUS.as_ptr(),
+                cstr!("testFunction"),
                 Box::new(move |es, [a, b]| {
                     let a = es.require_int(a)?;
                     let b = es.require_int(b)?;
@@ -1400,7 +1392,7 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let f = new_value_function(
                 &mut es,
-                FUNCTION_ANONYMOUS.as_ptr(),
+                cstr!("throwingTestFunction"),
                 Box::new(move |es, [a]| {
                     let a = es.require_int(a)?;
                     bail!("error with arg [{}]", a);
@@ -1429,7 +1421,7 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let v = new_value_function(
                 &mut es,
-                FUNCTION_ANONYMOUS.as_ptr(),
+                cstr!("zeroArgTestFunction"),
                 Box::new(move |es, []| Ok(es.new_value_int(42)?)),
             )
             .unwrap();
@@ -1450,7 +1442,7 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let v = new_value_function(
                 &mut es,
-                FUNCTION_ANONYMOUS.as_ptr(),
+                cstr!("zeroArgTestFunction"),
                 Box::new(move |_es, []| {
                     bail!("error message in test case eval_state_primop_anon_call_no_args_lazy")
                 }),
