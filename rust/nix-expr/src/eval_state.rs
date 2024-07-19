@@ -1,3 +1,4 @@
+use crate::primop;
 use crate::value::{Int, Value, ValueType};
 use anyhow::Context as _;
 use anyhow::{bail, Result};
@@ -8,8 +9,7 @@ use nix_store::store::{Store, StoreWeak};
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
-use std::ffi::{c_char, c_int, c_void, CString};
-use std::mem::ManuallyDrop;
+use std::ffi::{c_char, CStr, CString};
 use std::os::raw::c_uint;
 use std::ptr::{null, null_mut, NonNull};
 use std::sync::{Arc, Weak};
@@ -78,7 +78,7 @@ impl Drop for EvalStateRef {
 pub struct EvalState {
     eval_state: Arc<EvalStateRef>,
     store: Store,
-    context: Context,
+    pub(crate) context: Context,
 }
 impl EvalState {
     pub fn new<'a>(store: Store, lookup_path: impl IntoIterator<Item = &'a str>) -> Result<Self> {
@@ -426,9 +426,23 @@ impl EvalState {
         self.new_value_apply(&f, &f)
     }
 
-    /// Create a new function that is backed by a Rust function.
+    /// Create a new Nix function that is implemented by a Rust function.
     /// This is also known as a "primop" in Nix, short for primitive operation.
-    /// The `builtins.*` are examples of primops.
+    /// Most of the `builtins.*` values are examples of primops, but
+    /// `new_value_primop` does not affect `builtins`.
+    pub fn new_value_primop(&mut self, primop: primop::PrimOp) -> Result<Value> {
+        let value = self.new_value_uninitialized()?;
+        unsafe {
+            check_call!(raw::init_primop(
+                &mut self.context,
+                value.raw_ptr(),
+                primop.ptr
+            ))?;
+        };
+        Ok(value)
+    }
+
+    /// A worse quality shortcut for calling [new_value_primop].
     pub fn new_value_function<const N: usize>(
         &mut self,
         name: *const i8,
@@ -443,43 +457,21 @@ impl EvalState {
             }));
         }
 
-        let mut args = Vec::new();
-        for _ in 0..N {
-            args.push(FUNCTION_ANONYMOUS_ARG.as_ptr());
-        }
-        args.push(null());
-        // This leaks
+        let name = unsafe { CStr::from_ptr(name) };
 
-        let user_data = {
-            // We'll be leaking this Box.
-            // TODO: Use the GC with finalizer, if possible.
-            let user_data = ManuallyDrop::new(Box::new(PrimOpContext {
-                arity: N,
-                function: Box::new(move |eval_state, args| {
-                    let r = f(eval_state, args.try_into().unwrap());
-                    r
-                }),
-                eval_state: self.weak_ref(),
-            }));
-            user_data.as_ref() as *const PrimOpContext as *mut c_void
-        };
-        let op = unsafe {
-            check_call!(raw::alloc_primop(
-                &mut self.context,
-                FUNCTION_ADAPTER,
-                N as c_int,
+        let args: [&CStr; N] = [FUNCTION_ANONYMOUS_ARG.as_ref(); N];
+
+        let prim = primop::PrimOp::new(
+            self,
+            primop::PrimOpMeta {
                 name,
-                args.as_mut_ptr(), /* TODO add an extra const to bindings to avoid mut here. */
-                FUNCTION_ANONYMOUS_DOC.as_ptr(),
-                user_data
-            ))?
-        };
-        let value = self.new_value_uninitialized()?;
-        // Then use it in a value
-        unsafe {
-            check_call!(raw::init_primop(&mut self.context, value.raw_ptr(), op))?;
-        }
-        Ok(value)
+                args,
+                doc: FUNCTION_ANONYMOUS_DOC.as_ref(),
+            },
+            f,
+        )?;
+
+        self.new_value_primop(prim)
     }
 }
 
@@ -535,50 +527,6 @@ impl Clone for EvalState {
     }
 }
 
-/// The user_data for our Nix primops
-struct PrimOpContext {
-    arity: usize,
-    // Something like Haskell's Dynamic
-    function: Box<dyn Fn(&mut EvalState, &[Value]) -> Result<Value>>,
-    eval_state: EvalStateWeak,
-}
-
-unsafe extern "C" fn function_adapter(
-    user_data: *mut ::std::os::raw::c_void,
-    context_out: *mut raw::c_context,
-    _state: *mut raw::EvalState,
-    args: *mut *mut raw::Value,
-    ret: *mut raw::Value,
-) {
-    let primop_info = (user_data as *const PrimOpContext).as_ref().unwrap();
-    let mut eval_state = primop_info.eval_state.upgrade().unwrap_or_else(|| {
-        panic!("Nix primop called after EvalState was dropped");
-    });
-    let args_raw_slice = unsafe { std::slice::from_raw_parts(args, primop_info.arity) };
-    let args_vec: Vec<Value> = args_raw_slice
-        .iter()
-        .map(|v| Value::new_borrowed(*v as *mut c_void))
-        .collect();
-    let args_slice = args_vec.as_slice();
-
-    let r = primop_info.function.as_ref()(&mut eval_state, args_slice);
-
-    match r {
-        Ok(v) => unsafe {
-            raw::copy_value(context_out, ret, v.raw_ptr());
-        },
-        Err(e) => unsafe {
-            let cstr = CString::new(e.to_string()).unwrap_or_else(|_e| {
-                CString::new("<rust nix-expr application error message contained null byte>")
-                    .unwrap()
-            });
-            raw::set_err_msg(context_out, raw::NIX_ERR_UNKNOWN, cstr.as_ptr());
-        },
-    }
-}
-
-static FUNCTION_ADAPTER: raw::PrimOpFun = Some(function_adapter);
-
 lazy_static! {
     pub static ref FUNCTION_ANONYMOUS: CString = CString::new("anonymous-primop").unwrap();
     static ref FUNCTION_ANONYMOUS_ARG: CString = CString::new("x").unwrap();
@@ -604,6 +552,7 @@ pub fn test_init() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cstr::cstr;
     use ctor::ctor;
     use std::collections::HashMap;
     use std::fs::read_dir;
@@ -1488,6 +1437,73 @@ mod tests {
                     if !e.to_string().contains(
                         "error message in test case eval_state_primop_anon_call_no_args_lazy",
                     ) {
+                        eprintln!("unexpected error message: {}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_primop_custom() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let primop = primop::PrimOp::new(
+                &mut es,
+                primop::PrimOpMeta {
+                    name: cstr!("frobnicate"),
+                    doc: cstr!("Frobnicates widgets"),
+                    args: [cstr!("x"), cstr!("y")],
+                },
+                Box::new(|es, args| {
+                    let a = es.require_int(&args[0])?;
+                    let b = es.require_int(&args[1])?;
+                    Ok(es.new_value_int(a + b)?)
+                }),
+            )
+            .unwrap();
+            let f = es.new_value_primop(primop).unwrap();
+            let a = es.new_value_int(2).unwrap();
+            let b = es.new_value_int(3).unwrap();
+            let fa = es.call(f, a).unwrap();
+            let fb = es.call(fa, b).unwrap();
+            es.force(&fb).unwrap();
+            let t = es.value_type(&fb).unwrap();
+            assert!(t == ValueType::Int);
+            let i = es.require_int(&fb).unwrap();
+            assert!(i == 5);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_primop_custom_throw() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let primop = primop::PrimOp::new(
+                &mut es,
+                primop::PrimOpMeta {
+                    name: cstr!("frobnicate"),
+                    doc: cstr!("Frobnicates widgets"),
+                    args: [cstr!("x")],
+                },
+                Box::new(|_es, _args| bail!("The frob unexpectedly fizzled")),
+            )
+            .unwrap();
+            let f = es.new_value_primop(primop).unwrap();
+            let a = es.new_value_int(0).unwrap();
+            match es.call(f, a) {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("The frob unexpectedly fizzled") {
+                        eprintln!("unexpected error message: {}", e);
+                        assert!(false);
+                    }
+                    if !e.to_string().contains("frobnicate") {
                         eprintln!("unexpected error message: {}", e);
                         assert!(false);
                     }
