@@ -40,6 +40,8 @@ impl PrimOp {
         meta: PrimOpMeta<N>,
         f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
     ) -> Result<PrimOp> {
+        assert!(N != 0);
+
         let mut args = Vec::new();
         for arg in meta.args {
             args.push(arg.as_ptr());

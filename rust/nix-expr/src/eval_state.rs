@@ -2,6 +2,7 @@ use crate::primop;
 use crate::value::{Int, Value, ValueType};
 use anyhow::Context as _;
 use anyhow::{bail, Result};
+use cstr::cstr;
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_store::path::StorePath;
@@ -307,6 +308,36 @@ impl EvalState {
         Ok(v)
     }
 
+    /// Create a new thunk that will evaluate to the result of the given function.
+    /// The function will be called with the current EvalState.
+    /// The function must not return a thunk.
+    ///
+    /// The name is shown in stack traces.
+    pub fn new_value_thunk(
+        &mut self,
+        name: &str,
+        f: Box<dyn Fn(&mut EvalState) -> Result<Value>>,
+    ) -> Result<Value> {
+        // Nix doesn't have a function for creating a thunk, so we have to
+        // create a function and pass it a dummy argument.
+        let name = CString::new(name).with_context(|| "new_thunk: name contains null byte")?;
+        let primop = primop::PrimOp::new(
+            self,
+            primop::PrimOpMeta {
+                // name is observable in stack traces, ie if the thunk returns Err
+                name: name.as_c_str(),
+                // doc is unlikely to be observable, so we provide a constant one for simplicity.
+                doc: cstr!("Performs an on demand computation, implemented outside the Nix language in native code."),
+                // like doc, unlikely to be observed
+                args: [CString::new("internal_unused").unwrap().as_c_str()],
+            },
+            Box::new(move |eval_state, _dummy: &[Value; 1]| f(eval_state)),
+        )?;
+
+        let p = self.new_value_primop(primop)?;
+        self.new_value_apply(&p, &p)
+    }
+
     /// Not exposed, because the caller must always explicitly handle the context or not accept one at all.
     fn get_string(&mut self, value: &Value) -> Result<String> {
         let mut r = result_string_init!();
@@ -523,19 +554,6 @@ mod tests {
         static ref FUNCTION_ANONYMOUS_ARG: CString = CString::new("x").unwrap();
         static ref FUNCTION_ANONYMOUS_DOC: CString = CString::new("anonymous primop").unwrap();
     }
-    pub fn thunk(
-        es: &mut EvalState,
-        f: Box<dyn Fn(&mut EvalState) -> Result<Value>>,
-    ) -> Result<Value> {
-        // Nix doesn't have a function for creating a thunk, so we have to
-        // create a function and pass it a dummy argument.
-        let f = new_value_function(
-            es,
-            FUNCTION_ANONYMOUS.as_ptr(),
-            Box::new(move |eval_state, _dummy: &[Value; 1]| f(eval_state)),
-        )?;
-        es.new_value_apply(&f, &f)
-    }
 
     /// A worse quality shortcut for calling [new_value_primop].
     pub fn new_value_function<const N: usize>(
@@ -544,8 +562,8 @@ mod tests {
         f: Box<dyn Fn(&mut EvalState, &[Value; N]) -> Result<Value>>,
     ) -> Result<Value> {
         if N == 0 {
-            return thunk(
-                es,
+            return es.new_value_thunk(
+                "test_thunk",
                 Box::new(move |eval_state| {
                     f(eval_state, {
                         let empty: &[Value] = &[];
@@ -1445,6 +1463,10 @@ mod tests {
                     if !e.to_string().contains(
                         "error message in test case eval_state_primop_anon_call_no_args_lazy",
                     ) {
+                        eprintln!("unexpected error message: {}", e);
+                        assert!(false);
+                    }
+                    if !e.to_string().contains("test_thunk") {
                         eprintln!("unexpected error message: {}", e);
                         assert!(false);
                     }
