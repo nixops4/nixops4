@@ -23,7 +23,6 @@ NixOps 4 will be implemented in Rust.
   - Nix itself has experimented with a gradual Rust migration, although this was reverted because the gradual migration process was not viable
 - (-) Somewhat steep learning curve
   - Less than Haskell's
-  - Partially mitigated by AI assistants
 
 ## Alternatives
 
@@ -61,7 +60,7 @@ NixOps 4 will be implemented in Rust.
 - (-) C++ does not have Nix bindings.
   - Nix is implemented in C++, but that C++ is not a stable interface. It still needs C++ bindings based on the C interface, which do not exist, and would seem unappealing.
 - (-) C++ has worse memory safety.
-- (-) C++ has worse types.
+- (-) C++ type system is trickier (has implicit coercions, template generics aren't types that abstract away internals, resulting in complex error messages)
 - (-) C++ is not as appealing to contributors.
 - (-) C++ is harder to review.
 
@@ -97,7 +96,7 @@ NixOps 4 will be implemented in Rust.
 
 # C#
 
-- (-) Impopular in open source community
+- (-) Unpopular in open source community
 
 # Other interpreted language
 
