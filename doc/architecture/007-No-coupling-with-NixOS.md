@@ -5,6 +5,9 @@
 NixOps 1 and 2 were tightly coupled with NixOS. This made it hard to use NixOps for other purposes, such as deploying Docker containers, or nix-darwin.
 
 Furthermore, it had a few special files and expectations in the `nixpkgs` repository, which made it hard for NixOS maintainers to understand and maintain, and also made it hard for NixOps to change, as NixOps is expected to support a wide range of NixOS versions.
+This has caused problems, such as:
+  - "nixops now fails because system.nixosVersion was renamed to system.nixos.version." [nixpkgs#34253](https://github.com/NixOS/nixpkgs/issues/34253#issuecomment-367863490)
+  - "The PR https://github.com/NixOS/nixpkgs/pull/12198 removed this compatibility layer causing breakage" - [nixops#382](https://github.com/NixOS/nixops/issues/382)
 
 ## Decision
 
