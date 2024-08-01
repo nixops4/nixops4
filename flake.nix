@@ -21,11 +21,18 @@
           inputs.pre-commit-hooks-nix.flakeModule
           inputs.nix-cargo-integration.flakeModule
           ./rust/nci.nix
+          ./test/nixos/flake-module.nix
         ];
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
 
-          packages.default = config.packages.nixops4-release;
+          packages.default = config.packages.nixops4;
+
+          packages.nixops4 = pkgs.callPackage ./package.nix {
+            nixops4-cli-rust = config.packages.nixops4-release;
+            nixops4-eval = config.packages.nixops4-eval-release;
+          };
+
           packages.nix = inputs'.nix.packages.nix;
 
           pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
@@ -95,6 +102,47 @@
         };
         flake = {
           herculesCI.ciSystems = [ "x86_64-linux" ];
+
+          nixops4Deployments.default = {
+            _type = "nixops4Deployment";
+            deploymentFunction = { resources }:
+              let
+                # TODO get this `providers.local` attrset from a flake output
+                providers.local = {
+                  type = "stdio";
+                  command = "nixops4-resources-local";
+                  args = [ ];
+                  types.file.outputs = { };
+                  types.exec.outputs = {
+                    # If we assign example values, we might make the deployment "buildable" in pure nix. Not a full build, but ensuring that dependencies are available.
+                    stdout.example = "";
+                  };
+                };
+              in
+              {
+                resources = {
+                  thefile = {
+                    # _type = "nixops4Resource";
+                    provider = providers.local;
+                    type = "file";
+                    inputs = {
+                      name = "/tmp/hello-nixops4";
+                      contents = resources.hello.stdout;
+                    };
+                  };
+                  hello = {
+                    # _type = "nixops4Resource";
+                    provider = providers.local;
+                    type = "exec";
+                    inputs = {
+                      command = "bash";
+                      args = [ "-c" "echo 'Hello, NixOps4!'" ];
+                      stdin = null;
+                    };
+                  };
+                };
+              };
+          };
         };
       });
 }
