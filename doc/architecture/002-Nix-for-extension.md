@@ -26,6 +26,6 @@ Specifically the interface of resources will be akin to that of Terraform: entit
 
 - NixOps has a good chance of producing a stable interface, because it will be scoped to the basics of managing resources, and not the specifics of various resources.
 
-- NixOps will be equally suitable for managing deployments of NixOS as other Nix-based configuration systems.
+- NixOps will be equally suitable for managing deployments of NixOS as other Nix-based configuration systems, such as nix-darwin, arion or even disko (a declarative disk partitioner).
 
 - There will be no delineation between "tool-provided" and user-provided, therefore not posing an obstacle just as it isn't for packages outside of Nixpkgs, or NixOS modules outside of the `nixpkgs` repository.
