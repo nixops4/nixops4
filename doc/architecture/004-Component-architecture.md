@@ -20,7 +20,11 @@ At a high level, `nixops4` is an executable that realises its extensions through
     - Data loss following resource creation can have a real world cost, especially if not reported to the user.
 - The NixOps core library, analogous to Nix's `libstore`, and using it, but not `libexpr`.
   - Implements the interaction with resource implementations
-  - Coordinates the interactions between resources and the evaluator
+    - for context, a resource represents a "real world" object, like a DNS record or cloud VM instance, and tends to implement CRUD operations. The Terraform/OpenTofu definition of resource is a good intuition for what a NixOps resource will be
+  - Coordinates the interactions between resource processes and the evaluator process
+  - Maintains a model of the configuration
+  - Invokes operations on resources (process creation and communication)
+  - The bulk of the logic exposed through the CLI, but not the CLI details such as flag names, etc
 
 During prototyping, the NixOps evaluator process might be incorporated into the CLI, to simplify the development process.
 
