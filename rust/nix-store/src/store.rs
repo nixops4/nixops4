@@ -7,6 +7,7 @@ use nix_util::{check_call, result_string_init};
 use std::ffi::{c_char, CString};
 use std::ptr::null_mut;
 use std::ptr::NonNull;
+use std::sync::{Arc, Weak};
 
 /* TODO make Nix itself thread safe */
 lazy_static! {
@@ -32,8 +33,24 @@ impl Drop for StoreRef {
     }
 }
 
+/// A [Weak] reference to a store.
+pub struct StoreWeak {
+    inner: Weak<StoreRef>,
+}
+impl StoreWeak {
+    /// Upgrade the weak reference to a proper [Store].
+    ///
+    /// If no normal reference to the [Store] is around anymore elsewhere, this fails by returning `None`.
+    pub fn upgrade(&self) -> Option<Store> {
+        self.inner.upgrade().map(|inner| Store {
+            inner,
+            context: Context::new(),
+        })
+    }
+}
+
 pub struct Store {
-    inner: StoreRef,
+    inner: Arc<StoreRef>,
     /* An error context to reuse. This way we don't have to allocate them for each store operation. */
     context: Context,
 }
@@ -84,9 +101,9 @@ impl Store {
             panic!("nix_c_store_open returned a null pointer without an error");
         }
         let store = Store {
-            inner: StoreRef {
+            inner: Arc::new(StoreRef {
                 inner: NonNull::new(store).unwrap(),
-            },
+            }),
             context,
         };
         Ok(store)
@@ -107,6 +124,21 @@ impl Store {
             ))
         }?;
         r
+    }
+
+    pub fn weak_ref(&self) -> StoreWeak {
+        StoreWeak {
+            inner: Arc::downgrade(&self.inner),
+        }
+    }
+}
+
+impl Clone for Store {
+    fn clone(&self) -> Self {
+        Store {
+            inner: self.inner.clone(),
+            context: Context::new(),
+        }
     }
 }
 
@@ -145,5 +177,23 @@ mod tests {
         let mut store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert_eq!(uri, "https://cache.nixos.org");
+    }
+
+    #[test]
+    fn weak_ref() {
+        let mut store = Store::open("auto", HashMap::new()).unwrap();
+        let uri = store.get_uri().unwrap();
+        let weak = store.weak_ref();
+        let mut store2 = weak.upgrade().unwrap();
+        assert_eq!(store2.get_uri().unwrap(), uri);
+    }
+    #[test]
+    fn weak_ref_gone() {
+        let weak = {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            store.weak_ref()
+        };
+        assert!(weak.upgrade().is_none());
+        assert!(weak.inner.upgrade().is_none());
     }
 }
