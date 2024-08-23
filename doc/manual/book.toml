@@ -1,0 +1,10 @@
+[book]
+title = "NixOps4 Reference Manual"
+
+[output.html]
+edit-url-template = "https://github.com/nixops4/nixops4/tree/master/doc/manual/{path}"
+git-repository-url = "https://github.com/nixops4/nixops4"
+git-repository-icon = "fa-github"
+
+[output.html.print]
+enable = false  # big single page: not needed, bad UX, possibly bad for SEO

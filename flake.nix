@@ -18,6 +18,7 @@
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
           ./rust/nci.nix
+          ./doc/manual/flake-module.nix
         ];
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
