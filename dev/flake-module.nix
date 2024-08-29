@@ -71,8 +71,23 @@
       NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
     };
   };
-  herculesCI = hci@{ config, ... }: {
+  herculesCI = hci@{ config, primaryRepo, ... }: {
     ciSystems = [ "x86_64-linux" ];
+    onPush.default.outputs = {
+      effects.pushDocs =
+        lib.optionalAttrs
+          (hci.config.repo.branch == "main")
+          (withSystem "x86_64-linux" (perSystem@{ config, hci-effects, ... }:
+            hci-effects.gitWriteBranch {
+              git.checkout.remote.url = hci.config.repo.remoteHttpUrl;
+              git.checkout.forgeType = "github";
+              git.checkout.user = "x-access-token";
+              git.update.branch = "site-content";
+              contents = perSystem.config.packages.manual;
+              destination = "manual/development";
+            }
+          ));
+    };
   };
   flake = { };
 }
