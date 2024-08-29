@@ -1,0 +1,88 @@
+<html class="navy" lang="en" dir="ltr">
+
+<head>
+
+
+  <!-- Book generated using mdBook -->
+  <meta charset="UTF-8">
+  <title>Introduction - NixOps4 Reference Manual</title>
+
+
+  <!-- Custom HTML head -->
+
+  <meta name="description" content="">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="rgb(22, 25, 35)">
+
+  <link rel="icon" href="manual/development/favicon.svg">
+  <link rel="shortcut icon" href="manual/development/favicon.png">
+  <link rel="stylesheet" href="manual/development/css/variables.css">
+  <link rel="stylesheet" href="manual/development/css/general.css">
+  <link rel="stylesheet" href="manual/development/css/chrome.css">
+
+  <!-- Fonts -->
+  <link rel="stylesheet" href="manual/development/FontAwesome/css/font-awesome.css">
+  <link rel="stylesheet" href="manual/development/fonts/fonts.css">
+
+  <!-- Highlight.js Stylesheets -->
+  <link rel="stylesheet" href="manual/development/highlight.css" disabled="">
+  <link rel="stylesheet" href="manual/development/tomorrow-night.css">
+  <link rel="stylesheet" href="manual/development/ayu-highlight.css" disabled="">
+
+</head>
+
+<body class="sidebar-visible no-js">
+  <div id="body-container">
+    <!-- Provide site root to javascript -->
+    <script>
+      var path_to_root = "";
+      var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+    </script>
+    <!-- Set the theme before any content is loaded, prevents flash -->
+    <script>
+      var theme;
+      try { theme = localStorage.getItem('mdbook-theme'); } catch (e) { }
+      if (theme === null || theme === undefined) { theme = default_theme; }
+      var html = document.querySelector('html');
+      html.classList.remove('light')
+      html.classList.add(theme);
+      var body = document.querySelector('body');
+      body.classList.remove('no-js')
+      body.classList.add('js');
+    </script>
+
+    <!-- <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+    </nav> -->
+
+    <div id="page-wrapper" class="page-wrapper">
+
+      <div class="page">
+
+        <div id="menu-bar-hover-placeholder"></div>
+
+
+        <div id="menu-bar" class="menu-bar sticky">
+          <h1 class="menu-title">NixOps4</h1>
+        </div>
+
+
+        <div id="content" class="content">
+          <main>
+
+            <h1>NixOps</h1>
+
+            <p>
+              NixOps4 is currently in development.
+            </p>
+
+            <p>
+              You can find the in-progress manual in <a href="manual/development">manual/development</a>
+            </p>
+          </main>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
