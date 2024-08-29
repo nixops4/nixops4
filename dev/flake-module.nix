@@ -1,5 +1,8 @@
-{ inputs, ... }: {
-  imports = [ inputs.pre-commit-hooks-nix.flakeModule ];
+{ lib, inputs, withSystem, ... }: {
+  imports = [
+    inputs.pre-commit-hooks-nix.flakeModule
+    inputs.hercules-ci-effects.flakeModule
+  ];
   perSystem = { config, pkgs, ... }: {
 
     pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
@@ -54,6 +57,7 @@
         pkgs.clang-tools # clangd
         pkgs.valgrind
         pkgs.gdb
+        pkgs.hci
         # TODO: set up cargo-valgrind in shell and build
         #       currently both this and `cargo install cargo-valgrind`
         #       produce a binary that says ENOENT.
@@ -67,7 +71,8 @@
       NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
     };
   };
-  flake = {
-    herculesCI.ciSystems = [ "x86_64-linux" ];
+  herculesCI = hci@{ config, ... }: {
+    ciSystems = [ "x86_64-linux" ];
   };
+  flake = { };
 }
