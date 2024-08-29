@@ -11,6 +11,15 @@ pub unsafe extern "C" fn callback_get_result_string(
     user_data: *mut std::os::raw::c_void,
 ) {
     let ret = user_data as *mut Result<String>;
+
+    if start == std::ptr::null() {
+        if n != 0 {
+            panic!("callback_get_result_string: start is null but n is not zero");
+        }
+        *ret = Ok(String::new());
+        return;
+    }
+
     let slice = std::slice::from_raw_parts(start as *const u8, n as usize);
 
     if !(*ret).is_err() {
