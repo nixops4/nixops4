@@ -74,6 +74,29 @@
   herculesCI = hci@{ config, primaryRepo, ... }: {
     ciSystems = [ "x86_64-linux" ];
     onPush.default.outputs = {
+      effects.previewDocs =
+        lib.optionalAttrs
+          (hci.config.repo.branch != null)
+          (withSystem "x86_64-linux" (perSystem@{ config, hci-effects, pkgs, ... }:
+            (hci-effects.netlifyDeploy {
+              siteId = "f73012af-6a28-4dea-a0ea-5eee5cb56dd4";
+              secretName = "netlify-nixops4-previews";
+              extraDeployArgs = [ "--alias" hci.config.repo.branch ];
+              preEffect = ''
+                git clone https://github.com/nixops4/nixops4.git --branch site-content --depth 1
+                cd nixops4
+                mkdir -p manual
+                rm -rf manual/development .git
+                cp -r ${perSystem.config.packages.manual.html} manual/development
+                { echo 'User-agent: *'
+                  echo 'Disallow: /'
+                } >robots.txt
+              '';
+              content = ".";
+            }).overrideAttrs (prevAttrs: {
+              nativeBuildInputs = prevAttrs.nativeBuildInputs or [ ] ++ [ pkgs.git ];
+            })
+          ));
       effects.pushDocs =
         lib.optionalAttrs
           (hci.config.repo.branch == "main")
@@ -83,7 +106,7 @@
               git.checkout.forgeType = "github";
               git.checkout.user = "x-access-token";
               git.update.branch = "site-content";
-              contents = perSystem.config.packages.manual;
+              contents = perSystem.config.packages.manual.html;
               destination = "manual/development";
             }
           ));
