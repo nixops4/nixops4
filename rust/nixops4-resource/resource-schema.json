@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "NixOps4 Resource Protocol Schema",
+  "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
+  "definitions": {
+    "CreateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+        },
+        "inputProperties": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "type",
+        "inputProperties"
+      ]
+    },
+    "CreateResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that creates a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
+        }
+      },
+      "required": [
+        "outputProperties"
+      ]
+    }
+  }
+}
