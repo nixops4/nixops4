@@ -2,4 +2,6 @@
   - [Resource](./concept/resource.md)
 - [Resource Provider](./resource-provider/index.md)
   - [Resource Provider Interface](./resource-provider/interface.md)
+- [Protocols]()
+  - [Resource Protocol Schema](./schema/resource-schema-v0.md)
 - [Index](./index/index.md)

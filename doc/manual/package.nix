@@ -1,7 +1,7 @@
 { lib
 , stdenv
 , mdbook
-,
+, buildPackages
 }:
 let
   inherit (lib) fileset;
@@ -14,12 +14,16 @@ stdenv.mkDerivation (finalAttrs: {
       ./Makefile
       ./book.toml
       ./src
+      ./json-schema-for-humans-config.yaml
+      ../../rust/nixops4-resource/resource-schema-v0.json
     ];
-    root = ./.;
+    root = ../..;
   };
+  sourceRoot = "source/doc/manual";
   strictDeps = true;
   nativeBuildInputs = [
     mdbook
+    buildPackages.python3Packages.json-schema-for-humans
   ];
   installPhase = ''
     runHook preInstall

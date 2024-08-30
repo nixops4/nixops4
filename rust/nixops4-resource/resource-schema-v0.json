@@ -8,11 +8,14 @@
       "properties": {
         "type": {
           "type": "string",
+          "title": "Provider-defined resource type",
           "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
         },
         "inputProperties": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "title": "Input properties",
+          "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
         }
       },
       "required": [
@@ -26,12 +29,17 @@
         "outputProperties": {
           "type": "object",
           "additionalProperties": true,
-          "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that creates a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
+          "title": "Output properties",
+          "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
         }
       },
       "required": [
         "outputProperties"
       ]
     }
-  }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/CreateResourceRequest" },
+    { "$ref": "#/definitions/CreateResourceResponse" }
+  ]
 }
