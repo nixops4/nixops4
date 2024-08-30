@@ -11,6 +11,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = fileset.toSource {
     fileset = fileset.unions [
+      ./Makefile
       ./book.toml
       ./src
     ];
@@ -20,11 +21,6 @@ stdenv.mkDerivation (finalAttrs: {
   nativeBuildInputs = [
     mdbook
   ];
-  buildPhase = ''
-    runHook preBuild
-    mdbook build
-    runHook postBuild
-  '';
   installPhase = ''
     runHook preInstall
     docDir="$out/share/doc/nixops4/manual"
