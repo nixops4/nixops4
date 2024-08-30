@@ -21,7 +21,8 @@
       "required": [
         "type",
         "inputProperties"
-      ]
+      ],
+      "additionalProperties": false
     },
     "CreateResourceResponse": {
       "type": "object",
@@ -35,11 +36,13 @@
       },
       "required": [
         "outputProperties"
-      ]
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
     { "$ref": "#/definitions/CreateResourceRequest" },
     { "$ref": "#/definitions/CreateResourceResponse" }
-  ]
+  ],
+  "additionalProperties": false
 }
