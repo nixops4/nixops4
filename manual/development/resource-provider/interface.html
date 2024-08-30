@@ -176,28 +176,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="resource-provider-interface"><a class="header" href="#resource-provider-interface">Resource Provider Interface</a></h1>
-<p>Note that the resource provider interface is still in development.</p>
-<p>The interface between a resource provider and NixOps consist of expectations about:</p>
-<ul>
-<li>The Nix expression that builds the provider and its output</li>
-<li>The process that runs the provider</li>
-<li>A JSON-lines protocol between the provider and NixOps</li>
-</ul>
-<h2 id="nix-expression"><a class="header" href="#nix-expression">Nix Expression</a></h2>
-<p>TODO</p>
-<h2 id="process"><a class="header" href="#process">Process</a></h2>
-<p>NixOps launches the resource provider process built in the previous step.</p>
-<p>It communicates with the provider over the standard input and output streams using a JSON-lines protocol.
-Standard error is used for logging, and is line-buffered.</p>
-<p>TODO: exit behaviors</p>
-<h2 id="protocol"><a class="header" href="#protocol">Protocol</a></h2>
-<p>JSON-lines is a textual protocol where each line is a JSON value that is rendered without line breaks.
-Each line must contain a single JSON value, and be terminated with a newline character.</p>
-<p>We will refer to the JSON value that takes the line as a <em>message</em>.</p>
-<p>Messages going from NixOps to the provider are <em>requests</em>, and messages going from the provider to NixOps are <em>responses</em>.</p>
-<p>The content of the messages is specified in <a href="https://github.com/nixops4/nixops4/blob/main/rust/nixops4-resources/resource-provider-schema.json"><code>resource-provider-schema.json</code></a>.</p>
-<!-- TODO: describe handshake -->
-<!-- TODO: describe how the message types relate -->
+<p>The resource provider interface is still in development.</p>
 
                     </main>
 
