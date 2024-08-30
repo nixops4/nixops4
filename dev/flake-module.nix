@@ -62,7 +62,7 @@
         #       currently both this and `cargo install cargo-valgrind`
         #       produce a binary that says ENOENT.
         # pkgs.cargo-valgrind
-      ];
+      ] ++ config.packages.manual.nativeBuildInputs;
       shellHook = ''
         ${config.pre-commit.installationScript}
         echo 1>&2 "Welcome to the development shell!"
