@@ -1,4 +1,5 @@
 # mdbook
 book
 # generated
+src/cli
 src/schema

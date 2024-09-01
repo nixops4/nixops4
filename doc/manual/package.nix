@@ -2,6 +2,7 @@
 , stdenv
 , mdbook
 , buildPackages
+, nixops4-resource-runner
 }:
 let
   inherit (lib) fileset;
@@ -24,6 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
   nativeBuildInputs = [
     mdbook
     buildPackages.python3Packages.json-schema-for-humans
+    nixops4-resource-runner
   ];
   installPhase = ''
     runHook preInstall

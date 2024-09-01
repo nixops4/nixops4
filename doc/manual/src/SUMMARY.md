@@ -1,5 +1,7 @@
 - [Introduction](./index.md)
   - [Resource](./concept/resource.md)
+- [Command Line Utilities]()
+  - [`nixops4-resource-runner`](./cli/nixops4-resource-runner.md)
 - [Resource Provider](./resource-provider/index.md)
   - [Resource Provider Interface](./resource-provider/interface.md)
 - [Protocols]()
