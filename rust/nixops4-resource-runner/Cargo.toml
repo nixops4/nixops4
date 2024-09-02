@@ -10,6 +10,7 @@ edition = "2021"
 anyhow = "1.0.79"
 clap = { version = "4.5.16", features = ["derive"] }
 clap-markdown = "0.1.4"
+clap_complete = "4.5.24"
 clap_derive = "4.5.13"
 clap_mangen = "0.2.23"
 nixops4-resource = { path = "../nixops4-resource" }

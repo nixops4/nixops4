@@ -86,6 +86,16 @@ fn main() -> Result<()> {
             let markdown: String = clap_markdown::help_markdown_custom::<Args>(&opts);
             println!("{}", markdown);
         }
+        Commands::GenerateCompletion { shell } => {
+            // TODO: remove the generate-* commands from the completion
+            let mut cmd = Args::command();
+            clap_complete::generate(
+                shell.clone(),
+                &mut cmd,
+                "nixops4-resource-runner",
+                &mut std::io::stdout(),
+            );
+        }
     }
 
     Ok(())
@@ -136,4 +146,12 @@ enum Commands {
     /// Generate a manpage for nixops4-resource-runner
     #[command(hide = true)]
     GenerateMan,
+
+    /// Generate shell completion for nixops4-resource-runner
+    #[command(hide = true)]
+    GenerateCompletion {
+        /// The shell to generate completion for
+        #[arg(long)]
+        shell: clap_complete::Shell,
+    },
 }
