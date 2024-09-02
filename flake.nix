@@ -25,6 +25,7 @@
           packages.default = config.packages.nixops4-release;
           packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
+          checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
 
           /** A shell containing the packages of this flake. For development, use the `default` dev shell. */
           devShells.example = pkgs.mkShell {
