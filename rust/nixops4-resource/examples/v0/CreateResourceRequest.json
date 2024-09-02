@@ -1,0 +1,7 @@
+{
+  "type": "file",
+  "inputProperties": {
+    "path": "pubkey.txt",
+    "content": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD"
+  }
+}
