@@ -114,7 +114,7 @@ unsafe extern "C" fn function_adapter(
                 CString::new("<rust nix-expr application error message contained null byte>")
                     .unwrap()
             });
-            raw::set_err_msg(context_out, raw::err_NIX_ERR_UNKNOWN, cstr.as_ptr());
+            raw::set_err_msg(context_out, raw::NIX_ERR_UNKNOWN, cstr.as_ptr());
         },
     }
 }
