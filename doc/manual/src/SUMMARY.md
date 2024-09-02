@@ -5,5 +5,5 @@
 - [Resource Provider](./resource-provider/index.md)
   - [Resource Provider Interface](./resource-provider/interface.md)
 - [Protocols]()
-  - [Resource Protocol Schema](./schema/resource-schema-v0.md)
+  - [Resource Protocol Schema](./schema/resource-v0.md)
 - [Index](./index/index.md)

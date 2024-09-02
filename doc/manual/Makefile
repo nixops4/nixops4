@@ -6,7 +6,7 @@ default: book
 open: book
 	xdg-open book/index.html || open book/index.html
 
-GENERATED = src/schema/resource-schema-v0.md \
+GENERATED = src/schema/resource-schema-v0.gen.md \
   src/cli/nixops4-resource-runner.md
 
 clean:
@@ -22,12 +22,13 @@ src/schema/resource-schema-v0.json: ../../rust/nixops4-resource/resource-schema-
 	@cp $< $@
 
 # package: json-schema-for-humans
-%.md: %.json json-schema-for-humans-config.yaml
+%.gen.md: %.json json-schema-for-humans-config.yaml
 	@echo " JSON SCHEMA" $@
 	@generate-schema-doc --config-file json-schema-for-humans-config.yaml $< $@.tmp
 	@(head -n 1 $@.tmp; echo "[Raw JSON schema]($(shell basename $<))"; tail -n +2 $@.tmp) \
 	  | sed -e 's!a name=!a id=!g' \
 		    -e 's!\[\](#[^)]*)!!g' \
+				-e 's!^#!##!g' \
 				-e 's!\[\[Any type: allowed\]\](# "Additional Properties of any type are allowed\.")!Any type allowed!g' \
 				-e 's!\[\[Not allowed\]\](# "Additional Properties not allowed.")!Not allowed!g' \
 				> $@
