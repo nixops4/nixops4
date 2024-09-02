@@ -3,7 +3,7 @@
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix.url = "github:NixOS/nix";
+    nix.url = "github:NixOS/nix/ed129267dcd7dd2cce48c09b17aefd6cfc488bcd"; # 2.24-pre, before splitting libnixflake
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
