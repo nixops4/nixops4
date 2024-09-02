@@ -7,7 +7,9 @@ open: book
 	xdg-open book/index.html || open book/index.html
 
 GENERATED = src/schema/resource-schema-v0.gen.md \
-  src/cli/nixops4-resource-runner.md
+	src/cli/nixops4-resource-runner.md \
+	src/schema/resource-v0/examples/CreateResourceRequest.json \
+	src/schema/resource-v0/examples/CreateResourceResponse.json
 
 clean:
 	rm -rf book $(GENERATED)
@@ -62,3 +64,8 @@ src/cli/nixops4-resource-runner.md: $(NIXOPS4_RESOURCE_RUNNER_EXE)
 	@echo "  GENERATING" $@
 	@mkdir -p $(dir $@)
 	@$(NIXOPS4_RESOURCE_RUNNER_CMD) generate-markdown > $@
+
+src/schema/resource-v0/examples/%.json: ../../rust/nixops4-resource/examples/v0/%.json
+	@echo "        COPY" $@
+	@mkdir -p $(dir $@)
+	@cp $< $@

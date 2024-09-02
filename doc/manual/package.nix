@@ -17,6 +17,7 @@ stdenv.mkDerivation (finalAttrs: {
       ./src
       ./json-schema-for-humans-config.yaml
       ../../rust/nixops4-resource/resource-schema-v0.json
+      ../../rust/nixops4-resource/examples
     ];
     root = ../..;
   };
