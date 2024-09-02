@@ -3,6 +3,9 @@ use nix_c_raw as raw;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
 
+/// A context for error handling, when interacting directly with the generated bindings for the C API in [nix_c_raw].
+///
+/// The `nix-store` and `nix-expr` libraries that consume this type internally store a private context in their `EvalState` and `Store` structs to avoid allocating a new context for each operation. The state of a context is irrelevant when used correctly (e.g. with [check_call!]), so it's safe to reuse, and safe to allocate more contexts in methods such as [Clone::clone].
 pub struct Context {
     inner: NonNull<raw::c_context>,
 }
