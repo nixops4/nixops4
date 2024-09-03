@@ -1,5 +1,5 @@
 use core::str;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// The nixops4-resource-runner executable
 ///
@@ -36,10 +36,10 @@ fn main() -> Result<()> {
             // Mutable map that is used for gathering all input properties.
             let mut inputs = match input_properties_json {
                 Some(json_string) => {
-                    serde_json::from_str::<HashMap<String, Value>>(json_string.as_str())
+                    serde_json::from_str::<BTreeMap<String, Value>>(json_string.as_str())
                         .with_context(|| format!("failed to parse value of --inputs-json"))?
                 }
-                None => HashMap::new(),
+                None => BTreeMap::new(),
             };
 
             for pair in input_property_json.chunks(2) {
