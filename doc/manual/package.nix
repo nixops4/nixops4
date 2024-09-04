@@ -13,6 +13,7 @@ stdenv.mkDerivation (finalAttrs: {
   src = fileset.toSource {
     fileset = fileset.unions [
       ./Makefile
+      ./make
       ./book.toml
       ./src
       ./json-schema-for-humans-config.yaml
