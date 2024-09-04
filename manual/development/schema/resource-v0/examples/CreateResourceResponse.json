@@ -1,0 +1,10 @@
+{
+  "outputProperties": {
+    "id": "vm-12w94ty8",
+    "interfaces": {
+      "eth0": {
+        "ipv4": "198.51.100.11"
+      }
+    }
+  }
+}

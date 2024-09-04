@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "NixOps4 Resource Protocol Schema",
+  "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
+  "definitions": {
+    "CreateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "Provider-defined resource type",
+          "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+        },
+        "inputProperties": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Input properties",
+          "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+        }
+      },
+      "required": [
+        "type",
+        "inputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "CreateResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Output properties",
+          "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/CreateResourceRequest" },
+    { "$ref": "#/definitions/CreateResourceResponse" }
+  ],
+  "additionalProperties": false
+}
