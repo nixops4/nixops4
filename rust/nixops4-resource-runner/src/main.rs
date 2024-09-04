@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use clap::{arg, CommandFactory};
 use clap::{Parser, Subcommand};
 use clap_mangen;
+use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
 
 fn main() -> Result<()> {
@@ -69,10 +70,16 @@ fn main() -> Result<()> {
                 inputs.insert(k.clone(), serde_json::Value::String(v.clone()));
             }
 
-            // TODO
-            println!("Running resource: {}", provider_exe);
-            println!("Type: {}", resource_type);
-            println!("Inputs: {:?}", inputs);
+            let provider = ResourceProviderClient::new(ResourceProviderConfig {
+                provider_executable: provider_exe.clone(),
+                provider_args: vec![],
+            });
+
+            let response = provider
+                .create(resource_type, &inputs)
+                .with_context(|| "failed to create resource")?;
+
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Commands::GenerateMan => {
             let cmd = Args::command();
