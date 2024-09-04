@@ -23,9 +23,7 @@ stdenv.mkDerivation (finalAttrs: {
   };
   sourceRoot = "source/doc/manual";
   strictDeps = true;
-  nativeBuildInputs = [
-    mdbook
-    buildPackages.python3Packages.json-schema-for-humans
+  nativeBuildInputs = finalAttrs.passthru.externalBuildTools ++ [
     nixops4-resource-runner
   ];
   installPhase = ''
@@ -39,5 +37,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
+    /** To add to the project-wide dev shell */
+    externalBuildTools = [
+      mdbook
+      buildPackages.python3Packages.json-schema-for-humans
+    ];
   };
 })
