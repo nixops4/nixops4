@@ -1,0 +1,13 @@
+[package]
+name = "nixops4-resources-local"
+version = "0.1.0"
+edition = "2021"
+description = "Basic NixOps resource provider for local operations. Note that because of their flexibility and local behavior, these resources require extra care to make the deployment reproducible."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nixops4-resource = { path = "../nixops4-resource" }
+anyhow = "1.0.79"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = { version = "1.0.115" }
