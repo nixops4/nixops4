@@ -1,17 +1,16 @@
+use anyhow::{Context, Result};
+use clap::{arg, CommandFactory};
+use clap::{Parser, Subcommand};
+use clap_mangen;
 use core::str;
+use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// The nixops4-resource-runner executable
 ///
 /// This is a separate executable because this functionality is not needed
 /// during normal nixops4 operation, and it would pollute the shell autocompletion.
-use anyhow::{Context, Result};
-use clap::{arg, CommandFactory};
-use clap::{Parser, Subcommand};
-use clap_mangen;
-use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
-use serde_json::Value;
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
