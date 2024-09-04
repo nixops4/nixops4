@@ -23,7 +23,21 @@
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
           packages.default = config.packages.nixops4-release;
+          packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
+          checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
+          checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {
+            inherit (config.packages) nixops4-resource-runner;
+            nixops4-resources-local = config.packages.nixops4-resources-local-release;
+          };
+
+          /** A shell containing the packages of this flake. For development, use the `default` dev shell. */
+          devShells.example = pkgs.mkShell {
+            nativeBuildInputs = [
+              config.packages.default
+              config.packages.nixops4-resource-runner
+            ];
+          };
         };
 
         partitionedAttrs.devShells = "dev";

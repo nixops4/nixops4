@@ -1,2 +1,6 @@
 # mdbook
 book
+# generated
+src/cli
+*.gen.md
+src/**/*.json

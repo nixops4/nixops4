@@ -5,6 +5,9 @@ members = [
     "nix-util",
     "nix-store",
     "nixops4-core",
+    "nixops4-resource",
+    "nixops4-resource-runner",
+    "nixops4-resources-local",
     "nixops4",
 ]
 resolver = "2"

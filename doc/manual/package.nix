@@ -1,7 +1,8 @@
 { lib
 , stdenv
 , mdbook
-,
+, buildPackages
+, nixops4-resource-runner
 }:
 let
   inherit (lib) fileset;
@@ -11,20 +12,21 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = fileset.toSource {
     fileset = fileset.unions [
+      ./Makefile
+      ./make
       ./book.toml
       ./src
+      ./json-schema-for-humans-config.yaml
+      ../../rust/nixops4-resource/resource-schema-v0.json
+      ../../rust/nixops4-resource/examples
     ];
-    root = ./.;
+    root = ../..;
   };
+  sourceRoot = "source/doc/manual";
   strictDeps = true;
-  nativeBuildInputs = [
-    mdbook
+  nativeBuildInputs = finalAttrs.passthru.externalBuildTools ++ [
+    nixops4-resource-runner
   ];
-  buildPhase = ''
-    runHook preBuild
-    mdbook build
-    runHook postBuild
-  '';
   installPhase = ''
     runHook preInstall
     docDir="$out/share/doc/nixops4/manual"
@@ -36,5 +38,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
+    /** To add to the project-wide dev shell */
+    externalBuildTools = [
+      mdbook
+      buildPackages.python3Packages.json-schema-for-humans
+    ];
   };
 })
