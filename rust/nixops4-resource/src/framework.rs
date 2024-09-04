@@ -28,12 +28,19 @@ pub fn run_main(provider: impl ResourceProvider) {
 
     let request = {
         let mut line = String::new();
-        in_.read_line(&mut line).unwrap();
-        serde_json::from_str(&line).unwrap()
+        in_.read_line(&mut line)
+            .with_context(|| "Could not read line for request message")
+            .unwrap_or_exit();
+        serde_json::from_str(&line)
+            .with_context(|| "Could not parse request message")
+            .unwrap_or_exit()
     };
 
     // Call the provider
-    let resp = provider.create(request).unwrap();
+    let resp = provider
+        .create(request)
+        .with_context(|| "Could not create resource")
+        .unwrap_or_exit();
 
     // Write the response to the output
     serde_json::to_writer(pipe.out, &resp).unwrap();
@@ -88,5 +95,22 @@ fn pipe_fds_to_files(pipe: InOut<i32>) -> InOut<std::fs::File> {
     InOut {
         in_: unsafe { std::fs::File::from_raw_fd(pipe.in_) },
         out: unsafe { std::fs::File::from_raw_fd(pipe.out) },
+    }
+}
+
+trait NixOps4MainError<T> {
+    type V;
+    fn unwrap_or_exit(self) -> Self::V;
+}
+impl<T> NixOps4MainError<Result<T>> for Result<T> {
+    type V = T;
+    fn unwrap_or_exit(self) -> T {
+        match self {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }
