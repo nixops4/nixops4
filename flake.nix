@@ -19,10 +19,17 @@
           inputs.flake-parts.flakeModules.partitions
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
+          ./test/nixos/flake-module.nix
         ];
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
-          packages.default = config.packages.nixops4-release;
+          packages.default = config.packages.nixops4;
+
+          packages.nixops4 = pkgs.callPackage ./package.nix {
+            nixops4-cli-rust = config.packages.nixops4-release;
+            nixops4-eval = config.packages.nixops4-eval-release;
+          };
+
           packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
           checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
