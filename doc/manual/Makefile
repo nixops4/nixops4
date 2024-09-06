@@ -16,7 +16,7 @@ GENERATED = src/schema/resource-schema-v0.gen.md \
 clean:
 	rm -rf book $(GENERATED)
 
-book: $(shell find src -type f) $(GENERATED)
+book: $(shell find src -type f) $(GENERATED) book.toml custom.css mermaid-init.js mermaid.min.js
 	@echo "      MDBOOK" $@
 	@mdbook build
 

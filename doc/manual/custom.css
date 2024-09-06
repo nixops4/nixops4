@@ -1,0 +1,8 @@
+/* Mermaid doesn't render differently for the themes, and its default styling
+   only works well in the light themes, so we provide a lighter background for
+   the dark mdbook themes. */
+pre svg {
+  background-color: rgba(255, 255, 255, 0.7);
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  border-radius: 3px;
+}

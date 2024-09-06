@@ -1,6 +1,7 @@
 { lib
 , stdenv
 , mdbook
+, mdbook-mermaid
 , buildPackages
 , nixops4-resource-runner
 }:
@@ -15,9 +16,12 @@ stdenv.mkDerivation (finalAttrs: {
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
       ./book.toml
+      ./custom.css
       ./json-schema-for-humans-config.yaml
       ./make
       ./Makefile
+      ./mermaid-init.js
+      ./mermaid.min.js
       ./src
     ];
     root = ../..;
@@ -41,6 +45,7 @@ stdenv.mkDerivation (finalAttrs: {
     /** To add to the project-wide dev shell */
     externalBuildTools = [
       mdbook
+      mdbook-mermaid
       buildPackages.python3Packages.json-schema-for-humans
     ];
   };
