@@ -1,0 +1,3 @@
+This directory contains a vendored file from the mermaid-js
+project: `mermaid.min.js`. This file is licensed under the MIT license;
+see the file for details.
