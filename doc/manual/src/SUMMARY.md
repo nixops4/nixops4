@@ -6,4 +6,6 @@
   - [Resource Provider Interface](./resource-provider/interface.md)
 - [Protocols]()
   - [Resource Protocol Schema](./schema/resource-v0.md)
+- [Architecture]()
+  - [Components](./architecture/nixops-components.md)
 - [Index](./index/index.md)
