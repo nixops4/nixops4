@@ -10,3 +10,6 @@ description = "Internal interfaces for nixops4, notably the interface between th
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[lib]
+path = "src/lib.rs"
