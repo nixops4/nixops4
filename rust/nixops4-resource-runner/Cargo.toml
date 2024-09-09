@@ -1,8 +1,11 @@
 [package]
 name = "nixops4-resource-runner"
 version = "0.1.0"
-description = "A command line utility for running NixOps resources without NixOps for testing"
 edition = "2021"
+# NOTE: The description gets added to the manual, which renders markdown.
+#       Cargo does not want markdown in the description field, so if we were to
+#       release to crates.io, we would need to remove this.
+description = "A utility to run resource providers without expressions, and without `nixops4`, primarily for testing"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
