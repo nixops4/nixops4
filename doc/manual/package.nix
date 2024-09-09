@@ -12,13 +12,13 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = fileset.toSource {
     fileset = fileset.unions [
-      ./Makefile
-      ./make
-      ./book.toml
-      ./src
-      ./json-schema-for-humans-config.yaml
-      ../../rust/nixops4-resource/resource-schema-v0.json
       ../../rust/nixops4-resource/examples
+      ../../rust/nixops4-resource/resource-schema-v0.json
+      ./book.toml
+      ./json-schema-for-humans-config.yaml
+      ./make
+      ./Makefile
+      ./src
     ];
     root = ../..;
   };
