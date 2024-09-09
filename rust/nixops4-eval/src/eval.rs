@@ -351,8 +351,8 @@ impl EvaluationDriver {
 fn value_to_json(eval_state: &mut EvalState, value: &Value) -> Result<serde_json::Value> {
     let to_json = eval_state.eval_from_string("builtins.toJSON", "<nixops4-eval GetResource>")?;
     let json_str_value = eval_state.call(to_json, value.clone())?;
-    let json_str = eval_state.require_string(&json_str_value)?;
-    let json = serde_json::from_str(&json_str)?;
+    let json_str = eval_state.realise_string(&json_str_value, false)?;
+    let json = serde_json::from_str(&json_str.s)?;
     Ok(json)
 }
 

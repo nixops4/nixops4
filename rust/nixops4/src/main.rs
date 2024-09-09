@@ -145,7 +145,10 @@ fn main() {
             let (resource_inputs, resource_outputs, resource_input_values) = {
                 c.receive_until(move |client, resp| {
                     match resp {
-                        EvalResponse::Error(_id, e) => {
+                        EvalResponse::Error(id, e) => {
+                            if DEBUG {
+                                eprintln!("Error on id {}: {}", id.num(), e);
+                            }
                             bail!("Error during evaluation: {}", e);
                         }
                         EvalResponse::ResourceInputs(res, input_names) => {
