@@ -43,6 +43,7 @@
             nativeBuildInputs = [
               config.packages.default
               config.packages.nixops4-resource-runner
+              config.packages.nixops4-resources-local-release
             ];
           };
         };
