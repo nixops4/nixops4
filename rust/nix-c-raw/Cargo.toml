@@ -5,6 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [lib]
+path = "src/lib.rs"
 
 [build-dependencies]
 bindgen = "0.69.4"

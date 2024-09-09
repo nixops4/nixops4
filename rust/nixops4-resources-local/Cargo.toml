@@ -2,7 +2,10 @@
 name = "nixops4-resources-local"
 version = "0.1.0"
 edition = "2021"
-description = "Basic NixOps resource provider for local operations. Note that because of their flexibility and local behavior, these resources require extra care to make the deployment reproducible."
+# NOTE: The description gets added to the manual, which renders markdown.
+#       Cargo does not want markdown in the description field, so if we were to
+#       release to crates.io, we would need to remove this.
+description = "A basic NixOps resource provider for local operations. Note that because of their flexibility and local behavior, these resources require extra care to make sure the deployment is reproducible."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,3 +14,7 @@ nixops4-resource = { path = "../nixops4-resource" }
 anyhow = "1.0.79"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.115" }
+
+[[bin]]
+path = "src/main.rs"
+name = "nixops4-resources-local"

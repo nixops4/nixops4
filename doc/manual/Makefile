@@ -11,12 +11,13 @@ open: book
 GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
-	src/schema/resource-v0/examples/CreateResourceResponse.json
+	src/schema/resource-v0/examples/CreateResourceResponse.json \
+	src/architecture/cargo-deps.gen.md
 
 clean:
 	rm -rf book $(GENERATED)
 
-book: $(shell find src -type f) $(GENERATED)
+book: $(shell find src -type f) $(GENERATED) book.toml custom.css mermaid-init.js mermaid.min.js
 	@echo "      MDBOOK" $@
 	@mdbook build
 
@@ -52,3 +53,8 @@ src/schema/resource-v0/examples/%.json: ../../rust/nixops4-resource/examples/v0/
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@
+
+src/architecture/cargo-deps.gen.md: cargo-deps.sh $(shell find ../../ -name Cargo.toml)
+	@echo "  CARGO-DEPS" $@
+	@mkdir -p $(dir $@)
+	@./cargo-deps.sh >$@

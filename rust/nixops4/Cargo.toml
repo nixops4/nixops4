@@ -2,6 +2,10 @@
 name = "nixops4"
 version = "0.1.0"
 edition = "2021"
+# NOTE: The description gets added to the manual, which renders markdown.
+#       Cargo does not want markdown in the description field, so if we were to
+#       release to crates.io, we would need to remove this.
+description = "The `nixops4` command-line tool"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
