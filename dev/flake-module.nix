@@ -2,6 +2,7 @@
   imports = [
     inputs.pre-commit-hooks-nix.flakeModule
     inputs.hercules-ci-effects.flakeModule
+    ./example.nix
   ];
   perSystem = { config, pkgs, ... }: {
 

@@ -55,5 +55,10 @@
         partitions.dev.module = {
           imports = [ ./dev/flake-module.nix ];
         };
+
+        partitionedAttrs.nixops4Deployments = "dev";
+        # Not strictly necessary, but it makes the example more complete when we can refer to nixops4 as an input
+        partitions.dev.extraInputs.nixops4 = self;
+
       });
 }
