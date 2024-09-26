@@ -29,7 +29,8 @@
               default = flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix { inherit self; };
             };
             nixops4Deployment = {
-              default = flake-parts-lib.importApply ./nix/deployment/base-modules.nix;
+              # example
+              default = ./nix/deployment/base-modules.nix;
             };
             nixops4Provider = {
               local = flake-parts-lib.importApply ./nix/providers/local.nix { inherit withSystem; };
