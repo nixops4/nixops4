@@ -133,4 +133,7 @@ in
       }
     ];
   };
+  # It's not actually a valid configuration, except for nixos-rebuild build-vm.
+  # TODO: just expose a flake app?
+  herculesCI.onPush.default.outputs.nixosConfigurations = lib.mkForce { };
 }
