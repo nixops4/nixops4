@@ -1,4 +1,4 @@
-{ resources, lib, ... }:
+{ resources, lib, resourceProviderSystem, ... }:
 let
   inherit (lib) mkOption types;
 
@@ -12,10 +12,14 @@ in
       type =
         types.lazyAttrsOf
           (types.submoduleWith {
+            class = "nixops4Resource";
             modules = [
               ./resource.nix
               injectOutputs
             ];
+            specialArgs = {
+              inherit resourceProviderSystem;
+            };
           });
       default = { };
     };

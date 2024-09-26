@@ -36,7 +36,7 @@ in
             type = types.coercedTo (types.functionTo types.str) (withSystem resourceProviderSystem) types.str;
           };
           args = mkOption {
-            type = types.listOf types.str;
+            type = types.listOf (types.coercedTo (types.oneOf [ types.str types.path types.int ]) (x: "${x}") types.str);
             default = [ ];
           };
           stdin = mkOption {

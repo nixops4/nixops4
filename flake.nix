@@ -35,6 +35,13 @@
             nixops4Provider = {
               local = flake-parts-lib.importApply ./nix/providers/local.nix { inherit withSystem; };
             };
+            nixops4Resource = {
+              # TODO: move out of this repo
+              nixos = flake-parts-lib.importApply ./nix/resource/nixos.nix { inherit self withSystem; };
+            };
+            nixos = {
+              apply = ./nix/nixos/apply/nixos-apply.nix;
+            };
           };
           lib = import ./nix/lib/lib.nix {
             inherit lib self;
@@ -78,6 +85,7 @@
         };
 
         partitionedAttrs.nixops4Deployments = "dev";
+        partitionedAttrs.nixosConfigurations = "dev";
         # Not strictly necessary, but it makes the example more complete when we can refer to nixops4 as an input
         partitions.dev.extraInputs.nixops4 = self;
 
