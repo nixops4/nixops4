@@ -13,7 +13,7 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake
       { inherit inputs; }
-      ({ lib, flake-parts-lib, withSystem, ... }: {
+      ({ config, lib, flake-parts-lib, withSystem, ... }: {
         imports = [
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
@@ -86,6 +86,7 @@
 
         partitionedAttrs.nixops4Deployments = "dev";
         partitionedAttrs.nixosConfigurations = "dev";
+        flake.apps.x86_64-linux.example-vm = lib.mkIf (!config._module.specialArgs?partitionStack) config.partitions.dev.module.flake.apps.x86_64-linux.example-vm;
         # Not strictly necessary, but it makes the example more complete when we can refer to nixops4 as an input
         partitions.dev.extraInputs.nixops4 = self;
 

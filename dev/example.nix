@@ -91,8 +91,7 @@ in
   /**
     A VM configuration to try the deployment
 
-        $ nixos-rebuild build-vm --flake .#example-vm
-        $ ./result/bin/run-nixos-vm
+        $ nix run .#example-vm
 
     Log in as root, with password asdf
 
@@ -110,30 +109,35 @@ in
 
         $ rm nixos.qcow2
   */
-  flake.nixosConfigurations.example-vm = inputs.nixpkgs.lib.nixosSystem {
-    modules = [
-      # (inputs.nixpkgs + "/nixos/modules/virtualisation/qemu-guest.nix")
-      {
+  flake.apps.x86_64-linux.example-vm =
+    let
+      baseConfiguration = inputs.nixpkgs.lib.nixosSystem {
+        modules = [
+          # (inputs.nixpkgs + "/nixos/modules/virtualisation/qemu-guest.nix")
+          {
 
-        imports = [ myConfig ];
+            imports = [ myConfig ];
 
-        virtualisation.vmVariant = {
-          virtualisation = {
-            # Non-graphical: easier copy paste
-            qemu.consoles = [ "ttyS0,115200n8" ];
-            graphics = false;
+            virtualisation.vmVariant = {
+              virtualisation = {
+                # Non-graphical: easier copy paste
+                qemu.consoles = [ "ttyS0,115200n8" ];
+                graphics = false;
 
-            memorySize = 4096;
-            diskSize = 10 * 1024;
-            forwardPorts = [
-              { host.port = defaultHostPort; guest.port = 22; }
-            ];
-          };
-        };
-      }
-    ];
-  };
-  # It's not actually a valid configuration, except for nixos-rebuild build-vm.
-  # TODO: just expose a flake app?
-  herculesCI.onPush.default.outputs.nixosConfigurations = lib.mkForce { };
+                memorySize = 4096;
+                diskSize = 10 * 1024;
+                forwardPorts = [
+                  { host.port = defaultHostPort; guest.port = 22; }
+                ];
+              };
+            };
+          }
+        ];
+      };
+      config = baseConfiguration.config.virtualisation.vmVariant;
+    in
+    {
+      type = "app";
+      program = config.system.build.vm;
+    };
 }
