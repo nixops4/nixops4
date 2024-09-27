@@ -13,6 +13,7 @@ impl bindgen::callbacks::ParseCallbacks for StripNixPrefix {
 fn main() {
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=include/nix-c-raw.h");
+    // println!("cargo:rustc-link-lib=nixflake");
 
     // https://rust-lang.github.io/rust-bindgen/library-usage.html
     let bindings = bindgen::Builder::default()

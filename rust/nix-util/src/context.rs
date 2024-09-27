@@ -36,7 +36,7 @@ impl Context {
     /// We recommend to use `check_call!` if possible.
     pub fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
-        if err != raw::err_NIX_OK.try_into().unwrap() {
+        if err != raw::NIX_OK.try_into().unwrap() {
             // msgp is a borrowed pointer (pointing into the context), so we don't need to free it
             let msgp = unsafe { raw::err_msg(null_mut(), self.inner.as_ptr(), null_mut()) };
             // Turn the i8 pointer into a Rust string by copying
@@ -50,7 +50,7 @@ impl Context {
         unsafe {
             raw::set_err_msg(
                 self.inner.as_ptr(),
-                raw::err_NIX_OK.try_into().unwrap(),
+                raw::NIX_OK.try_into().unwrap(),
                 b"\0".as_ptr() as *const i8,
             );
         }
@@ -69,7 +69,7 @@ impl Context {
         f: F,
     ) -> Result<Option<T>> {
         let t = f(self.ptr());
-        if unsafe { raw::err_code(self.inner.as_ptr()) == raw::err_NIX_ERR_KEY } {
+        if unsafe { raw::err_code(self.inner.as_ptr()) == raw::NIX_ERR_KEY } {
             self.clear();
             return Ok(None);
         }
@@ -112,7 +112,7 @@ macro_rules! check_call_opt_key {
         {
             let ctx : &mut $crate::context::Context = $ctx;
             let ret = $($f)::*(ctx.ptr(), $($arg,)*);
-            if unsafe { raw::err_code(ctx.ptr()) == raw::err_NIX_ERR_KEY } {
+            if unsafe { raw::err_code(ctx.ptr()) == raw::NIX_ERR_KEY } {
                 ctx.clear();
                 return Ok(None);
             }
@@ -143,7 +143,7 @@ mod tests {
         unsafe {
             raw::set_err_msg(
                 ctx_ptr,
-                raw::err_NIX_ERR_UNKNOWN.try_into().unwrap(),
+                raw::NIX_ERR_UNKNOWN.try_into().unwrap(),
                 b"dummy error message\0".as_ptr() as *const i8,
             );
         }

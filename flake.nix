@@ -3,7 +3,7 @@
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix.url = "github:NixOS/nix";
+    nix.url = "github:NixOS/nix/ed129267dcd7dd2cce48c09b17aefd6cfc488bcd"; # 2.24-pre, before splitting libnixflake
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
@@ -13,16 +13,51 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake
       { inherit inputs; }
-      ({ lib, ... }: {
+      ({ config, lib, flake-parts-lib, withSystem, ... }: {
         imports = [
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
+          inputs.flake-parts.flakeModules.modules
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
+          ./test/nixos/flake-module.nix
         ];
+
+        flake = {
+          modules = {
+            flake = {
+              default = flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix { inherit self; };
+            };
+            nixops4Deployment = {
+              # example
+              default = ./nix/deployment/base-modules.nix;
+            };
+            nixops4Provider = {
+              local = flake-parts-lib.importApply ./nix/providers/local.nix { inherit withSystem; };
+            };
+            nixops4Resource = {
+              # TODO: move out of this repo
+              nixos = flake-parts-lib.importApply ./nix/resource/nixos.nix { inherit self withSystem; };
+            };
+            nixos = {
+              apply = ./nix/nixos/apply/nixos-apply.nix;
+            };
+          };
+          lib = import ./nix/lib/lib.nix {
+            inherit lib self;
+            selfWithSystem = withSystem;
+          };
+        };
+
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
-          packages.default = config.packages.nixops4-release;
+          packages.default = config.packages.nixops4;
+
+          packages.nixops4 = pkgs.callPackage ./package.nix {
+            nixops4-cli-rust = config.packages.nixops4-release;
+            nixops4-eval = config.packages.nixops4-eval-release;
+          };
+
           packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
           checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
@@ -36,6 +71,7 @@
             nativeBuildInputs = [
               config.packages.default
               config.packages.nixops4-resource-runner
+              config.packages.nixops4-resources-local-release
             ];
           };
         };
@@ -47,5 +83,12 @@
         partitions.dev.module = {
           imports = [ ./dev/flake-module.nix ];
         };
+
+        partitionedAttrs.nixops4Deployments = "dev";
+        partitionedAttrs.nixosConfigurations = "dev";
+        flake.apps.x86_64-linux.example-vm = lib.mkIf (!config._module.specialArgs?partitionStack) config.partitions.dev.module.flake.apps.x86_64-linux.example-vm;
+        # Not strictly necessary, but it makes the example more complete when we can refer to nixops4 as an input
+        partitions.dev.extraInputs.nixops4 = self;
+
       });
 }
