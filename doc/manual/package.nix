@@ -4,6 +4,7 @@
 , lib
 , mdbook
 , mdbook-mermaid
+, nixops4
 , nixops4-resource-runner
 , stdenv
 }:
@@ -35,6 +36,7 @@ stdenv.mkDerivation (finalAttrs: {
   nativeBuildInputs = finalAttrs.passthru.externalBuildTools ++ [
     # cargo for the `cargo-deps.sh` script. Not listed in externalBuildTools because the shell already has it
     cargo
+    nixops4
     nixops4-resource-runner
   ];
   preConfigure = ''
