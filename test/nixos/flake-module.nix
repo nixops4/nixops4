@@ -15,6 +15,9 @@
         checks.test-nixos = pkgs.testers.runNixOSTest {
           imports = [ baseModule ./test.nix ];
         };
+        checks.test-nixos-example = pkgs.testers.runNixOSTest {
+          imports = [ baseModule ./nixos-example.nix ];
+        };
       };
     };
 }
