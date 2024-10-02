@@ -68,6 +68,7 @@ impl<T> Ord for Id<T> {
         self.id.cmp(&other.id)
     }
 }
+unsafe impl<T> Send for Id<T> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnyType;

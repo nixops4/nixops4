@@ -32,6 +32,7 @@ impl Drop for StoreRef {
         }
     }
 }
+unsafe impl Send for StoreRef {}
 
 /// A [Weak] reference to a store.
 pub struct StoreWeak {
