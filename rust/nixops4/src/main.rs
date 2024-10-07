@@ -16,7 +16,7 @@ fn main() {
 
 fn run_args(args: Args) -> Result<()> {
     match &args.command {
-        Commands::Apply {} => apply::apply(args.options),
+        Commands::Apply(subargs) => apply::apply(args.options, subargs),
         Commands::Deployments(sub) => match sub {
             Deployments::List {} => deployments_list(),
         },
@@ -140,7 +140,8 @@ enum Deployments {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Apply changes so that the resources are in the desired state
-    Apply {},
+    #[command()]
+    Apply(apply::Args),
 
     /// Commands that operate on all deployments
     #[command(subcommand)]

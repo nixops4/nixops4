@@ -12,9 +12,16 @@ use nixops4_core::eval_api::{
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
 
+#[derive(clap::Parser, Debug)]
+pub(crate) struct Args {
+    #[arg(default_value = "default")]
+    deployment: String,
+}
+
 /// Run the `apply` command.
 pub(crate) fn apply(
     options: Options, /* global options; apply options tbd, extra param */
+    args: &Args,
 ) -> Result<()> {
     with_flake(|c, flake_id| {
         let deployment_id = c.next_id();
@@ -22,7 +29,7 @@ pub(crate) fn apply(
             assign_to: deployment_id,
             payload: DeploymentRequest {
                 flake: flake_id,
-                name: "default".to_string(),
+                name: args.deployment.to_string(),
             },
         }))?;
         let resources_list_id = c.query(EvalRequest::ListResources, deployment_id)?;
