@@ -4,6 +4,8 @@ use nix_store::store::Store;
 use std::process::exit;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::runtime::Builder;
+use tokio::sync::mpsc::channel;
+use tokio::task::JoinHandle;
 
 pub mod eval;
 
@@ -64,12 +66,49 @@ async fn async_main() -> Result<()> {
     let reader = BufReader::new(stdin);
     let mut lines = reader.lines();
 
-    let r = tokio::spawn(async move {
+    // Easy requests that provide info and don't require significant computation
+    // Processing these early means that we have access to more info, reducing
+    // the need to re-evaluate when that info is supposedly not known yet.
+    let (high_prio_tx, mut high_prio_rx) = channel(100);
+    let (low_prio_tx, mut low_prio_rx) = channel(100);
+
+    let reader_done: JoinHandle<Result<()>> = tokio::spawn(async move {
         while let Some(line) = lines.next_line().await? {
             let request = nixops4_core::eval_api::eval_request_from_json(&line)?;
+            if has_prio(&request) {
+                high_prio_tx.send(request).await?;
+            } else {
+                low_prio_tx.send(request).await?;
+            }
+        }
+        Ok(())
+    });
+
+    // let queue_done : JoinHandle<Result<()>> = tokio::task::Builder::new().name("nixops4-eval-queue-worker").spawn(async move {
+    let queue_done: JoinHandle<Result<()>> = tokio::spawn(async move {
+        loop {
+            while let Ok(request) = high_prio_rx.try_recv() {
+                driver.perform_request(&request).await?;
+            }
+            // Await both queues simultaneously
+            let request = tokio::select! {
+                Some(request) = high_prio_rx.recv() => request,
+                Some(request) = low_prio_rx.recv() => request,
+                else => break,
+            };
             driver.perform_request(&request).await?;
         }
         Ok(())
     });
-    r.await?
+
+    reader_done.await??;
+    queue_done.await??;
+    Ok(())
+}
+
+fn has_prio(request: &nixops4_core::eval_api::EvalRequest) -> bool {
+    match request {
+        nixops4_core::eval_api::EvalRequest::PutResourceOutput(_, _) => true,
+        _ => false,
+    }
 }
