@@ -10,6 +10,7 @@ open: book
 
 GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
+	src/cli/nixops4.md \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
 	src/architecture/cargo-deps.gen.md
@@ -58,3 +59,10 @@ src/architecture/cargo-deps.gen.md: cargo-deps.sh $(shell find ../../ -name Carg
 	@echo "  CARGO-DEPS" $@
 	@mkdir -p $(dir $@)
 	@./cargo-deps.sh >$@
+
+$(eval $(call cargo_or_provided_exe,NIXOPS4,nixops4))
+
+src/cli/nixops4.md: $(NIXOPS4_EXE)
+	@echo "  GENERATING" $@
+	@mkdir -p $(dir $@)
+	@$(NIXOPS4_CMD) generate-markdown > $@

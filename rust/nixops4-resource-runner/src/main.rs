@@ -94,6 +94,7 @@ fn main() -> Result<()> {
         }
         Commands::GenerateCompletion { shell } => {
             // TODO: remove the generate-* commands from the completion
+            //       same problem in nixops4 cli
             let mut cmd = Args::command();
             clap_complete::generate(
                 shell.clone(),

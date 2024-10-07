@@ -1,28 +1,29 @@
 [package]
-name = "nixops4"
+name = "nixops4-eval"
 version = "0.1.0"
 edition = "2021"
 # NOTE: The description gets added to the manual, which renders markdown.
 #       Cargo does not want markdown in the description field, so if we were to
 #       release to crates.io, we would need to remove this.
-description = "The `nixops4` command-line tool"
+description = "Internal child process of [`nixops4`](#nixops4) that performs Nix evaluation"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.79"
 nixops4-core = { path = "../nixops4-core" }
-# runtime dependency
-nixops4-eval = { path = "../nixops4-eval" }
-nixops4-resource = { path = "../nixops4-resource" }
-nixops4-resource-runner = { path = "../nixops4-resource-runner" }
-clap = "4.5.4"
-clap_complete = "4.5.29"
+nix-expr = { path = "../nix-expr" }
+nix-store = { path = "../nix-store" }
+nix-util = { path = "../nix-util" }
+anyhow = "1.0.81"
+tempdir = "0.3.7"
+ctor = "0.2.7"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.115"
-clap-markdown = "0.1.4"
-clap_mangen = "0.2.23"
+base64 = "0.22.1"
+cstr = "0.2.12"
+tokio = { version = "1.40.0", features = ["io-std", "io-util", "macros", "rt", "sync"] }
+async-trait = "0.1.83"
 
 [[bin]]
-name = "nixops4"
+name = "nixops4-eval"
 path = "src/main.rs"

@@ -3,7 +3,7 @@
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix.url = "github:NixOS/nix";
+    nix.url = "github:NixOS/nix/ed129267dcd7dd2cce48c09b17aefd6cfc488bcd"; # 2.24-pre, before splitting libnixflake
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
@@ -19,10 +19,17 @@
           inputs.flake-parts.flakeModules.partitions
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
+          ./test/nixos/flake-module.nix
         ];
         systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
         perSystem = { config, self', inputs', pkgs, ... }: {
-          packages.default = config.packages.nixops4-release;
+          packages.default = config.packages.nixops4;
+
+          packages.nixops4 = pkgs.callPackage ./package.nix {
+            nixops4-cli-rust = config.packages.nixops4-release;
+            nixops4-eval = config.packages.nixops4-eval-release;
+          };
+
           packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
           checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
