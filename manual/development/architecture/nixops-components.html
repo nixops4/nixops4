@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../concept/resource.html"><strong aria-hidden="true">1.1.</strong> Resource</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Command Line Utilities</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../cli/nixops4-resource-runner.html"><strong aria-hidden="true">2.1.</strong> nixops4-resource-runner</a></li></ol></li><li class="chapter-item expanded "><a href="../resource-provider/index.html"><strong aria-hidden="true">3.</strong> Resource Provider</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../resource-provider/interface.html"><strong aria-hidden="true">3.1.</strong> Resource Provider Interface</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">4.</strong> Protocols</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../schema/resource-v0.html"><strong aria-hidden="true">4.1.</strong> Resource Protocol Schema</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Architecture</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/nixops-components.html" class="active"><strong aria-hidden="true">5.1.</strong> Components</a></li></ol></li><li class="chapter-item expanded "><a href="../index/index.html"><strong aria-hidden="true">6.</strong> Index</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../concept/resource.html"><strong aria-hidden="true">1.1.</strong> Resource</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Command Line</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../cli/nixops4.html"><strong aria-hidden="true">2.1.</strong> nixops4</a></li><li class="chapter-item expanded "><a href="../cli/nixops4-resource-runner.html"><strong aria-hidden="true">2.2.</strong> nixops4-resource-runner</a></li></ol></li><li class="chapter-item expanded "><a href="../resource-provider/index.html"><strong aria-hidden="true">3.</strong> Resource Provider</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../resource-provider/interface.html"><strong aria-hidden="true">3.1.</strong> Resource Provider Interface</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">4.</strong> Protocols</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../schema/resource-v0.html"><strong aria-hidden="true">4.1.</strong> Resource Protocol Schema</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Architecture</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/nixops-components.html" class="active"><strong aria-hidden="true">5.1.</strong> Components</a></li></ol></li><li class="chapter-item expanded "><a href="../index/index.html"><strong aria-hidden="true">6.</strong> Index</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -220,10 +220,15 @@
 <p>NixOps4 is implemented in Rust, and it links to the <a href="https://nix.dev/manual/nix/latest">Nix package manager</a> to integrate with the Nix language and store.</p>
 <p>It is composed of the following Rust crates:</p>
 <pre class="mermaid">graph TD;
+  nixops4-eval --&gt; nixops4-core
   nixops4-resource-runner --&gt; nixops4-resource
   nixops4-resources-local --&gt; nixops4-resource
   nixops4 --&gt; nixops4-core
+  nixops4 --&gt; nixops4-eval
+  nixops4 --&gt; nixops4-resource
+  nixops4 --&gt; nixops4-resource-runner
   click nixops4-core &quot;#nixops4-core&quot; &quot;nixops4-core&quot;
+  click nixops4-eval &quot;#nixops4-eval&quot; &quot;nixops4-eval&quot;
   click nixops4-resource-runner &quot;#nixops4-resource-runner&quot; &quot;nixops4-resource-runner&quot;
   click nixops4-resource &quot;#nixops4-resource&quot; &quot;nixops4-resource&quot;
   click nixops4-resources-local &quot;#nixops4-resources-local&quot; &quot;nixops4-resources-local&quot;
@@ -231,6 +236,8 @@
 </pre>
 <h1 id="nixops4-core"><a class="header" href="#nixops4-core"><code>nixops4-core</code></a></h1>
 <p>Internal interfaces for nixops4, notably the interface between the CLI and the <code>nixops4-eval</code> evaluator</p>
+<h1 id="nixops4-eval"><a class="header" href="#nixops4-eval"><code>nixops4-eval</code></a></h1>
+<p>Internal child process of <a href="#nixops4"><code>nixops4</code></a> that performs Nix evaluation</p>
 <h1 id="nixops4-resource-runner"><a class="header" href="#nixops4-resource-runner"><code>nixops4-resource-runner</code></a></h1>
 <p>A utility to run resource providers without expressions, and without <code>nixops4</code>, primarily for testing</p>
 <h1 id="nixops4-resource"><a class="header" href="#nixops4-resource"><code>nixops4-resource</code></a></h1>

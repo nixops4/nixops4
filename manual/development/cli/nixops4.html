@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nixops4-resource-runner - NixOps4 Reference Manual</title>
+        <title>nixops4 - NixOps4 Reference Manual</title>
 
 
         <!-- Custom HTML head -->
@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../concept/resource.html"><strong aria-hidden="true">1.1.</strong> Resource</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Command Line</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../cli/nixops4.html"><strong aria-hidden="true">2.1.</strong> nixops4</a></li><li class="chapter-item expanded "><a href="../cli/nixops4-resource-runner.html" class="active"><strong aria-hidden="true">2.2.</strong> nixops4-resource-runner</a></li></ol></li><li class="chapter-item expanded "><a href="../resource-provider/index.html"><strong aria-hidden="true">3.</strong> Resource Provider</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../resource-provider/interface.html"><strong aria-hidden="true">3.1.</strong> Resource Provider Interface</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">4.</strong> Protocols</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../schema/resource-v0.html"><strong aria-hidden="true">4.1.</strong> Resource Protocol Schema</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Architecture</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/nixops-components.html"><strong aria-hidden="true">5.1.</strong> Components</a></li></ol></li><li class="chapter-item expanded "><a href="../index/index.html"><strong aria-hidden="true">6.</strong> Index</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../concept/resource.html"><strong aria-hidden="true">1.1.</strong> Resource</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Command Line</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../cli/nixops4.html" class="active"><strong aria-hidden="true">2.1.</strong> nixops4</a></li><li class="chapter-item expanded "><a href="../cli/nixops4-resource-runner.html"><strong aria-hidden="true">2.2.</strong> nixops4-resource-runner</a></li></ol></li><li class="chapter-item expanded "><a href="../resource-provider/index.html"><strong aria-hidden="true">3.</strong> Resource Provider</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../resource-provider/interface.html"><strong aria-hidden="true">3.1.</strong> Resource Provider Interface</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">4.</strong> Protocols</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../schema/resource-v0.html"><strong aria-hidden="true">4.1.</strong> Resource Protocol Schema</a></li></ol></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Architecture</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/nixops-components.html"><strong aria-hidden="true">5.1.</strong> Components</a></li></ol></li><li class="chapter-item expanded "><a href="../index/index.html"><strong aria-hidden="true">6.</strong> Index</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -147,7 +147,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/cli/nixops4-resource-runner.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/cli/nixops4.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -176,53 +176,60 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="command-line-help-for-nixops4-resource-runner"><a class="header" href="#command-line-help-for-nixops4-resource-runner">Command-Line Help for <code>nixops4-resource-runner</code></a></h1>
-<p>This document contains the help content for the <code>nixops4-resource-runner</code> command-line program.</p>
+                        <h1 id="command-line-help-for-nixops4"><a class="header" href="#command-line-help-for-nixops4">Command-Line Help for <code>nixops4</code></a></h1>
+<p>This document contains the help content for the <code>nixops4</code> command-line program.</p>
 <p><strong>Command Overview:</strong></p>
 <ul>
-<li><a href="#nixops4-resource-runner"><code>nixops4-resource-runner</code>↴</a></li>
-<li><a href="#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code>↴</a></li>
+<li><a href="#nixops4"><code>nixops4</code>↴</a></li>
+<li><a href="#nixops4-apply"><code>nixops4 apply</code>↴</a></li>
+<li><a href="#nixops4-deployments"><code>nixops4 deployments</code>↴</a></li>
+<li><a href="#nixops4-deployments-list"><code>nixops4 deployments list</code>↴</a></li>
 </ul>
-<h2 id="nixops4-resource-runner"><a class="header" href="#nixops4-resource-runner"><code>nixops4-resource-runner</code></a></h2>
-<p>A utility to run resource providers without expressions, and without <code>nixops4</code>, primarily for testing</p>
-<p><strong>Usage:</strong> <code>nixops4-resource-runner &lt;COMMAND&gt;</code></p>
+<h2 id="nixops4"><a class="header" href="#nixops4"><code>nixops4</code></a></h2>
+<p>The <code>nixops4</code> command-line tool</p>
+<p><strong>Usage:</strong> <code>nixops4 [OPTIONS] &lt;COMMAND&gt;</code></p>
 <h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
 <ul>
-<li><code>create</code> — Create a resource</li>
+<li><code>apply</code> — Apply changes so that the resources are in the desired state</li>
+<li><code>deployments</code> — Commands that operate on all deployments</li>
 </ul>
-<h2 id="nixops4-resource-runner-create"><a class="header" href="#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code></a></h2>
-<p>Create a resource</p>
-<p><strong>Usage:</strong> <code>nixops4-resource-runner create [OPTIONS] --provider-exe &lt;PROVIDER_EXE&gt; --type &lt;RESOURCE_TYPE&gt;</code></p>
 <h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
 <ul>
 <li>
-<p><code>--provider-exe &lt;PROVIDER_EXE&gt;</code> — The executable that implements the resource operations</p>
-</li>
-<li>
-<p><code>--type &lt;RESOURCE_TYPE&gt;</code> — The type of resource to create: an identifier recognized by the resource provider</p>
-</li>
-<li>
-<p><code>--inputs-json &lt;INPUT_PROPERTIES_JSON&gt;</code> — The (whole) JSON input properties for the resource</p>
-<p>This is a JSON object with the values needed to create the resource. The structure of this object is defined by the resource provider behavior.</p>
-</li>
-<li>
-<p><code>-j</code>, <code>--input-json &lt;NAME&gt;</code> — An individual input property for the resource, in JSON format</p>
-</li>
-<li>
-<p><code>-s</code>, <code>--input-str &lt;NAME&gt;</code> — An individual input property for the resource, as a raw string.</p>
-<p>This is equivalent to <code>--input-json NAME JSON</code> if JSON is the JSON string formatting of STR.</p>
+<p><code>-v</code>, <code>--verbose</code></p>
+<p>Default value: <code>false</code></p>
 </li>
 </ul>
+<h2 id="nixops4-apply"><a class="header" href="#nixops4-apply"><code>nixops4 apply</code></a></h2>
+<p>Apply changes so that the resources are in the desired state</p>
+<p><strong>Usage:</strong> <code>nixops4 apply [DEPLOYMENT]</code></p>
+<h6 id="arguments"><a class="header" href="#arguments"><strong>Arguments:</strong></a></h6>
+<ul>
+<li>
+<p><code>&lt;DEPLOYMENT&gt;</code></p>
+<p>Default value: <code>default</code></p>
+</li>
+</ul>
+<h2 id="nixops4-deployments"><a class="header" href="#nixops4-deployments"><code>nixops4 deployments</code></a></h2>
+<p>Commands that operate on all deployments</p>
+<p><strong>Usage:</strong> <code>nixops4 deployments &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands-1"><a class="header" href="#subcommands-1"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>list</code> — List the deployments based on the expressions in the flake</li>
+</ul>
+<h2 id="nixops4-deployments-list"><a class="header" href="#nixops4-deployments-list"><code>nixops4 deployments list</code></a></h2>
+<p>List the deployments based on the expressions in the flake</p>
+<p><strong>Usage:</strong> <code>nixops4 deployments list</code></p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../cli/nixops4.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concept/resource.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../resource-provider/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -232,11 +239,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../cli/nixops4.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concept/resource.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../resource-provider/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
