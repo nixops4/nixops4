@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use nixops4_core::eval_api::{
-    self, AnyType, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids,
-    MessageType, QueryRequest,
+    self, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids, MessageType,
+    QueryRequest,
 };
 
 const DEBUG: bool = true;
