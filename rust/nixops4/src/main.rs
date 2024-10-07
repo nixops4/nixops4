@@ -1,12 +1,12 @@
 mod apply;
 mod eval_client;
+mod provider;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
 use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
-use serde_json::Value;
 use std::process::exit;
 
 fn main() {
@@ -84,33 +84,6 @@ fn deployments_list(options: &Options) -> Result<()> {
         }
         Ok(())
     })
-}
-
-// TODO: rename to ProviderArgv?
-#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
-struct ProviderStdio {
-    command: String,
-    args: Vec<String>,
-}
-
-fn parse_provider(provider_value: &Value) -> Result<ProviderStdio> {
-    let provider = provider_value
-        .as_object()
-        .ok_or_else(|| anyhow::anyhow!("Provider must be an object"))?;
-    let type_ = provider
-        .get("type")
-        .ok_or_else(|| anyhow::anyhow!("Provider must have a type"))?;
-    let type_ = type_
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("Provider type must be a string"))?;
-    match type_ {
-        "stdio" => serde_json::from_value(provider_value.clone())
-            .map_err(|e| e.into())
-            .map(|x: ProviderStdio| x.clone()),
-        _ => {
-            bail!("Unknown provider type: {}", type_);
-        }
-    }
 }
 
 fn handle_result(r: Result<()>) {

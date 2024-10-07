@@ -3,7 +3,8 @@ use std::{
     sync::Mutex,
 };
 
-use crate::{parse_provider, with_flake, Options};
+use crate::provider;
+use crate::{with_flake, Options};
 use anyhow::{bail, Result};
 use nixops4_core::eval_api::{
     AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, Id, NamedProperty, Property,
@@ -182,7 +183,7 @@ pub(crate) fn apply(
                                             }
 
                                             let provider_argv =
-                                                parse_provider(&provider_info.provider)?;
+                                                provider::parse_provider(&provider_info.provider)?;
                                             // Run the provider
                                             let provider = ResourceProviderClient::new(
                                                 ResourceProviderConfig {
