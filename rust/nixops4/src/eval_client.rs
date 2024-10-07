@@ -45,17 +45,25 @@ impl<'a> EvalClient<'a> {
             command_handle = process_mut.stdin.as_mut().unwrap();
         }
 
-        let c: EvalClient<'_> = EvalClient {
-            options: options.clone(),
-            response_bufreader: &mut response_bufreader,
-            command_handle,
-            ids: Ids::new(),
-            deployments: HashMap::new(),
-            resources: HashMap::new(),
-            errors: HashMap::new(),
-        };
+        let r;
+        {
+            let c: EvalClient<'_> = EvalClient {
+                options: options.clone(),
+                response_bufreader: &mut response_bufreader,
+                command_handle,
+                ids: Ids::new(),
+                deployments: HashMap::new(),
+                resources: HashMap::new(),
+                errors: HashMap::new(),
+            };
 
-        f(c)
+            r = f(c)
+        }
+        // Wait for the process to exit, giving it a chance to flush its output
+        // TODO (tokio): add timeout
+        process.wait()?;
+
+        r
     }
     pub fn send(&mut self, request: &EvalRequest) -> Result<()> {
         let json = eval_api::eval_request_to_json(request)?;
