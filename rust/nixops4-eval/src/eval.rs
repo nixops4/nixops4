@@ -192,98 +192,7 @@ impl EvaluationDriver {
                 let known_outputs = Arc::clone(&self.known_outputs);
                 self.handle_assign_request(
                     req,
-                    |this, req| {
-                        // basic lookup
-                        let deployments = { this.get_flake_deployments_value(req.flake)? }.clone();
-                        let es = &mut this.eval_state;
-                        let deployment = es.require_attrs_select(&deployments, &req.name)?;
-
-                        // check _type attr
-                        {
-                            let tag = es.require_attrs_select(&deployment, "_type")?;
-                            let str = es.require_string(&tag)?;
-                            if str != "nixops4Deployment" {
-                                bail!("expected _type to be 'nixops4Deployment', got: {}", str);
-                            }
-                        }
-
-                        let eval_expr = r#"
-                        # primops
-                        loadResourceAttr:
-                        # user expr
-                        deploymentFunction:
-                        let
-                          arg = {
-                            inherit resources;
-                          };
-                          resources =
-                            builtins.mapAttrs
-                              (name: value:
-                                builtins.mapAttrs
-                                  (loadResourceAttr name)
-                                  value.provider.types.${value.type}.outputs
-                              )
-                              (builtins.trace (builtins.attrNames fixpoint)
-                              fixpoint.resources);
-                          fixpoint = deploymentFunction arg;
-                        in
-                          fixpoint
-                    "#;
-
-                        let deployment_function =
-                            es.require_attrs_select(&deployment, "deploymentFunction")?;
-
-                        let prim_load_resource_attr = PrimOp::new(
-                            es,
-                            PrimOpMeta {
-                                name: cstr!("nixopsLoadResourceAttr"),
-                                doc: cstr!("Internal function that loads a resource attribute."),
-                                args: [cstr!("resourceName"), cstr!("attrName"), cstr!("ignored")],
-                            },
-                            Box::new(move |es, [resource_name, attr_name, _]| {
-                                let resource_name = es.require_string(resource_name)?;
-                                let attr_name = es.require_string(attr_name)?;
-                                let property = NamedProperty {
-                                    resource: resource_name.to_string(),
-                                    name: attr_name.to_string(),
-                                };
-                                let val = {
-                                    let known_outputs = known_outputs.lock().unwrap();
-                                    known_outputs.get(&property).map(Clone::clone)
-                                };
-                                match val {
-                                    Some(val) => Ok(val),
-                                    None =>
-                                    // FIXME: add custom errors to the Nix C API, or at least don't put arbitrary length data here
-                                    //        perhaps a number that refers to a hashmap?
-                                    // FIXME: this will probably leak memory when accessing outputs before all providers are loaded, etc
-                                    {
-                                        Err(anyhow::anyhow!(
-                                            "__internal_exception_load_resource_property_#{}#",
-                                            base64::engine::general_purpose::STANDARD.encode(
-                                                serde_json::to_string(&NamedProperty {
-                                                    resource: resource_name,
-                                                    name: attr_name
-                                                })
-                                                .unwrap()
-                                            ),
-                                        ))
-                                    }
-                                }
-                            }),
-                        )?;
-
-                        let load_resource_attr = es.new_value_primop(prim_load_resource_attr)?;
-
-                        // invoke it
-                        let fixpoint = {
-                            let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
-                            let v = es.call(v, load_resource_attr)?;
-                            es.call(v, deployment_function)
-                        }?;
-
-                        Ok(fixpoint.clone())
-                    },
+                    |this, req| perform_load_deployment(this, req, known_outputs),
                     EvaluationDriver::assign_value,
                 )
                 .await
@@ -320,23 +229,7 @@ impl EvaluationDriver {
                 self.handle_simple_request(
                     req,
                     QueryResponseValue::ResourceProviderInfo,
-                    |this, req| {
-                        let resource = this.get_value(req.to_owned())?.clone();
-                        // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
-                        let provider_value = this
-                            .eval_state
-                            .require_attrs_select(&resource, "provider")?;
-                        let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
-                        let resource_type_value =
-                            this.eval_state.require_attrs_select(&resource, "type")?;
-                        let resource_type_str =
-                            this.eval_state.require_string(&resource_type_value)?;
-                        Ok(ResourceProviderInfo {
-                            id: req.to_owned(),
-                            provider: provider_json,
-                            resource_type: resource_type_str,
-                        })
-                    },
+                    |this, req| perform_get_resource(this, req),
                 )
                 .await
             }
@@ -357,45 +250,7 @@ impl EvaluationDriver {
                 self.handle_simple_request(
                     req,
                     |x| QueryResponseValue::ResourceInputState((req.payload.clone(), x)),
-                    |this, req| {
-                        let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
-                            let resource = this.get_value(req.resource.to_owned())?.clone();
-                            let inputs =
-                                this.eval_state.require_attrs_select(&resource, "inputs")?;
-                            let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
-                            let json = value_to_json(&mut this.eval_state, &input)?;
-                            Ok(json)
-                        })(
-                        );
-                        match attempt {
-                            Ok(json) => Ok(ResourceInputState::ResourceInputValue((
-                                req.to_owned(),
-                                json,
-                            ))),
-                            Err(e) => {
-                                let s = e.to_string();
-                                if s.contains("__internal_exception_load_resource_property_#") {
-                                    let base64_str = s
-                                        .split("__internal_exception_load_resource_property_#")
-                                        .collect::<Vec<&str>>()[1]
-                                        .split("#")
-                                        .collect::<Vec<&str>>()[0];
-                                    let json_str = base64::engine::general_purpose::STANDARD
-                                        .decode(base64_str)?;
-                                    let named_property: NamedProperty =
-                                        serde_json::from_slice(&json_str)?;
-                                    Ok(ResourceInputState::ResourceInputDependency(
-                                        ResourceInputDependency {
-                                            dependent: req.to_owned(),
-                                            dependency: named_property,
-                                        },
-                                    ))
-                                } else {
-                                    Err(e)
-                                }
-                            }
-                        }
-                    },
+                    |this, req| perform_get_resource_input(this, req),
                 )
                 .await
             }
@@ -413,6 +268,153 @@ impl EvaluationDriver {
     }
 }
 
+fn perform_load_deployment(
+    driver: &mut EvaluationDriver,
+    req: &nixops4_core::eval_api::DeploymentRequest,
+    known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
+) -> Result<Value, anyhow::Error> {
+    let deployments = { driver.get_flake_deployments_value(req.flake)? }.clone();
+    let es = &mut driver.eval_state;
+    let deployment = es.require_attrs_select(&deployments, &req.name)?;
+    {
+        let tag = es.require_attrs_select(&deployment, "_type")?;
+        let str = es.require_string(&tag)?;
+        if str != "nixops4Deployment" {
+            bail!("expected _type to be 'nixops4Deployment', got: {}", str);
+        }
+    }
+    let eval_expr = r#"
+                        # primops
+                        loadResourceAttr:
+                        # user expr
+                        deploymentFunction:
+                        let
+                          arg = {
+                            inherit resources;
+                          };
+                          resources =
+                            builtins.mapAttrs
+                              (name: value:
+                                builtins.mapAttrs
+                                  (loadResourceAttr name)
+                                  value.provider.types.${value.type}.outputs
+                              )
+                              (builtins.trace (builtins.attrNames fixpoint)
+                              fixpoint.resources);
+                          fixpoint = deploymentFunction arg;
+                        in
+                          fixpoint
+                    "#;
+    let deployment_function = es.require_attrs_select(&deployment, "deploymentFunction")?;
+    let prim_load_resource_attr = PrimOp::new(
+        es,
+        PrimOpMeta {
+            name: cstr!("nixopsLoadResourceAttr"),
+            doc: cstr!("Internal function that loads a resource attribute."),
+            args: [cstr!("resourceName"), cstr!("attrName"), cstr!("ignored")],
+        },
+        Box::new(move |es, [resource_name, attr_name, _]| {
+            let resource_name = es.require_string(resource_name)?;
+            let attr_name = es.require_string(attr_name)?;
+            let property = NamedProperty {
+                resource: resource_name.to_string(),
+                name: attr_name.to_string(),
+            };
+            let val = {
+                let known_outputs = known_outputs.lock().unwrap();
+                known_outputs.get(&property).map(Clone::clone)
+            };
+            match val {
+                Some(val) => Ok(val),
+                None =>
+                // FIXME: add custom errors to the Nix C API, or at least don't put arbitrary length data here
+                //        perhaps a number that refers to a hashmap?
+                // FIXME: this will probably leak memory when accessing outputs before all providers are loaded, etc
+                {
+                    Err(anyhow::anyhow!(
+                        "__internal_exception_load_resource_property_#{}#",
+                        base64::engine::general_purpose::STANDARD.encode(
+                            serde_json::to_string(&NamedProperty {
+                                resource: resource_name,
+                                name: attr_name
+                            })
+                            .unwrap()
+                        ),
+                    ))
+                }
+            }
+        }),
+    )?;
+    let load_resource_attr = es.new_value_primop(prim_load_resource_attr)?;
+    let fixpoint = {
+        let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
+        let v = es.call(v, load_resource_attr)?;
+        es.call(v, deployment_function)
+    }?;
+    Ok(fixpoint)
+}
+
+fn perform_get_resource(
+    this: &mut EvaluationDriver,
+    req: &Id<nixops4_core::eval_api::ResourceType>,
+) -> std::result::Result<ResourceProviderInfo, anyhow::Error> {
+    let resource = this.get_value(req.to_owned())?.clone();
+    // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
+    let provider_value = this
+        .eval_state
+        .require_attrs_select(&resource, "provider")?;
+    let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
+    let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
+    let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
+    Ok(ResourceProviderInfo {
+        id: req.to_owned(),
+        provider: provider_json,
+        resource_type: resource_type_str,
+    })
+}
+
+fn perform_get_resource_input(
+    this: &mut EvaluationDriver,
+    req: &nixops4_core::eval_api::Property,
+) -> std::result::Result<ResourceInputState, anyhow::Error> {
+    let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
+        let resource = this.get_value(req.resource.to_owned())?.clone();
+        let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
+        let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
+        let json = value_to_json(&mut this.eval_state, &input)?;
+        Ok(json)
+    })();
+    match attempt {
+        Ok(json) => Ok(ResourceInputState::ResourceInputValue((
+            req.to_owned(),
+            json,
+        ))),
+        Err(e) => {
+            let s = e.to_string();
+            if s.contains("__internal_exception_load_resource_property_#") {
+                let base64_str = s
+                    .split("__internal_exception_load_resource_property_#")
+                    .collect::<Vec<&str>>()[1]
+                    .split("#")
+                    .collect::<Vec<&str>>()[0];
+                let json_str = base64::engine::general_purpose::STANDARD.decode(base64_str)?;
+                let named_property: NamedProperty = serde_json::from_slice(&json_str)?;
+                Ok(ResourceInputState::ResourceInputDependency(
+                    ResourceInputDependency {
+                        dependent: req.to_owned(),
+                        dependency: named_property,
+                    },
+                ))
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+// TODO (roberth, nix): add API to add string context to a Worker, handling concurrent builds
+//      and dynamic addition of more builds to the Worker
+//      this worker should run on a separate thread in nixops4-eval
 fn value_to_json(eval_state: &mut EvalState, value: &Value) -> Result<serde_json::Value> {
     let to_json = eval_state.eval_from_string("builtins.toJSON", "<nixops4-eval GetResource>")?;
     let json_str_value = eval_state.call(to_json, value.clone())?;
