@@ -138,7 +138,7 @@ impl EvaluationDriver {
         match r {
             Ok(resp) => self.respond(resp).await,
             Err(e) => {
-                self.respond(EvalResponse::Error(request.assign_to.any(), e.to_string()))
+                self.respond(EvalResponse::Error(request.message_id.any(), e.to_string()))
                     .await
             }
         }
@@ -556,7 +556,7 @@ mod tests {
             block_on(async {
                 driver
                     .perform_request(&EvalRequest::ListDeployments(SimpleRequest {
-                        assign_to: deployments_id,
+                        message_id: deployments_id,
                         payload: flake_id,
                     }))
                     .await
@@ -620,7 +620,7 @@ mod tests {
                 .perform_request(&EvalRequest::LoadFlake(assign_request))
             ).unwrap();
             block_on(driver
-                .perform_request(&EvalRequest::ListDeployments(SimpleRequest{ assign_to : deployments_id, payload : flake_id }))
+                .perform_request(&EvalRequest::ListDeployments(SimpleRequest{ message_id : deployments_id, payload : flake_id }))
             ).unwrap();
             {
                 let r = responses.lock().unwrap();
@@ -686,7 +686,7 @@ mod tests {
             }
             block_on(
                 driver.perform_request(&EvalRequest::ListDeployments(SimpleRequest {
-                    assign_to: deployments_id,
+                    message_id: deployments_id,
                     payload: flake_id,
                 })),
             )

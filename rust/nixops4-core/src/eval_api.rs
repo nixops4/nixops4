@@ -113,8 +113,7 @@ impl<Req: RequestIdType> RequestIdType for AssignRequest<Req> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimpleRequest<P> {
-    // FIXME: more like message id for errors
-    pub assign_to: Id<AnyType>,
+    pub message_id: Id<AnyType>,
     pub payload: P,
 }
 impl<P> RequestIdType for SimpleRequest<P> {
@@ -267,7 +266,7 @@ mod tests {
     #[test]
     fn test_eval_request_list_deployments() {
         let req = EvalRequest::ListDeployments(SimpleRequest {
-            assign_to: Id::new(2),
+            message_id: Id::new(2),
             payload: Id::new(1),
         });
         let s = eval_request_to_json(&req).unwrap();

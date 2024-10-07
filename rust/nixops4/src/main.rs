@@ -70,7 +70,7 @@ fn deployments_list() -> Result<()> {
     with_flake(|c, flake_id| {
         let deployments_id = c.next_id();
         c.send(&EvalRequest::ListDeployments(SimpleRequest {
-            assign_to: deployments_id,
+            message_id: deployments_id,
             payload: flake_id,
         }))?;
         let deployments = c.receive_until(|client, _resp| {
@@ -98,7 +98,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
         }))?;
         let resources_list_id = c.next_id();
         c.send(&EvalRequest::ListResources(SimpleRequest {
-            assign_to: resources_list_id,
+            message_id: resources_list_id,
             payload: deployment_id,
         }))?;
         let resources = c.receive_until(|client, _resp| {
@@ -130,12 +130,12 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
             // TODO: check for errors on this id
             let get_resource_id = c.next_id();
             c.send(&EvalRequest::GetResource(SimpleRequest {
-                assign_to: get_resource_id,
+                message_id: get_resource_id,
                 payload: *id,
             }))?;
             // TODO: check for errors on this id
             c.send(&EvalRequest::ListResourceInputs(SimpleRequest {
-                assign_to: get_resource_id,
+                message_id: get_resource_id,
                 payload: *id,
             }))?;
         }
@@ -168,7 +168,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                         for input_name in input_names {
                             let input_id = client.next_id();
                             client.send(&EvalRequest::GetResourceInput(SimpleRequest {
-                                assign_to: input_id,
+                                message_id: input_id,
                                 payload: Property {
                                     resource: *res,
                                     name: input_name.clone(),
@@ -198,7 +198,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                                 // Trigger the dependent (TODO dedup?)
                                 let req_id = client.next_id();
                                 client.send(&EvalRequest::GetResourceInput(SimpleRequest {
-                                    assign_to: req_id,
+                                    message_id: req_id,
                                     payload: Property {
                                         resource: dep.dependent.resource,
                                         name: dep.dependent.name.clone(),
@@ -329,7 +329,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                                             let req_id = client.next_id();
                                             client.send(&EvalRequest::GetResourceInput(
                                                 SimpleRequest {
-                                                    assign_to: req_id,
+                                                    message_id: req_id,
                                                     payload: dependent_property.clone(),
                                                 },
                                             ))?;
