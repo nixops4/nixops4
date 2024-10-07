@@ -6,7 +6,7 @@ use eval_client::EvalClient;
 use nixops4_core;
 use nixops4_core::eval_api::{
     AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, FlakeRequest, FlakeType, Id,
-    NamedProperty, Property, ResourceRequest, ResourceType, SimpleRequest,
+    NamedProperty, Property, QueryRequest, ResourceRequest, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
@@ -69,7 +69,7 @@ fn with_flake<T>(f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>) ->
 fn deployments_list() -> Result<()> {
     with_flake(|c, flake_id| {
         let deployments_id = c.next_id();
-        c.send(&EvalRequest::ListDeployments(SimpleRequest {
+        c.send(&EvalRequest::ListDeployments(QueryRequest {
             message_id: deployments_id,
             payload: flake_id,
         }))?;
@@ -97,7 +97,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
             },
         }))?;
         let resources_list_id = c.next_id();
-        c.send(&EvalRequest::ListResources(SimpleRequest {
+        c.send(&EvalRequest::ListResources(QueryRequest {
             message_id: resources_list_id,
             payload: deployment_id,
         }))?;
@@ -129,12 +129,12 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
             }))?;
             // TODO: check for errors on this id
             let get_resource_id = c.next_id();
-            c.send(&EvalRequest::GetResource(SimpleRequest {
+            c.send(&EvalRequest::GetResource(QueryRequest {
                 message_id: get_resource_id,
                 payload: *id,
             }))?;
             // TODO: check for errors on this id
-            c.send(&EvalRequest::ListResourceInputs(SimpleRequest {
+            c.send(&EvalRequest::ListResourceInputs(QueryRequest {
                 message_id: get_resource_id,
                 payload: *id,
             }))?;
@@ -167,7 +167,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                             .insert(*res, input_names.clone());
                         for input_name in input_names {
                             let input_id = client.next_id();
-                            client.send(&EvalRequest::GetResourceInput(SimpleRequest {
+                            client.send(&EvalRequest::GetResourceInput(QueryRequest {
                                 message_id: input_id,
                                 payload: Property {
                                     resource: *res,
@@ -197,7 +197,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
 
                                 // Trigger the dependent (TODO dedup?)
                                 let req_id = client.next_id();
-                                client.send(&EvalRequest::GetResourceInput(SimpleRequest {
+                                client.send(&EvalRequest::GetResourceInput(QueryRequest {
                                     message_id: req_id,
                                     payload: Property {
                                         resource: dep.dependent.resource,
@@ -328,7 +328,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                                         for dependent_property in dependents.iter() {
                                             let req_id = client.next_id();
                                             client.send(&EvalRequest::GetResourceInput(
-                                                SimpleRequest {
+                                                QueryRequest {
                                                     message_id: req_id,
                                                     payload: dependent_property.clone(),
                                                 },

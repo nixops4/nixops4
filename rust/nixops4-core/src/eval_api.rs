@@ -85,13 +85,13 @@ pub struct ResourceType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
-    ListDeployments(SimpleRequest<Id<FlakeType>>),
+    ListDeployments(QueryRequest<Id<FlakeType>>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
-    ListResources(SimpleRequest<Id<DeploymentType>>),
+    ListResources(QueryRequest<Id<DeploymentType>>),
     LoadResource(AssignRequest<ResourceRequest>),
-    GetResource(SimpleRequest<Id<ResourceType>>),
-    ListResourceInputs(SimpleRequest<Id<ResourceType>>),
-    GetResourceInput(SimpleRequest<Property>),
+    GetResource(QueryRequest<Id<ResourceType>>),
+    ListResourceInputs(QueryRequest<Id<ResourceType>>),
+    GetResourceInput(QueryRequest<Property>),
     PutResourceOutput(NamedProperty, Value),
 }
 
@@ -112,11 +112,11 @@ impl<Req: RequestIdType> RequestIdType for AssignRequest<Req> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimpleRequest<P> {
+pub struct QueryRequest<P> {
     pub message_id: Id<AnyType>,
     pub payload: P,
 }
-impl<P> RequestIdType for SimpleRequest<P> {
+impl<P> RequestIdType for QueryRequest<P> {
     type IdType = AnyType;
 }
 
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_eval_request_list_deployments() {
-        let req = EvalRequest::ListDeployments(SimpleRequest {
+        let req = EvalRequest::ListDeployments(QueryRequest {
             message_id: Id::new(2),
             payload: Id::new(1),
         });

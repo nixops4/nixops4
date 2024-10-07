@@ -10,8 +10,8 @@ use nix_expr::{
     value::Value,
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, RequestIdType,
-    ResourceInputDependency, ResourceProviderInfo, SimpleRequest,
+    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
+    RequestIdType, ResourceInputDependency, ResourceProviderInfo,
 };
 use std::sync::{Arc, Mutex};
 
@@ -131,7 +131,7 @@ impl EvaluationDriver {
     // We may need more of these helper functions for different types of requests.
     async fn handle_simple_request<Req>(
         &mut self,
-        request: &SimpleRequest<Req>,
+        request: &QueryRequest<Req>,
         handler: impl FnOnce(&mut Self, &Req) -> Result<EvalResponse>,
     ) -> Result<()> {
         let r = handler(self, &request.payload);
@@ -418,7 +418,7 @@ mod tests {
     use nix_expr::eval_state::{gc_registering_current_thread, EvalState};
     use nix_store::store::Store;
     use nixops4_core::eval_api::{
-        AssignRequest, DeploymentRequest, FlakeRequest, Ids, SimpleRequest,
+        AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
     };
     use tempdir::TempDir;
     use tokio::runtime;
@@ -555,7 +555,7 @@ mod tests {
             }
             block_on(async {
                 driver
-                    .perform_request(&EvalRequest::ListDeployments(SimpleRequest {
+                    .perform_request(&EvalRequest::ListDeployments(QueryRequest {
                         message_id: deployments_id,
                         payload: flake_id,
                     }))
@@ -620,7 +620,7 @@ mod tests {
                 .perform_request(&EvalRequest::LoadFlake(assign_request))
             ).unwrap();
             block_on(driver
-                .perform_request(&EvalRequest::ListDeployments(SimpleRequest{ message_id : deployments_id, payload : flake_id }))
+                .perform_request(&EvalRequest::ListDeployments(QueryRequest{ message_id : deployments_id, payload : flake_id }))
             ).unwrap();
             {
                 let r = responses.lock().unwrap();
@@ -685,7 +685,7 @@ mod tests {
                 }
             }
             block_on(
-                driver.perform_request(&EvalRequest::ListDeployments(SimpleRequest {
+                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest {
                     message_id: deployments_id,
                     payload: flake_id,
                 })),
