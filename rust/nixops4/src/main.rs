@@ -136,7 +136,7 @@ struct Args {
 
 #[derive(Parser, Debug, Clone)]
 struct Options {
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, default_value = "false")]
     verbose: bool,
 }
 
