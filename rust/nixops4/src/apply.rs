@@ -165,7 +165,21 @@ pub(crate) fn apply(
                                                     .clone()
                                             };
 
-                                            eprintln!("Creating resource: {:?}", provider_info);
+                                            let resource_name = {
+                                                resource_ids_to_names
+                                                    .get(&prop.resource)
+                                                    .unwrap()
+                                                    .clone()
+                                            };
+
+                                            eprintln!("Creating resource: {}", resource_name);
+
+                                            if options.verbose {
+                                                eprintln!(
+                                                    "Resource details for {}: {:?}",
+                                                    resource_name, provider_info
+                                                );
+                                            }
 
                                             let provider_argv =
                                                 parse_provider(&provider_info.provider)?;
@@ -180,6 +194,8 @@ pub(crate) fn apply(
                                                 provider_info.resource_type.as_str(),
                                                 &inputs,
                                             )?;
+
+                                            eprintln!("Created resource: {}", resource_name);
 
                                             if options.verbose {
                                                 eprintln!("Resource outputs: {:?}", outputs);
@@ -307,6 +323,7 @@ pub(crate) fn apply(
         };
 
         if options.verbose {
+            eprintln!("");
             eprintln!("Done!");
         }
         eprintln!("The following resources were created:");
@@ -320,16 +337,21 @@ pub(crate) fn apply(
                         name: input.clone(),
                     };
                     let input_value = resource_input_values.get(&property).unwrap();
-                    eprintln!("  - input {}: {:?}", input, input_value);
+                    eprintln!("  - input {}: {}", input, indented_json(input_value));
                 }
             }
             {
                 let outputs = resource_outputs.get(&resource_id).unwrap();
                 for (k, v) in outputs.iter() {
-                    eprintln!("  - output {}: {:?}", k, v);
+                    eprintln!("  - output {}: {}", k, indented_json(v));
                 }
             }
         }
         Ok(())
     })
+}
+
+fn indented_json(v: &Value) -> String {
+    let s = serde_json::to_string_pretty(v).unwrap();
+    s.replace("\n", "\n            ")
 }
