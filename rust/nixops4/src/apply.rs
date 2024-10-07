@@ -20,7 +20,7 @@ pub(crate) struct Args {
 
 /// Run the `apply` command.
 pub(crate) fn apply(
-    options: Options, /* global options; apply options tbd, extra param */
+    options: &Options, /* global options; apply options tbd, extra param */
     args: &Args,
 ) -> Result<()> {
     with_flake(|c, flake_id| {

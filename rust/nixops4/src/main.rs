@@ -16,7 +16,7 @@ fn main() {
 
 fn run_args(args: Args) -> Result<()> {
     match &args.command {
-        Commands::Apply(subargs) => apply::apply(args.options, subargs),
+        Commands::Apply(subargs) => apply::apply(&args.options, subargs),
         Commands::Deployments(sub) => match sub {
             Deployments::List {} => deployments_list(),
         },
