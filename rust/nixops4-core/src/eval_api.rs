@@ -72,6 +72,11 @@ unsafe impl<T> Send for Id<T> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnyType;
+
+/// `QueryRequest`-based requests use message ids to match responses to requests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageType;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlakeType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,13 +90,13 @@ pub struct ResourceType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
-    ListDeployments(QueryRequest<Id<FlakeType>>),
+    ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
-    ListResources(QueryRequest<Id<DeploymentType>>),
+    ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
     LoadResource(AssignRequest<ResourceRequest>),
-    GetResource(QueryRequest<Id<ResourceType>>),
-    ListResourceInputs(QueryRequest<Id<ResourceType>>),
-    GetResourceInput(QueryRequest<Property>),
+    GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
+    ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
+    GetResourceInput(QueryRequest<Property, ResourceInputState>),
     PutResourceOutput(NamedProperty, Value),
 }
 
@@ -100,7 +105,6 @@ pub trait RequestIdType {
     type IdType: Clone;
 }
 
-// TODO: probably better to use identifiers for _all_ requests; simplifies error handling which. I've got it wrong because the data structure doesn't match the code very well - the code should be more general and handle errors near the main loop instead of in each individual request handler.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssignRequest<R: RequestIdType> {
     /// Unique id provided by the client.
@@ -112,11 +116,22 @@ impl<Req: RequestIdType> RequestIdType for AssignRequest<Req> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QueryRequest<P> {
-    pub message_id: Id<AnyType>,
+pub struct QueryRequest<P, R> {
+    pub message_id: Id<MessageType>,
     pub payload: P,
+    #[serde(skip)]
+    panthom: std::marker::PhantomData<R>,
 }
-impl<P> RequestIdType for QueryRequest<P> {
+impl<P, R> QueryRequest<P, R> {
+    pub fn new(message_id: Id<MessageType>, payload: P) -> Self {
+        QueryRequest {
+            message_id,
+            payload,
+            panthom: std::marker::PhantomData,
+        }
+    }
+}
+impl<P, R> RequestIdType for QueryRequest<P, R> {
     type IdType = AnyType;
 }
 
@@ -126,12 +141,22 @@ impl<P> RequestIdType for QueryRequest<P> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalResponse {
     Error(Id<AnyType>, String),
-    ListDeployments(Id<FlakeType>, Vec<String>),
-    ListResources(Id<DeploymentType>, Vec<String>),
+    QueryResponse(Id<MessageType>, QueryResponseValue),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QueryResponseValue {
+    ListDeployments((Id<FlakeType>, Vec<String>)),
+    ListResources((Id<DeploymentType>, Vec<String>)),
     ResourceProviderInfo(ResourceProviderInfo),
-    ResourceInputs(Id<ResourceType>, Vec<String>),
+    ListResourceInputs((Id<ResourceType>, Vec<String>)),
+    ResourceInputState((Property, ResourceInputState)),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceInputState {
+    ResourceInputValue((Property, Value)),
     ResourceInputDependency(ResourceInputDependency),
-    ResourceInputValue(Property, Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,6 +293,7 @@ mod tests {
         let req = EvalRequest::ListDeployments(QueryRequest {
             message_id: Id::new(2),
             payload: Id::new(1),
+            panthom: std::marker::PhantomData,
         });
         let s = eval_request_to_json(&req).unwrap();
         eprintln!("{}", s);

@@ -6,7 +6,8 @@ use eval_client::EvalClient;
 use nixops4_core;
 use nixops4_core::eval_api::{
     AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, FlakeRequest, FlakeType, Id,
-    NamedProperty, Property, QueryRequest, ResourceRequest, ResourceType,
+    NamedProperty, Property, QueryRequest, QueryResponseValue, ResourceInputState, ResourceRequest,
+    ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
@@ -68,11 +69,7 @@ fn with_flake<T>(f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>) ->
 
 fn deployments_list() -> Result<()> {
     with_flake(|c, flake_id| {
-        let deployments_id = c.next_id();
-        c.send(&EvalRequest::ListDeployments(QueryRequest {
-            message_id: deployments_id,
-            payload: flake_id,
-        }))?;
+        let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
         let deployments = c.receive_until(|client, _resp| {
             client.check_error(flake_id)?;
             client.check_error(deployments_id)?;
@@ -96,11 +93,7 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                 name: "default".to_string(),
             },
         }))?;
-        let resources_list_id = c.next_id();
-        c.send(&EvalRequest::ListResources(QueryRequest {
-            message_id: resources_list_id,
-            payload: deployment_id,
-        }))?;
+        let resources_list_id = c.query(EvalRequest::ListResources, deployment_id)?;
         let resources = c.receive_until(|client, _resp| {
             client.check_error(flake_id)?;
             client.check_error(deployment_id)?;
@@ -129,15 +122,9 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
             }))?;
             // TODO: check for errors on this id
             let get_resource_id = c.next_id();
-            c.send(&EvalRequest::GetResource(QueryRequest {
-                message_id: get_resource_id,
-                payload: *id,
-            }))?;
+            c.query(&EvalRequest::GetResource, get_resource_id)?;
             // TODO: check for errors on this id
-            c.send(&EvalRequest::ListResourceInputs(QueryRequest {
-                message_id: get_resource_id,
-                payload: *id,
-            }))?;
+            c.query(&EvalRequest::ListResourceInputs, get_resource_id)?;
         }
         let resource_ids_to_names: BTreeMap<Id<ResourceType>, String> =
             resource_ids.iter().map(|(k, v)| (*v, k.clone())).collect();
@@ -160,186 +147,205 @@ fn apply(options: Options /* global options; apply options tbd, extra param */) 
                         }
                         bail!("Error during evaluation: {}", e);
                     }
-                    EvalResponse::ResourceInputs(res, input_names) => {
-                        resource_inputs
-                            .lock()
-                            .unwrap()
-                            .insert(*res, input_names.clone());
-                        for input_name in input_names {
-                            let input_id = client.next_id();
-                            client.send(&EvalRequest::GetResourceInput(QueryRequest {
-                                message_id: input_id,
-                                payload: Property {
-                                    resource: *res,
-                                    name: input_name.clone(),
-                                },
-                            }))?;
-                        }
-                    }
-                    EvalResponse::ResourceProviderInfo(info) => {
-                        resource_provider_info
-                            .lock()
-                            .unwrap()
-                            .insert(info.id.clone(), info.clone());
-                    }
-                    EvalResponse::ResourceInputDependency(dep) => {
-                        // We might have learned the value after we've asked to evaluate this,
-                        // so we need to check if we have the value now.
-                        let resource_output_opt = {
-                            let resources_outputs = resources_outputs.lock().unwrap();
-                            let resource_id = resource_ids.get(&dep.dependency.resource).unwrap();
-                            resources_outputs.get(resource_id).cloned()
-                        };
-                        match resource_output_opt {
-                            Some(_) => {
-                                // Have have already sent PutResourceOutput for this,
-                                // so all that's missing is the request to recompute the dependents
-
-                                // Trigger the dependent (TODO dedup?)
-                                let req_id = client.next_id();
-                                client.send(&EvalRequest::GetResourceInput(QueryRequest {
-                                    message_id: req_id,
-                                    payload: Property {
-                                        resource: dep.dependent.resource,
-                                        name: dep.dependent.name.clone(),
+                    EvalResponse::QueryResponse(_id, payload) => match payload {
+                        QueryResponseValue::ListResourceInputs((res, input_names)) => {
+                            resource_inputs
+                                .lock()
+                                .unwrap()
+                                .insert(*res, input_names.clone());
+                            for input_name in input_names {
+                                let input_id = client.next_id();
+                                client.send(&EvalRequest::GetResourceInput(QueryRequest::new(
+                                    input_id,
+                                    Property {
+                                        resource: *res,
+                                        name: input_name.clone(),
                                     },
-                                }))?;
-                            }
-                            None => {
-                                let mut resources_blocked = resources_blocked.lock().unwrap();
-                                let dependency =
-                                    resource_ids.get(&dep.dependency.resource).unwrap();
-                                resources_blocked
-                                    .entry(Property {
-                                        resource: *dependency,
-                                        name: dep.dependency.name.clone(),
-                                    })
-                                    .or_default()
-                                    .insert(dep.dependent.clone());
+                                )))?;
                             }
                         }
-                    }
-                    EvalResponse::ResourceInputValue(prop, value) => {
-                        // Store it
-                        resource_input_values
-                            .lock()
-                            .unwrap()
-                            .insert(prop.clone(), value.clone());
+                        QueryResponseValue::ListDeployments(_) => {}
+                        QueryResponseValue::ListResources(_) => todo!(),
+                        QueryResponseValue::ResourceProviderInfo(info) => {
+                            resource_provider_info
+                                .lock()
+                                .unwrap()
+                                .insert(info.id.clone(), info.clone());
+                        }
 
-                        // Is the resource ready to be created?
-                        let this_resource_inputs = {
-                            let resource_inputs = resource_inputs.lock().unwrap();
-                            resource_inputs.get(&prop.resource).unwrap().clone()
-                        };
-                        {
-                            let resource_input_values = resource_input_values.lock().unwrap();
-                            let mut inputs = BTreeMap::new();
-                            let is_complete = this_resource_inputs.iter().all(|input_name| {
-                                let input_prop = Property {
-                                    resource: prop.resource,
-                                    name: input_name.clone(),
-                                };
-                                if let Some(value) = resource_input_values.get(&input_prop) {
-                                    inputs.insert(input_name.clone(), value.clone());
-                                    true
-                                } else {
-                                    false
-                                }
-                            });
-
-                            if options.verbose {
-                                eprintln!("Resource complete: {}", is_complete);
-                                eprintln!("Resource inputs: {:?}", inputs);
-                            }
-
-                            if is_complete {
-                                if resources_outputs
+                        QueryResponseValue::ResourceInputState((_property, st)) => match st {
+                            ResourceInputState::ResourceInputValue((prop, value)) => {
+                                // Store it
+                                resource_input_values
                                     .lock()
                                     .unwrap()
-                                    .get(&prop.resource)
-                                    .is_none()
+                                    .insert(prop.clone(), value.clone());
+
+                                // Is the resource ready to be created?
+                                let this_resource_inputs = {
+                                    let resource_inputs = resource_inputs.lock().unwrap();
+                                    resource_inputs.get(&prop.resource).unwrap().clone()
+                                };
                                 {
-                                    let provider_info = {
-                                        let resource_provider_info =
-                                            resource_provider_info.lock().unwrap();
-                                        resource_provider_info.get(&prop.resource).unwrap().clone()
-                                    };
-
-                                    eprintln!("Creating resource: {:?}", provider_info);
-
-                                    let provider_argv = parse_provider(&provider_info.provider)?;
-                                    // Run the provider
-                                    let provider =
-                                        ResourceProviderClient::new(ResourceProviderConfig {
-                                            provider_executable: provider_argv.command,
-                                            provider_args: provider_argv.args,
+                                    let resource_input_values =
+                                        resource_input_values.lock().unwrap();
+                                    let mut inputs = BTreeMap::new();
+                                    let is_complete =
+                                        this_resource_inputs.iter().all(|input_name| {
+                                            let input_prop = Property {
+                                                resource: prop.resource,
+                                                name: input_name.clone(),
+                                            };
+                                            if let Some(value) =
+                                                resource_input_values.get(&input_prop)
+                                            {
+                                                inputs.insert(input_name.clone(), value.clone());
+                                                true
+                                            } else {
+                                                false
+                                            }
                                         });
-                                    let outputs = provider
-                                        .create(provider_info.resource_type.as_str(), &inputs)?;
 
                                     if options.verbose {
-                                        eprintln!("Resource outputs: {:?}", outputs);
+                                        eprintln!("Resource complete: {}", is_complete);
+                                        eprintln!("Resource inputs: {:?}", inputs);
                                     }
 
-                                    resources_outputs
-                                        .lock()
-                                        .unwrap()
-                                        .insert(prop.resource, outputs.clone());
+                                    if is_complete {
+                                        if resources_outputs
+                                            .lock()
+                                            .unwrap()
+                                            .get(&prop.resource)
+                                            .is_none()
+                                        {
+                                            let provider_info = {
+                                                let resource_provider_info =
+                                                    resource_provider_info.lock().unwrap();
+                                                resource_provider_info
+                                                    .get(&prop.resource)
+                                                    .unwrap()
+                                                    .clone()
+                                            };
 
-                                    // Push the outputs to the evaluator
-                                    for (output_name, output_value) in outputs.iter() {
-                                        let resource_name = {
-                                            resource_ids_to_names
-                                                .get(&prop.resource)
-                                                .unwrap()
-                                                .clone()
-                                        };
-                                        let output_prop = NamedProperty {
-                                            resource: resource_name,
-                                            name: output_name.clone(),
-                                        };
-                                        client.send(&EvalRequest::PutResourceOutput(
-                                            output_prop,
-                                            output_value.clone(),
-                                        ))?;
-                                    }
+                                            eprintln!("Creating resource: {:?}", provider_info);
 
-                                    // Trigger dependents
-                                    {
-                                        let dependents: BTreeSet<Property> = {
-                                            let resources_blocked =
-                                                resources_blocked.lock().unwrap();
-                                            let blocker_resource = prop.resource;
-                                            outputs
-                                                .iter()
-                                                .map(|(k, _)| {
-                                                    let blocker_property = Property {
-                                                        resource: blocker_resource,
-                                                        name: k.clone(),
-                                                    };
-                                                    resources_blocked
-                                                        .get(&blocker_property)
-                                                        .unwrap_or(&BTreeSet::new())
-                                                        .clone()
-                                                })
-                                                .flatten()
-                                                .collect()
-                                        };
-                                        for dependent_property in dependents.iter() {
-                                            let req_id = client.next_id();
-                                            client.send(&EvalRequest::GetResourceInput(
-                                                QueryRequest {
-                                                    message_id: req_id,
-                                                    payload: dependent_property.clone(),
+                                            let provider_argv =
+                                                parse_provider(&provider_info.provider)?;
+                                            // Run the provider
+                                            let provider = ResourceProviderClient::new(
+                                                ResourceProviderConfig {
+                                                    provider_executable: provider_argv.command,
+                                                    provider_args: provider_argv.args,
                                                 },
-                                            ))?;
+                                            );
+                                            let outputs = provider.create(
+                                                provider_info.resource_type.as_str(),
+                                                &inputs,
+                                            )?;
+
+                                            if options.verbose {
+                                                eprintln!("Resource outputs: {:?}", outputs);
+                                            }
+
+                                            resources_outputs
+                                                .lock()
+                                                .unwrap()
+                                                .insert(prop.resource, outputs.clone());
+
+                                            // Push the outputs to the evaluator
+                                            for (output_name, output_value) in outputs.iter() {
+                                                let resource_name = {
+                                                    resource_ids_to_names
+                                                        .get(&prop.resource)
+                                                        .unwrap()
+                                                        .clone()
+                                                };
+                                                let output_prop = NamedProperty {
+                                                    resource: resource_name,
+                                                    name: output_name.clone(),
+                                                };
+                                                client.send(&EvalRequest::PutResourceOutput(
+                                                    output_prop,
+                                                    output_value.clone(),
+                                                ))?;
+                                            }
+
+                                            // Trigger dependents
+                                            {
+                                                let dependents: BTreeSet<Property> = {
+                                                    let resources_blocked =
+                                                        resources_blocked.lock().unwrap();
+                                                    let blocker_resource = prop.resource;
+                                                    outputs
+                                                        .iter()
+                                                        .map(|(k, _)| {
+                                                            let blocker_property = Property {
+                                                                resource: blocker_resource,
+                                                                name: k.clone(),
+                                                            };
+                                                            resources_blocked
+                                                                .get(&blocker_property)
+                                                                .unwrap_or(&BTreeSet::new())
+                                                                .clone()
+                                                        })
+                                                        .flatten()
+                                                        .collect()
+                                                };
+                                                for dependent_property in dependents.iter() {
+                                                    let req_id = client.next_id();
+                                                    client.send(&EvalRequest::GetResourceInput(
+                                                        QueryRequest::new(
+                                                            req_id,
+                                                            dependent_property.clone(),
+                                                        ),
+                                                    ))?;
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                    _ => {}
+                            ResourceInputState::ResourceInputDependency(dep) => {
+                                // We might have learned the value after we've asked to evaluate this,
+                                // so we need to check if we have the value now.
+                                let resource_output_opt = {
+                                    let resources_outputs = resources_outputs.lock().unwrap();
+                                    let resource_id =
+                                        resource_ids.get(&dep.dependency.resource).unwrap();
+                                    resources_outputs.get(resource_id).cloned()
+                                };
+                                match resource_output_opt {
+                                    Some(_) => {
+                                        // Have have already sent PutResourceOutput for this,
+                                        // so all that's missing is the request to recompute the dependents
+
+                                        // Trigger the dependent (TODO dedup?)
+                                        // TODO: handle errors on _req_id
+                                        let _req_id = client.query(
+                                            EvalRequest::GetResourceInput,
+                                            Property {
+                                                resource: dep.dependent.resource,
+                                                name: dep.dependent.name.clone(),
+                                            },
+                                        )?;
+                                    }
+                                    None => {
+                                        let mut resources_blocked =
+                                            resources_blocked.lock().unwrap();
+                                        let dependency =
+                                            resource_ids.get(&dep.dependency.resource).unwrap();
+                                        resources_blocked
+                                            .entry(Property {
+                                                resource: *dependency,
+                                                name: dep.dependency.name.clone(),
+                                            })
+                                            .or_default()
+                                            .insert(dep.dependent.clone());
+                                    }
+                                }
+                            }
+                        },
+                    },
                 }
                 for id in resource_ids.values() {
                     client.check_error(*id)?;

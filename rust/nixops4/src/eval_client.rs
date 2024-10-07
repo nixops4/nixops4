@@ -6,7 +6,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use nixops4_core::eval_api::{
-    self, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids,
+    self, AnyType, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids,
+    MessageType, QueryRequest,
 };
 
 const DEBUG: bool = true;
@@ -60,6 +61,15 @@ impl<'a> EvalClient<'a> {
         self.command_handle.write_all(b"\n")?;
         self.command_handle.flush()?;
         Ok(())
+    }
+    pub fn query<P, R>(
+        &mut self,
+        f: impl FnOnce(QueryRequest<P, R>) -> EvalRequest,
+        payload: P,
+    ) -> Result<Id<MessageType>> {
+        let msg_id = self.next_id();
+        self.send(&f(QueryRequest::new(msg_id, payload)))?;
+        Ok(msg_id)
     }
     fn receive(&mut self) -> Result<eval_api::EvalResponse> {
         let mut line = String::new();
@@ -123,13 +133,15 @@ impl<'a> EvalClient<'a> {
             eval_api::EvalResponse::Error(id, error) => {
                 self.errors.insert(id.num(), error.clone());
             }
-            eval_api::EvalResponse::ListDeployments(id, deployments) => {
-                self.deployments.insert(*id, deployments.clone());
-            }
-            eval_api::EvalResponse::ListResources(id, resources) => {
-                self.resources.insert(*id, resources.clone());
-            }
-            _ => {}
+            eval_api::EvalResponse::QueryResponse(_id, value) => match value {
+                eval_api::QueryResponseValue::ListDeployments((flake_id, deployments)) => {
+                    self.deployments.insert(*flake_id, deployments.clone());
+                }
+                eval_api::QueryResponseValue::ListResources((deployment_id, resources)) => {
+                    self.resources.insert(*deployment_id, resources.clone());
+                }
+                _ => {}
+            },
         }
         Ok(())
     }

@@ -11,7 +11,8 @@ use nix_expr::{
 };
 use nixops4_core::eval_api::{
     AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
-    RequestIdType, ResourceInputDependency, ResourceProviderInfo,
+    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    ResourceProviderInfo,
 };
 use std::sync::{Arc, Mutex};
 
@@ -129,14 +130,19 @@ impl EvaluationDriver {
     /// Helper function that helps with error handling and responding with the result.
     ///
     // We may need more of these helper functions for different types of requests.
-    async fn handle_simple_request<Req>(
+    async fn handle_simple_request<Req, Resp>(
         &mut self,
-        request: &QueryRequest<Req>,
-        handler: impl FnOnce(&mut Self, &Req) -> Result<EvalResponse>,
+        request: &QueryRequest<Req, Resp>,
+        make_response: impl FnOnce(Resp) -> QueryResponseValue,
+        handler: impl FnOnce(&mut Self, &Req) -> Result<Resp>,
     ) -> Result<()> {
+        let rid = request.message_id;
         let r = handler(self, &request.payload);
         match r {
-            Ok(resp) => self.respond(resp).await,
+            Ok(resp) => {
+                self.respond(EvalResponse::QueryResponse(rid, make_response(resp)))
+                    .await
+            }
             Err(e) => {
                 self.respond(EvalResponse::Error(request.message_id.any(), e.to_string()))
                     .await
@@ -170,7 +176,7 @@ impl EvaluationDriver {
                 .await
             }
             EvalRequest::ListDeployments(req) => {
-                self.handle_simple_request(req, |this, req| {
+                self.handle_simple_request(req, QueryResponseValue::ListDeployments, |this, req| {
                     let flake = this.get_value(req.to_owned())?.clone();
                     let outputs = this.eval_state.require_attrs_select(&flake, "outputs")?;
                     let deployments_opt = this
@@ -178,7 +184,7 @@ impl EvaluationDriver {
                         .require_attrs_select_opt(&outputs, "nixops4Deployments")?;
                     let deployments = deployments_opt
                         .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
-                    Ok(EvalResponse::ListDeployments(*req, deployments))
+                    Ok((*req, deployments))
                 })
                 .await
             }
@@ -283,13 +289,13 @@ impl EvaluationDriver {
                 .await
             }
             EvalRequest::ListResources(req) => {
-                self.handle_simple_request(req, |this, req| {
+                self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
                     let resources_attrset = this
                         .eval_state
                         .require_attrs_select(&deployment, "resources")?;
                     let resources = this.eval_state.require_attrs_names(&resources_attrset)?;
-                    Ok(EvalResponse::ListResources(*req, resources))
+                    Ok((*req, resources))
                 })
                 .await
             }
@@ -311,71 +317,86 @@ impl EvaluationDriver {
                 .await
             }
             EvalRequest::GetResource(req) => {
-                self.handle_simple_request(req, |this, req| {
-                    let resource = this.get_value(req.to_owned())?.clone();
-                    // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
-                    let provider_value = this
-                        .eval_state
-                        .require_attrs_select(&resource, "provider")?;
-                    let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
-                    let resource_type_value =
-                        this.eval_state.require_attrs_select(&resource, "type")?;
-                    let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
-                    Ok(EvalResponse::ResourceProviderInfo(ResourceProviderInfo {
-                        id: req.to_owned(),
-                        provider: provider_json,
-                        resource_type: resource_type_str,
-                    }))
-                })
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ResourceProviderInfo,
+                    |this, req| {
+                        let resource = this.get_value(req.to_owned())?.clone();
+                        // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
+                        let provider_value = this
+                            .eval_state
+                            .require_attrs_select(&resource, "provider")?;
+                        let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
+                        let resource_type_value =
+                            this.eval_state.require_attrs_select(&resource, "type")?;
+                        let resource_type_str =
+                            this.eval_state.require_string(&resource_type_value)?;
+                        Ok(ResourceProviderInfo {
+                            id: req.to_owned(),
+                            provider: provider_json,
+                            resource_type: resource_type_str,
+                        })
+                    },
+                )
                 .await
             }
             EvalRequest::ListResourceInputs(req) => {
-                self.handle_simple_request(req, |this, req| {
-                    let resource = this.get_value(req.to_owned())?.clone();
-                    let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
-                    let inputs = this.eval_state.require_attrs_names(&inputs)?;
-                    Ok(EvalResponse::ResourceInputs(*req, inputs))
-                })
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ListResourceInputs,
+                    |this, req| {
+                        let resource = this.get_value(req.to_owned())?.clone();
+                        let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
+                        let inputs = this.eval_state.require_attrs_names(&inputs)?;
+                        Ok((*req, inputs))
+                    },
+                )
                 .await
             }
             EvalRequest::GetResourceInput(req) => {
-                self.handle_simple_request(req, |this, req| {
-                    let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
-                        let resource = this.get_value(req.resource.to_owned())?.clone();
-                        let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
-                        let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
-                        let json = value_to_json(&mut this.eval_state, &input)?;
-                        Ok(json)
-                    })(
-                    );
-                    match attempt {
-                        Ok(json) => Ok(EvalResponse::ResourceInputValue(req.to_owned(), json)),
-                        Err(e) => {
-                            let s = e.to_string();
-                            if s.contains("__internal_exception_load_resource_property_#") {
-                                let base64_str = s
-                                    .split("__internal_exception_load_resource_property_#")
-                                    .collect::<Vec<&str>>()[1]
-                                    .split("#")
-                                    .collect::<Vec<&str>>()[0];
-                                let json_str =
-                                    base64::engine::general_purpose::STANDARD.decode(base64_str)?;
-                                let named_property: NamedProperty =
-                                    serde_json::from_slice(&json_str)?;
-                                Ok(EvalResponse::ResourceInputDependency(
-                                    ResourceInputDependency {
-                                        dependent: req.to_owned(),
-                                        dependency: named_property,
-                                    },
-                                ))
-                            } else {
-                                Err(e)
+                self.handle_simple_request(
+                    req,
+                    |x| QueryResponseValue::ResourceInputState((req.payload.clone(), x)),
+                    |this, req| {
+                        let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
+                            let resource = this.get_value(req.resource.to_owned())?.clone();
+                            let inputs =
+                                this.eval_state.require_attrs_select(&resource, "inputs")?;
+                            let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
+                            let json = value_to_json(&mut this.eval_state, &input)?;
+                            Ok(json)
+                        })(
+                        );
+                        match attempt {
+                            Ok(json) => Ok(ResourceInputState::ResourceInputValue((
+                                req.to_owned(),
+                                json,
+                            ))),
+                            Err(e) => {
+                                let s = e.to_string();
+                                if s.contains("__internal_exception_load_resource_property_#") {
+                                    let base64_str = s
+                                        .split("__internal_exception_load_resource_property_#")
+                                        .collect::<Vec<&str>>()[1]
+                                        .split("#")
+                                        .collect::<Vec<&str>>()[0];
+                                    let json_str = base64::engine::general_purpose::STANDARD
+                                        .decode(base64_str)?;
+                                    let named_property: NamedProperty =
+                                        serde_json::from_slice(&json_str)?;
+                                    Ok(ResourceInputState::ResourceInputDependency(
+                                        ResourceInputDependency {
+                                            dependent: req.to_owned(),
+                                            dependency: named_property,
+                                        },
+                                    ))
+                                } else {
+                                    Err(e)
+                                }
                             }
                         }
-                    }
-
-                    // Ok(EvalResponse::ResourceInputValue(req.to_owned(), json))
-                })
+                    },
+                )
                 .await
             }
             EvalRequest::PutResourceOutput(named_prop, value) => {
@@ -555,10 +576,10 @@ mod tests {
             }
             block_on(async {
                 driver
-                    .perform_request(&EvalRequest::ListDeployments(QueryRequest {
-                        message_id: deployments_id,
-                        payload: flake_id,
-                    }))
+                    .perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
+                        deployments_id,
+                        flake_id,
+                    )))
                     .await
             })
             .unwrap();
@@ -568,7 +589,10 @@ mod tests {
                     panic!("expected 1 response, got: {:?}", r);
                 }
                 match &r[0] {
-                    EvalResponse::ListDeployments(id, names) => {
+                    EvalResponse::QueryResponse(
+                        _id,
+                        QueryResponseValue::ListDeployments((id, names)),
+                    ) => {
                         eprintln!("id: {:?}, names: {:?}", id, names);
                         assert_eq!(id, &flake_id);
                         assert_eq!(names.len(), 0);
@@ -620,7 +644,7 @@ mod tests {
                 .perform_request(&EvalRequest::LoadFlake(assign_request))
             ).unwrap();
             block_on(driver
-                .perform_request(&EvalRequest::ListDeployments(QueryRequest{ message_id : deployments_id, payload : flake_id }))
+                .perform_request(&EvalRequest::ListDeployments(QueryRequest::new(deployments_id, flake_id)))
             ).unwrap();
             {
                 let r = responses.lock().unwrap();
@@ -685,10 +709,10 @@ mod tests {
                 }
             }
             block_on(
-                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest {
-                    message_id: deployments_id,
-                    payload: flake_id,
-                })),
+                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
+                    deployments_id,
+                    flake_id,
+                ))),
             )
             .unwrap();
             {
@@ -697,7 +721,10 @@ mod tests {
                     panic!("expected 1 response, got: {:?}", r);
                 }
                 match &r[0] {
-                    EvalResponse::ListDeployments(id, names) => {
+                    EvalResponse::QueryResponse(
+                        _id,
+                        QueryResponseValue::ListDeployments((id, names)),
+                    ) => {
                         eprintln!("id: {:?}, names: {:?}", id, names);
                         assert_eq!(id, &flake_id);
                         assert_eq!(names.len(), 2);
