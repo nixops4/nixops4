@@ -18,7 +18,7 @@ fn run_args(args: Args) -> Result<()> {
     match &args.command {
         Commands::Apply(subargs) => apply::apply(&args.options, subargs),
         Commands::Deployments(sub) => match sub {
-            Deployments::List {} => deployments_list(),
+            Deployments::List {} => deployments_list(&args.options),
         },
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
@@ -44,9 +44,18 @@ fn run_args(args: Args) -> Result<()> {
     }
 }
 
+fn to_eval_options(options: &Options) -> eval_client::Options {
+    eval_client::Options {
+        verbose: options.verbose,
+    }
+}
+
 /// Convenience function that sets up an evaluator with a flake, asynchronously with regard to evaluation.
-fn with_flake<T>(f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>) -> Result<T> {
-    EvalClient::with(|mut c| {
+fn with_flake<T>(
+    options: &Options,
+    f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>,
+) -> Result<T> {
+    EvalClient::with(&to_eval_options(options), |mut c| {
         let flake_id = c.next_id();
         // TODO: use better file path string type more
         let cwd = std::env::current_dir()
@@ -61,8 +70,8 @@ fn with_flake<T>(f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>) ->
     })
 }
 
-fn deployments_list() -> Result<()> {
-    with_flake(|c, flake_id| {
+fn deployments_list(options: &Options) -> Result<()> {
+    with_flake(options, |c, flake_id| {
         let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
         let deployments = c.receive_until(|client, _resp| {
             client.check_error(flake_id)?;

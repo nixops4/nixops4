@@ -10,9 +10,13 @@ use nixops4_core::eval_api::{
     QueryRequest,
 };
 
-const DEBUG: bool = true;
+#[derive(Clone)]
+pub(crate) struct Options {
+    pub(crate) verbose: bool,
+}
 
 pub struct EvalClient<'a> {
+    options: Options,
     // process: &'a mut std::process::Child,
     response_bufreader: &'a mut std::io::BufReader<&'a mut ChildStdout>,
     // Reference with the liftime of the process
@@ -23,7 +27,7 @@ pub struct EvalClient<'a> {
     errors: HashMap<IdNum, String>,
 }
 impl<'a> EvalClient<'a> {
-    pub fn with<T>(f: impl FnOnce(EvalClient) -> Result<T>) -> Result<T> {
+    pub fn with<T>(options: &Options, f: impl FnOnce(EvalClient) -> Result<T>) -> Result<T> {
         let exe = std::env::var("_NIXOPS4_EVAL").unwrap_or("nixops4-eval".to_string());
         let mut process = std::process::Command::new(exe)
             .stdin(std::process::Stdio::piped())
@@ -42,6 +46,7 @@ impl<'a> EvalClient<'a> {
         }
 
         let c: EvalClient<'_> = EvalClient {
+            options: options.clone(),
             response_bufreader: &mut response_bufreader,
             command_handle,
             ids: Ids::new(),
@@ -54,7 +59,7 @@ impl<'a> EvalClient<'a> {
     }
     pub fn send(&mut self, request: &EvalRequest) -> Result<()> {
         let json = eval_api::eval_request_to_json(request)?;
-        if DEBUG {
+        if self.options.verbose {
             eprintln!("\x1b[35msending: {}\x1b[0m", json);
         }
         self.command_handle.write_all(json.as_bytes())?;
@@ -83,7 +88,7 @@ impl<'a> EvalClient<'a> {
             }
             Ok(_) => {}
         }
-        if DEBUG {
+        if self.options.verbose {
             eprintln!("\x1b[32mreceived: {}\x1b[0m", line.trim_end());
         }
         let response = eval_api::eval_response_from_json(line.as_str())?;
