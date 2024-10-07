@@ -60,10 +60,9 @@ pub(crate) fn apply(
                 },
             }))?;
             // TODO: check for errors on this id
-            let get_resource_id = c.next_id();
-            c.query(&EvalRequest::GetResource, get_resource_id)?;
+            c.query(&EvalRequest::GetResource, *id)?;
             // TODO: check for errors on this id
-            c.query(&EvalRequest::ListResourceInputs, get_resource_id)?;
+            c.query(&EvalRequest::ListResourceInputs, *id)?;
         }
         let resource_ids_to_names: BTreeMap<Id<ResourceType>, String> =
             resource_ids.iter().map(|(k, v)| (*v, k.clone())).collect();
