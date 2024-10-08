@@ -16,7 +16,7 @@ use nixops4_core::eval_api::{
 };
 use std::sync::{Arc, Mutex};
 
-type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
+type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
 #[async_trait]
 pub trait Respond {
@@ -29,7 +29,6 @@ pub struct EvaluationDriver {
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
 }
-unsafe impl Send for EvaluationDriver {}
 impl EvaluationDriver {
     pub fn new(eval_state: EvalState, respond: Box<dyn Respond>) -> EvaluationDriver {
         EvaluationDriver {

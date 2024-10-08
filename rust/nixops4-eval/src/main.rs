@@ -1,9 +1,8 @@
 use anyhow::Result;
-use nix_expr::eval_state::{gc_registering_current_thread, EvalState};
+use nix_expr::eval_state::{self, gc_register_my_thread, EvalState};
 use nix_store::store::Store;
 use std::process::exit;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::runtime::Builder;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -18,13 +17,14 @@ fn main() {
         eprintln!("nixops4-eval is not for direct use");
         exit(1);
     }
-    let r = gc_registering_current_thread(|| {
-        let runtime = Builder::new_current_thread().build()?;
+    handle_err((|| {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("no4-e-tokio")
+            .build()?;
         runtime.block_on(async_main())?;
         Ok(())
-    });
-    let r = r.and_then(|x| x);
-    handle_err(r)
+    })())
 }
 
 fn handle_err(r: Result<()>) {
@@ -72,11 +72,6 @@ async fn async_main() -> Result<()> {
         tracing::subscriber::set_global_default(log_subscriber)?;
     }
 
-    let store = Store::open("auto", [])?;
-    let eval_state = EvalState::new(store, [])?;
-
-    let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
-
     // Read lines from stdin and pass them to the driver
     let stdin = tokio::io::stdin();
     let reader = BufReader::new(stdin);
@@ -111,9 +106,17 @@ async fn async_main() -> Result<()> {
         Ok(())
     });
 
+    let local: tokio::task::LocalSet = tokio::task::LocalSet::new();
+
     // let queue_done : JoinHandle<Result<()>> = tokio::task::Builder::new().name("nixops4-eval-queue-worker").spawn(async move {
-    let queue_done: JoinHandle<Result<()>> = tokio::spawn(async move {
-        let span = tracing::info_span!("nixops4-eval-high-prio-queue-worker");
+    let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
+        let span = tracing::info_span!("nixops4-eval-queue-worker");
+        eval_state::init()?;
+        let gc_guard = gc_register_my_thread()?;
+        let store = Store::open("auto", [])?;
+        let eval_state = EvalState::new(store, [])?;
+
+        let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
         loop {
             while let Ok(request) = high_prio_rx.try_recv() {
                 let ed = span.enter();
@@ -130,9 +133,11 @@ async fn async_main() -> Result<()> {
             driver.perform_request(&request).await?;
             drop(ed)
         }
+        drop(gc_guard);
         drop(span);
         Ok(())
     });
+    local.await;
 
     reader_done.await??;
     queue_done.await??;
