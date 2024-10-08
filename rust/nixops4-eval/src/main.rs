@@ -56,7 +56,6 @@ async fn async_main() -> Result<()> {
     let (eval_tx, mut eval_rx) = channel(Semaphore::MAX_PERMITS);
 
     let session = Session {
-        // out: Box::new(tokio::io::stdout()),
         sender: eval_tx.clone(),
     };
 
