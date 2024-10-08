@@ -470,30 +470,32 @@ pub fn gc_now() {
     }
 }
 
+pub struct ThreadRegistrationGuard {
+    must_unregister: bool,
+}
+impl Drop for ThreadRegistrationGuard {
+    fn drop(&mut self) {
+        if self.must_unregister {
+            unsafe {
+                raw::GC_unregister_my_thread();
+            }
+        }
+    }
+}
+
 /// Run a function while making sure that the current thread is registered with the GC.
 pub fn gc_registering_current_thread<F, R>(f: F) -> Result<R>
 where
     F: FnOnce() -> R,
 {
-    init()?;
-    if unsafe { raw::GC_thread_is_registered() } != 0 {
-        return Ok(f());
-    } else {
-        gc_register_my_thread()?;
-        let r = f();
-        unsafe {
-            raw::GC_unregister_my_thread();
-        }
-        return Ok(r);
-    }
+    let guard = gc_register_my_thread()?;
+    let r = f();
+    drop(guard);
+    Ok(r)
 }
 
-pub fn gc_register_my_thread() -> Result<()> {
+fn gc_register_my_thread_do_it() -> Result<()> {
     unsafe {
-        let already_done = raw::GC_thread_is_registered();
-        if already_done != 0 {
-            return Ok(());
-        }
         let mut sb: raw::GC_stack_base = raw::GC_stack_base {
             mem_base: null_mut(),
         };
@@ -503,6 +505,22 @@ pub fn gc_register_my_thread() -> Result<()> {
         }
         raw::GC_register_my_thread(&sb);
         Ok(())
+    }
+}
+
+pub fn gc_register_my_thread() -> Result<ThreadRegistrationGuard> {
+    init()?;
+    unsafe {
+        let already_done = raw::GC_thread_is_registered();
+        if already_done != 0 {
+            return Ok(ThreadRegistrationGuard {
+                must_unregister: false,
+            });
+        }
+        gc_register_my_thread_do_it()?;
+        Ok(ThreadRegistrationGuard {
+            must_unregister: true,
+        })
     }
 }
 
