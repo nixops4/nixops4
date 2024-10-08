@@ -23,6 +23,8 @@ base64 = "0.22.1"
 cstr = "0.2.12"
 tokio = { version = "1.40.0", features = ["io-std", "io-util", "macros", "rt", "sync"] }
 async-trait = "0.1.83"
+tracing = "0.1.40"
+tracing-serde-structured = "0.2.0"
 
 [[bin]]
 name = "nixops4-eval"

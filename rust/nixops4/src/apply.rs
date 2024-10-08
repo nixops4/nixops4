@@ -301,6 +301,7 @@ pub(crate) fn apply(
                             }
                         },
                     },
+                    EvalResponse::TracingMessage(_) => {}
                 }
                 for id in resource_ids.values() {
                     client.check_error(*id)?;
