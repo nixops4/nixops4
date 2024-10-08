@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
-pub mod eval;
+mod eval;
 mod json_tracing;
 
 fn main() {

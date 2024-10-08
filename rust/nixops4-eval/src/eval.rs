@@ -59,32 +59,6 @@ impl EvaluationDriver {
         Box::pin(async { Ok(()) })
     }
 
-    pub async fn handle_assign_value<T>(
-        &mut self,
-        id: Id<T>,
-        f: impl FnOnce(&mut Self) -> Result<Value>,
-    ) -> Result<()> {
-        if let Some(_value) = self.values.get(&id.num()) {
-            return self
-                .respond(EvalResponse::Error(
-                    id.any(),
-                    "id already used: ".to_string() + &id.num().to_string(),
-                ))
-                .await;
-        }
-        let value = f(self);
-        match value {
-            Ok(value) => {
-                self.values.insert(id.num(), value);
-                Ok(())
-            }
-            Err(e) => {
-                self.respond(EvalResponse::Error(id.any(), e.to_string()))
-                    .await
-            }
-        }
-    }
-
     // https://github.com/NixOS/nix/issues/10435
     fn get_flake(&mut self, flakeref_str: &str) -> Result<Value> {
         let get_flake = self
