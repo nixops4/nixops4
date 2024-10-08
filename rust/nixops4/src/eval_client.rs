@@ -155,6 +155,10 @@ impl<'a> EvalClient<'a> {
                 }
                 _ => {}
             },
+            eval_api::EvalResponse::TracingMessage(v) => {
+                let pretty = serde_json::to_string_pretty(v).unwrap();
+                eprintln!("tracing: {}", pretty)
+            }
         }
         Ok(())
     }

@@ -142,6 +142,7 @@ impl<P, R> RequestIdType for QueryRequest<P, R> {
 pub enum EvalResponse {
     Error(Id<AnyType>, String),
     QueryResponse(Id<MessageType>, QueryResponseValue),
+    TracingMessage(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

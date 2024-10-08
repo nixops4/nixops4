@@ -363,7 +363,12 @@ fn perform_get_resource(
     let provider_value = this
         .eval_state
         .require_attrs_select(&resource, "provider")?;
-    let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
+    let provider_json = {
+        let span = tracing::info_span!("retrieving provider JSON", resource_id = req.num());
+        let r = value_to_json(&mut this.eval_state, &provider_value)?;
+        drop(span);
+        r
+    };
     let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
     let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
     Ok(ResourceProviderInfo {
