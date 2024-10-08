@@ -35,6 +35,10 @@ impl<'a> EvalClient<'a> {
             .spawn()
             .context("while starting the nixops4 evaluator process")?;
 
+        if options.verbose {
+            eprintln!("started nixops4-eval process: {}", process.id());
+        }
+
         let mut response_bufreader;
         let command_handle;
 
