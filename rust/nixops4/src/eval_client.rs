@@ -17,7 +17,6 @@ pub(crate) struct Options {
 
 pub struct EvalClient<'a> {
     options: Options,
-    // process: &'a mut std::process::Child,
     response_bufreader: &'a mut std::io::BufReader<&'a mut ChildStdout>,
     // Reference with the liftime of the process
     command_handle: &'a mut std::process::ChildStdin,
