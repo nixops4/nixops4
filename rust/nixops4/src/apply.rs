@@ -175,7 +175,7 @@ pub(crate) fn apply(
                                             };
 
                                             let span = info_span!(
-                                                "Creating resource",
+                                                "creating resource",
                                                 name = resource_name
                                             );
 
