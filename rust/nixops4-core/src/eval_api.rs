@@ -142,7 +142,12 @@ impl<P, R> RequestIdType for QueryRequest<P, R> {
 pub enum EvalResponse {
     Error(Id<AnyType>, String),
     QueryResponse(Id<MessageType>, QueryResponseValue),
-    TracingMessage(Value),
+    TracingEvent(
+        /// This is a tracing_tunnel::TracingEvent, but that type (rightfully)
+        /// does not implement Eq, while we would like to have that on our other
+        /// EvalResponse variants for ease of testing.
+        Value,
+    ),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
