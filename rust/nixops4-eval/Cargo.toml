@@ -24,7 +24,7 @@ cstr = "0.2.12"
 tokio = { version = "1.40.0", features = ["io-std", "io-util", "macros", "rt", "rt-multi-thread", "sync"] }
 async-trait = "0.1.83"
 tracing = "0.1.40"
-tracing-serde-structured = "0.2.0"
+tracing-tunnel = { version = "0.1.0", features = ["sender"] }
 
 [[bin]]
 name = "nixops4-eval"

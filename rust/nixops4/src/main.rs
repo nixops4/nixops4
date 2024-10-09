@@ -1,5 +1,6 @@
 mod apply;
 mod eval_client;
+mod logging;
 mod provider;
 
 use anyhow::Result;
@@ -16,10 +17,20 @@ fn main() {
 
 fn run_args(args: Args) -> Result<()> {
     match &args.command {
-        Commands::Apply(subargs) => apply::apply(&args.options, subargs),
-        Commands::Deployments(sub) => match sub {
-            Deployments::List {} => deployments_list(&args.options),
-        },
+        Commands::Apply(subargs) => {
+            let logging = set_up_logging(&args)?;
+            apply::apply(&args.options, subargs)?;
+            drop(logging);
+            Ok(())
+        }
+        Commands::Deployments(sub) => {
+            let logging = set_up_logging(&args)?;
+            match sub {
+                Deployments::List {} => deployments_list(&args.options),
+            }?;
+            drop(logging);
+            Ok(())
+        }
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -42,6 +53,12 @@ fn run_args(args: Args) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn set_up_logging(args: &Args) -> Result<Box<dyn logging::Frontend>> {
+    logging::set_up(logging::Options {
+        verbose: args.options.verbose,
+    })
 }
 
 fn to_eval_options(options: &Options) -> eval_client::Options {

@@ -301,7 +301,9 @@ pub(crate) fn apply(
                             }
                         },
                     },
-                    EvalResponse::TracingMessage(_) => {}
+                    EvalResponse::TracingEvent(_) => {
+                        // already handled in EvalClient
+                    }
                 }
                 for id in resource_ids.values() {
                     client.check_error(*id)?;

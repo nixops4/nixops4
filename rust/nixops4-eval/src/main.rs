@@ -8,7 +8,6 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 mod eval;
-mod json_tracing;
 
 fn main() {
     // Be friendly to the user if they try to run this.
@@ -62,13 +61,14 @@ async fn async_main() -> Result<()> {
     {
         // Downgrade eval_tx so that we can drop it when all the real work is done, closing the log channel.
         let tx = eval_tx.downgrade();
-        let log_subscriber = json_tracing::QueueSubscriber::new(Box::new(move |json| {
+        let log_subscriber = tracing_tunnel::TracingEventSender::new(move |event| {
             if let Some(tx) = tx.upgrade() {
-                let _ = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingMessage(json));
+                let json = serde_json::to_value(&event).expect("serializing tracing event to JSON");
+                let _ = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
             } else {
                 eprintln!("warning: can't log after log channel is closed; some structured logs may be lost");
             }
-        }));
+        });
         tracing::subscriber::set_global_default(log_subscriber)?;
     }
 
