@@ -39,7 +39,6 @@ fn handle_err(r: Result<()>) {
 async fn async_main() -> Result<()> {
     // Session output handle
     struct Session {
-        // out: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
         sender: Sender<nixops4_core::eval_api::EvalResponse>,
     }
 
@@ -84,7 +83,7 @@ async fn async_main() -> Result<()> {
     let (low_prio_tx, mut low_prio_rx) = channel(100);
 
     let reader_done: JoinHandle<Result<()>> = tokio::spawn(async move {
-        let span = tracing::info_span!("nixops4-eval-stdin-reader");
+        let span = tracing::trace_span!("nixops4-eval-stdin-reader");
         while let Some(line) = lines.next_line().await? {
             let request = nixops4_core::eval_api::eval_request_from_json(&line)?;
             if has_prio(&request) {
@@ -110,7 +109,7 @@ async fn async_main() -> Result<()> {
 
     // let queue_done : JoinHandle<Result<()>> = tokio::task::Builder::new().name("nixops4-eval-queue-worker").spawn(async move {
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
-        let span = tracing::info_span!("nixops4-eval-queue-worker");
+        let span = tracing::trace_span!("nixops4-eval-queue-worker");
         eval_state::init()?;
         let gc_guard = gc_register_my_thread()?;
         let store = Store::open("auto", [])?;
