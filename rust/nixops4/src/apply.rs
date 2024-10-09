@@ -12,6 +12,7 @@ use nixops4_core::eval_api::{
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
+use tracing::info_span;
 
 #[derive(clap::Parser, Debug)]
 pub(crate) struct Args {
@@ -173,7 +174,10 @@ pub(crate) fn apply(
                                                     .clone()
                                             };
 
-                                            eprintln!("Creating resource: {}", resource_name);
+                                            let span = info_span!(
+                                                "Creating resource",
+                                                name = resource_name
+                                            );
 
                                             if options.verbose {
                                                 eprintln!(
@@ -196,7 +200,7 @@ pub(crate) fn apply(
                                                 &inputs,
                                             )?;
 
-                                            eprintln!("Created resource: {}", resource_name);
+                                            drop(span);
 
                                             if options.verbose {
                                                 eprintln!("Resource outputs: {:?}", outputs);
