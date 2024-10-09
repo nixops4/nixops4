@@ -25,6 +25,7 @@ clap_mangen = "0.2.23"
 tracing = "0.1.40"
 tracing-tunnel = { version = "0.1.0", features = ["receiver"] }
 tracing-subscriber = { version = "0.3.18", features = ["registry"] }
+nix = "0.29.0"
 
 [[bin]]
 name = "nixops4"
