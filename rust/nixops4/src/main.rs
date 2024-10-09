@@ -4,7 +4,7 @@ mod logging;
 mod provider;
 
 use anyhow::Result;
-use clap::{CommandFactory as _, Parser, Subcommand};
+use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
 use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
@@ -55,9 +55,19 @@ fn run_args(args: Args) -> Result<()> {
     }
 }
 
+fn determine_color(choice: ColorChoice) -> bool {
+    match choice {
+        ColorChoice::Auto => nix::unistd::isatty(nix::libc::STDERR_FILENO).unwrap_or(false),
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+    }
+}
+
 fn set_up_logging(args: &Args) -> Result<Box<dyn logging::Frontend>> {
+    let color = determine_color(args.options.color);
     logging::set_up(logging::Options {
         verbose: args.options.verbose,
+        color,
     })
 }
 
@@ -128,6 +138,9 @@ struct Args {
 struct Options {
     #[arg(short, long, global = true, default_value = "false")]
     verbose: bool,
+
+    #[arg(long, global = true, default_value_t = ColorChoice::Auto)]
+    color: ColorChoice,
 }
 
 #[derive(Subcommand, Debug)]

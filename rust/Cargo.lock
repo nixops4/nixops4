@@ -498,6 +498,7 @@ dependencies = [
  "clap-markdown",
  "clap_complete",
  "clap_mangen",
+ "nix",
  "nixops4-core",
  "nixops4-eval",
  "nixops4-resource",

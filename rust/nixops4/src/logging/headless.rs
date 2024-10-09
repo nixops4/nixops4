@@ -27,7 +27,9 @@ impl Frontend for HeadlessLogger {
             FmtSpan::NEW | FmtSpan::CLOSE
         };
 
-        let fmt_layer = FmtLayer::new().with_span_events(span_events);
+        let fmt_layer = FmtLayer::new()
+            .with_span_events(span_events)
+            .with_ansi(options.color);
         let filter_layer = LevelFilter2::new(filter.into(), fmt_layer);
         let subscriber = Registry::default().with(filter_layer);
 
