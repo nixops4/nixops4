@@ -16,7 +16,7 @@ use nixops4_core::eval_api::{
 };
 use std::sync::{Arc, Mutex};
 
-type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
+type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
 #[async_trait]
 pub trait Respond {
@@ -29,7 +29,6 @@ pub struct EvaluationDriver {
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
 }
-unsafe impl Send for EvaluationDriver {}
 impl EvaluationDriver {
     pub fn new(eval_state: EvalState, respond: Box<dyn Respond>) -> EvaluationDriver {
         EvaluationDriver {
@@ -57,32 +56,6 @@ impl EvaluationDriver {
         }
         self.values.insert(id.num(), value);
         Box::pin(async { Ok(()) })
-    }
-
-    pub async fn handle_assign_value<T>(
-        &mut self,
-        id: Id<T>,
-        f: impl FnOnce(&mut Self) -> Result<Value>,
-    ) -> Result<()> {
-        if let Some(_value) = self.values.get(&id.num()) {
-            return self
-                .respond(EvalResponse::Error(
-                    id.any(),
-                    "id already used: ".to_string() + &id.num().to_string(),
-                ))
-                .await;
-        }
-        let value = f(self);
-        match value {
-            Ok(value) => {
-                self.values.insert(id.num(), value);
-                Ok(())
-            }
-            Err(e) => {
-                self.respond(EvalResponse::Error(id.any(), e.to_string()))
-                    .await
-            }
-        }
     }
 
     // https://github.com/NixOS/nix/issues/10435
@@ -363,7 +336,13 @@ fn perform_get_resource(
     let provider_value = this
         .eval_state
         .require_attrs_select(&resource, "provider")?;
-    let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
+    let provider_json = {
+        let span =
+            tracing::info_span!("evaluating and realising provider", resource_id = req.num());
+        let r = value_to_json(&mut this.eval_state, &provider_value)?;
+        drop(span);
+        r
+    };
     let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
     let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
     Ok(ResourceProviderInfo {

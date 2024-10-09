@@ -1,9 +1,10 @@
 mod apply;
 mod eval_client;
+mod logging;
 mod provider;
 
 use anyhow::Result;
-use clap::{CommandFactory as _, Parser, Subcommand};
+use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
 use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
@@ -16,10 +17,20 @@ fn main() {
 
 fn run_args(args: Args) -> Result<()> {
     match &args.command {
-        Commands::Apply(subargs) => apply::apply(&args.options, subargs),
-        Commands::Deployments(sub) => match sub {
-            Deployments::List {} => deployments_list(&args.options),
-        },
+        Commands::Apply(subargs) => {
+            let logging = set_up_logging(&args)?;
+            apply::apply(&args.options, subargs)?;
+            drop(logging);
+            Ok(())
+        }
+        Commands::Deployments(sub) => {
+            let logging = set_up_logging(&args)?;
+            match sub {
+                Deployments::List {} => deployments_list(&args.options),
+            }?;
+            drop(logging);
+            Ok(())
+        }
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -42,6 +53,22 @@ fn run_args(args: Args) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn determine_color(choice: ColorChoice) -> bool {
+    match choice {
+        ColorChoice::Auto => nix::unistd::isatty(nix::libc::STDERR_FILENO).unwrap_or(false),
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+    }
+}
+
+fn set_up_logging(args: &Args) -> Result<Box<dyn logging::Frontend>> {
+    let color = determine_color(args.options.color);
+    logging::set_up(logging::Options {
+        verbose: args.options.verbose,
+        color,
+    })
 }
 
 fn to_eval_options(options: &Options) -> eval_client::Options {
@@ -111,6 +138,9 @@ struct Args {
 struct Options {
     #[arg(short, long, global = true, default_value = "false")]
     verbose: bool,
+
+    #[arg(long, global = true, default_value_t = ColorChoice::Auto)]
+    color: ColorChoice,
 }
 
 #[derive(Subcommand, Debug)]

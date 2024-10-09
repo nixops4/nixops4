@@ -17,10 +17,12 @@ pub(crate) struct Options {
 
 pub struct EvalClient<'a> {
     options: Options,
-    // process: &'a mut std::process::Child,
+
     response_bufreader: &'a mut std::io::BufReader<&'a mut ChildStdout>,
     // Reference with the liftime of the process
     command_handle: &'a mut std::process::ChildStdin,
+    tracing_event_receiver: tracing_tunnel::TracingEventReceiver,
+
     ids: Ids,
     deployments: HashMap<Id<FlakeType>, Vec<String>>,
     resources: HashMap<Id<DeploymentType>, Vec<String>>,
@@ -35,6 +37,10 @@ impl<'a> EvalClient<'a> {
             .arg("<subprocess>")
             .spawn()
             .context("while starting the nixops4 evaluator process")?;
+
+        if options.verbose {
+            eprintln!("started nixops4-eval process: {}", process.id());
+        }
 
         let mut response_bufreader;
         let command_handle;
@@ -51,6 +57,7 @@ impl<'a> EvalClient<'a> {
                 options: options.clone(),
                 response_bufreader: &mut response_bufreader,
                 command_handle,
+                tracing_event_receiver: tracing_tunnel::TracingEventReceiver::default(),
                 ids: Ids::new(),
                 deployments: HashMap::new(),
                 resources: HashMap::new(),
@@ -155,6 +162,13 @@ impl<'a> EvalClient<'a> {
                 }
                 _ => {}
             },
+            eval_api::EvalResponse::TracingEvent(v) => {
+                let event =
+                    serde_json::from_value(v.clone()).context("while parsing tracing event")?;
+                if let Err(e) = self.tracing_event_receiver.try_receive(event) {
+                    eprintln!("error handling tracing event: {}", e);
+                }
+            }
         }
         Ok(())
     }
