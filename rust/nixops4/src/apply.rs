@@ -3,7 +3,7 @@ use std::{
     sync::Mutex,
 };
 
-use crate::provider;
+use crate::{interrupt::InterruptState, provider};
 use crate::{with_flake, Options};
 use anyhow::{bail, Result};
 use nixops4_core::eval_api::{
@@ -22,6 +22,7 @@ pub(crate) struct Args {
 
 /// Run the `apply` command.
 pub(crate) fn apply(
+    interrupt_state: &InterruptState,
     options: &Options, /* global options; apply options tbd, extra param */
     args: &Args,
 ) -> Result<()> {
@@ -80,6 +81,9 @@ pub(crate) fn apply(
 
         let (resource_inputs, resource_outputs, resource_input_values) = {
             c.receive_until(move |client, resp| {
+                // TODO: stop asynchronously
+                // TODO: when concurrent track critical tasks and wait for them
+                interrupt_state.check_interrupted()?;
                 match resp {
                     EvalResponse::Error(id, e) => {
                         if options.verbose {

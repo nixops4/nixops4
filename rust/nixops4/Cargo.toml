@@ -26,6 +26,7 @@ tracing = "0.1.40"
 tracing-tunnel = { version = "0.1.0", features = ["receiver"] }
 tracing-subscriber = { version = "0.3.18", features = ["registry"] }
 nix = "0.29.0"
+ctrlc = "3.4.5"
 
 [[bin]]
 name = "nixops4"
