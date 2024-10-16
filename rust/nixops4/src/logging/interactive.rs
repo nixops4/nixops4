@@ -210,7 +210,7 @@ fn spawn_log_ui<W: Write + Send + 'static>(
         let mut tui_height = tui_height;
         let mut graphics_mode = String::new();
 
-        let backend = CrosstermBackend::new(writer);
+        let backend = CrosstermBackend::new(io::BufWriter::new(writer));
         let mut terminal = Terminal::with_options(
             backend,
             ratatui::TerminalOptions {
