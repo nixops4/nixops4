@@ -16,7 +16,7 @@ use nixops4_core::eval_api::{
 };
 use std::sync::{Arc, Mutex};
 
-type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
+type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
 #[async_trait]
 pub trait Respond {
@@ -29,7 +29,6 @@ pub struct EvaluationDriver {
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
 }
-unsafe impl Send for EvaluationDriver {}
 impl EvaluationDriver {
     pub fn new(eval_state: EvalState, respond: Box<dyn Respond>) -> EvaluationDriver {
         EvaluationDriver {
@@ -57,32 +56,6 @@ impl EvaluationDriver {
         }
         self.values.insert(id.num(), value);
         Box::pin(async { Ok(()) })
-    }
-
-    pub async fn handle_assign_value<T>(
-        &mut self,
-        id: Id<T>,
-        f: impl FnOnce(&mut Self) -> Result<Value>,
-    ) -> Result<()> {
-        if let Some(_value) = self.values.get(&id.num()) {
-            return self
-                .respond(EvalResponse::Error(
-                    id.any(),
-                    "id already used: ".to_string() + &id.num().to_string(),
-                ))
-                .await;
-        }
-        let value = f(self);
-        match value {
-            Ok(value) => {
-                self.values.insert(id.num(), value);
-                Ok(())
-            }
-            Err(e) => {
-                self.respond(EvalResponse::Error(id.any(), e.to_string()))
-                    .await
-            }
-        }
     }
 
     // https://github.com/NixOS/nix/issues/10435
@@ -363,7 +336,13 @@ fn perform_get_resource(
     let provider_value = this
         .eval_state
         .require_attrs_select(&resource, "provider")?;
-    let provider_json = value_to_json(&mut this.eval_state, &provider_value)?;
+    let provider_json = {
+        let span =
+            tracing::info_span!("evaluating and realising provider", resource_id = req.num());
+        let r = value_to_json(&mut this.eval_state, &provider_value)?;
+        drop(span);
+        r
+    };
     let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
     let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
     Ok(ResourceProviderInfo {
@@ -438,7 +417,7 @@ mod tests {
 
     use super::*;
     use ctor::ctor;
-    use nix_expr::eval_state::{gc_registering_current_thread, EvalState};
+    use nix_expr::eval_state::{gc_register_my_thread, EvalState};
     use nix_store::store::Store;
     use nixops4_core::eval_api::{
         AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
@@ -473,7 +452,8 @@ mod tests {
 
     #[test]
     fn test_eval_driver_invalid_flakeref() {
-        gc_registering_current_thread(|| -> Result<()> {
+        (|| -> Result<()> {
+            let guard = gc_register_my_thread().unwrap();
             let store = Store::open("auto", [])?;
             let eval_state = EvalState::new(store, [])?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
@@ -500,6 +480,7 @@ mod tests {
                     EvalResponse::Error(id, msg) => {
                         assert_eq!(id, &flake_id.any());
                         if msg.contains("/non-existent/path/to/flake") {
+                            drop(guard);
                             return Ok(());
                         } else {
                             panic!("unexpected error message: {}", msg);
@@ -508,8 +489,7 @@ mod tests {
                     _ => panic!("expected EvalResponse::Error"),
                 };
             }
-        })
-        .unwrap()
+        })()
         .unwrap();
     }
 
@@ -545,7 +525,8 @@ mod tests {
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
-        gc_registering_current_thread(|| -> Result<()> {
+        (|| -> Result<()> {
+            let guard = gc_register_my_thread().unwrap();
             let store = Store::open("auto", [])?;
             let eval_state = EvalState::new(store, [])?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
@@ -603,9 +584,9 @@ mod tests {
                 }
             }
 
+            drop(guard);
             Ok(())
-        })
-        .unwrap()
+        })()
         .unwrap();
     }
 
@@ -623,7 +604,8 @@ mod tests {
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
-        gc_registering_current_thread(|| {
+        {
+            let guard = gc_register_my_thread().unwrap();
             let store = Store::open("auto", []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
@@ -642,12 +624,14 @@ mod tests {
                 assign_to: flake_id,
                 payload: flake_request,
             };
-            block_on(driver
-                .perform_request(&EvalRequest::LoadFlake(assign_request))
-            ).unwrap();
-            block_on(driver
-                .perform_request(&EvalRequest::ListDeployments(QueryRequest::new(deployments_id, flake_id)))
-            ).unwrap();
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
+                    deployments_id,
+                    flake_id,
+                ))),
+            )
+            .unwrap();
             {
                 let r = responses.lock().unwrap();
                 if r.len() != 1 {
@@ -662,9 +646,9 @@ mod tests {
                     }
                     _ => panic!("expected EvalResponse::Error"),
                 }
-            }
-        })
-        .unwrap()
+            };
+            drop(guard);
+        }
     }
 
     #[test]
@@ -684,7 +668,8 @@ mod tests {
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
-        gc_registering_current_thread(|| {
+        {
+            let guard = gc_register_my_thread().unwrap();
             let store = Store::open("auto", []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
@@ -736,8 +721,8 @@ mod tests {
                     _ => panic!("expected EvalResponse::ListDeployments"),
                 }
             }
-        })
-        .unwrap()
+            drop(guard);
+        }
     }
 
     #[test]
@@ -777,7 +762,8 @@ mod tests {
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
-        gc_registering_current_thread(|| {
+        {
+            let guard = gc_register_my_thread().unwrap();
             let store = Store::open("auto", []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
@@ -818,8 +804,8 @@ mod tests {
                 if r.len() != 0 {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
-            }
-        })
-        .unwrap()
+            };
+            drop(guard);
+        }
     }
 }
