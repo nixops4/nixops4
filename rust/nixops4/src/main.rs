@@ -27,11 +27,16 @@ fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             Ok(())
         }
         Commands::Deployments(sub) => {
-            let mut logging = set_up_logging(interrupt_state, &args)?;
             match sub {
-                Deployments::List {} => deployments_list(&args.options),
-            }?;
-            logging.tear_down()?;
+                Deployments::List {} => {
+                    let mut logging = set_up_logging(interrupt_state, &args)?;
+                    let deployments = deployments_list(&args.options)?;
+                    logging.tear_down()?;
+                    for d in deployments {
+                        println!("{}", d);
+                    }
+                }
+            };
             Ok(())
         }
         Commands::GenerateMan => (|| {
@@ -117,7 +122,7 @@ fn with_flake<T>(
     })
 }
 
-fn deployments_list(options: &Options) -> Result<()> {
+fn deployments_list(options: &Options) -> Result<Vec<String>> {
     with_flake(options, |c, flake_id| {
         let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
         let deployments = c.receive_until(|client, _resp| {
@@ -126,10 +131,7 @@ fn deployments_list(options: &Options) -> Result<()> {
             let x = client.get_deployments(flake_id);
             Ok(x.map(|x| x.clone()))
         })?;
-        for d in deployments {
-            println!("{}", d);
-        }
-        Ok(())
+        Ok(deployments)
     })
 }
 
