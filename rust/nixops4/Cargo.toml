@@ -26,6 +26,10 @@ tracing = "0.1.40"
 tracing-tunnel = { version = "0.1.0", features = ["receiver"] }
 tracing-subscriber = { version = "0.3.18", features = ["registry"] }
 nix = "0.29.0"
+crossterm = "0.28.1"
+ansi-parser = "0.9.1"
+# https://github.com/ratatui/ratatui/commit/0f4823977894cef51d5ffafe6ae35ca7ad56e1ac
+ratatui = "0.28.2-alpha.6"
 ctrlc = "3.4.5"
 
 [[bin]]
