@@ -113,7 +113,6 @@ async fn async_main() -> Result<()> {
 
     let local: tokio::task::LocalSet = tokio::task::LocalSet::new();
 
-    // let queue_done : JoinHandle<Result<()>> = tokio::task::Builder::new().name("nixops4-eval-queue-worker").spawn(async move {
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");
         eval_state::init()?;
