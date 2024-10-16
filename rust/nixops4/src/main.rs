@@ -21,17 +21,17 @@ fn main() {
 fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
     match &args.command {
         Commands::Apply(subargs) => {
-            let logging = set_up_logging(&args)?;
-            apply::apply(&args.options, subargs)?;
-            drop(logging);
+            let mut logging = set_up_logging(interrupt_state, &args)?;
+            apply::apply(interrupt_state, &args.options, subargs)?;
+            logging.tear_down()?;
             Ok(())
         }
         Commands::Deployments(sub) => {
-            let logging = set_up_logging(&args)?;
+            let mut logging = set_up_logging(interrupt_state, &args)?;
             match sub {
                 Deployments::List {} => deployments_list(&args.options),
             }?;
-            drop(logging);
+            logging.tear_down()?;
             Ok(())
         }
         Commands::GenerateMan => (|| {
@@ -66,12 +66,29 @@ fn determine_color(choice: ColorChoice) -> bool {
     }
 }
 
-fn set_up_logging(args: &Args) -> Result<Box<dyn logging::Frontend>> {
+fn determine_interactive(options: &Options) -> bool {
+    match (options.interactive, options.no_interactive) {
+        (true, false) => true,
+        (false, true) => false,
+        // (true, true) is ambiguous and already rejected by clap
+        _ => nix::unistd::isatty(nix::libc::STDIN_FILENO).unwrap_or(false),
+    }
+}
+
+fn set_up_logging(
+    interrupt_state: &InterruptState,
+    args: &Args,
+) -> Result<Box<dyn logging::Frontend>> {
     let color = determine_color(args.options.color);
-    logging::set_up(logging::Options {
-        verbose: args.options.verbose,
-        color,
-    })
+    let interactive = determine_interactive(&args.options);
+    logging::set_up(
+        interrupt_state,
+        logging::Options {
+            verbose: args.options.verbose,
+            color,
+            interactive,
+        },
+    )
 }
 
 fn to_eval_options(options: &Options) -> eval_client::Options {
@@ -144,6 +161,17 @@ struct Options {
 
     #[arg(long, global = true, default_value_t = ColorChoice::Auto)]
     color: ColorChoice,
+
+    #[arg(long, global = true, default_value_t = false)]
+    interactive: bool,
+
+    #[arg(
+        long,
+        global = true,
+        default_value_t = false,
+        conflicts_with = "interactive"
+    )]
+    no_interactive: bool,
 }
 
 #[derive(Subcommand, Debug)]

@@ -11,7 +11,7 @@ use tracing_subscriber::{
 pub(crate) struct HeadlessLogger {}
 
 impl Frontend for HeadlessLogger {
-    fn set_up(&self, options: &super::Options) -> Result<()> {
+    fn set_up(&mut self, options: &super::Options) -> Result<()> {
         let filter = if options.verbose {
             eprintln!("setting up verbose logging");
             tracing::Level::TRACE
@@ -36,6 +36,10 @@ impl Frontend for HeadlessLogger {
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| anyhow::anyhow!("failed to set up tracing: {}", e))?;
 
+        Ok(())
+    }
+
+    fn tear_down(&mut self) -> Result<()> {
         Ok(())
     }
 }
