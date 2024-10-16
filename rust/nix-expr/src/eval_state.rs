@@ -483,17 +483,6 @@ impl Drop for ThreadRegistrationGuard {
     }
 }
 
-/// Run a function while making sure that the current thread is registered with the GC.
-pub fn gc_registering_current_thread<F, R>(f: F) -> Result<R>
-where
-    F: FnOnce() -> R,
-{
-    let guard = gc_register_my_thread()?;
-    let r = f();
-    drop(guard);
-    Ok(r)
-}
-
 fn gc_register_my_thread_do_it() -> Result<()> {
     unsafe {
         let mut sb: raw::GC_stack_base = raw::GC_stack_base {
@@ -564,6 +553,17 @@ mod tests {
     #[ctor]
     fn setup() {
         test_init();
+    }
+
+    /// Run a function while making sure that the current thread is registered with the GC.
+    pub fn gc_registering_current_thread<F, R>(f: F) -> Result<R>
+    where
+        F: FnOnce() -> R,
+    {
+        let guard = gc_register_my_thread()?;
+        let r = f();
+        drop(guard);
+        Ok(r)
     }
 
     #[test]
