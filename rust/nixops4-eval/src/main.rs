@@ -17,6 +17,12 @@ fn main() {
         exit(1);
     }
     handle_err((|| {
+        // Ctrl+C in the terminal is sent to the whole process tree.
+        // Interruption is handled by the parent process. We will be shut down
+        // when it suits the parent.
+        ctrlc::set_handler(|| {
+            // Do nothing
+        })?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("no4-e-tokio")

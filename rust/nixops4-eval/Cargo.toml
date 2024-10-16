@@ -25,6 +25,7 @@ tokio = { version = "1.40.0", features = ["io-std", "io-util", "macros", "rt", "
 async-trait = "0.1.83"
 tracing = "0.1.40"
 tracing-tunnel = { version = "0.1.0", features = ["sender"] }
+ctrlc = "3.4.5"
 
 [[bin]]
 name = "nixops4-eval"
