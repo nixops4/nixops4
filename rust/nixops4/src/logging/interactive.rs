@@ -21,14 +21,14 @@ use std::{
     thread,
     time::Duration,
 };
-use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt as _, Registry};
 
 use crate::interrupt::InterruptState;
 
-use super::{level_filter::LevelFilter2, Frontend};
+use super::Frontend;
 
 pub(crate) struct InteractiveLogger {
     interrupt_state: InterruptState,
+    headless_logger: super::headless::HeadlessLogger,
     log_shovel_thread: Option<thread::JoinHandle<()>>,
     tui_thread: Option<thread::JoinHandle<Result<()>>>,
     orig_stderr: Option<File>,
@@ -38,6 +38,7 @@ impl InteractiveLogger {
     pub(crate) fn new(interrupt_state: InterruptState) -> Self {
         Self {
             interrupt_state,
+            headless_logger: super::headless::HeadlessLogger {},
             log_shovel_thread: None,
             tui_thread: None,
             orig_stderr: None,
@@ -155,34 +156,14 @@ impl Frontend for InteractiveLogger {
         )?;
         self.tui_thread = Some(tui_thread);
 
-        // TODO: Reuse the headless logger?
-        let filter = if options.verbose {
-            tracing::Level::TRACE
-        } else {
-            tracing::Level::INFO
-        };
-
-        let span_events = if options.verbose {
-            // include enter/exit events for detailed tracing
-            FmtSpan::FULL
-        } else {
-            // announce what we do and when we're done
-            FmtSpan::NEW | FmtSpan::CLOSE
-        };
-
-        let fmt_layer = tracing_subscriber::fmt::Layer::new()
-            .with_span_events(span_events)
-            .with_ansi(options.color);
-        let filter_layer = LevelFilter2::new(filter.into(), fmt_layer);
-        let subscriber = Registry::default().with(filter_layer);
-
-        tracing::subscriber::set_global_default(subscriber)
-            .map_err(|e| anyhow::anyhow!("failed to set up tracing: {}", e))?;
+        self.headless_logger.set_up(options)?;
 
         Ok(())
     }
 
     fn tear_down(&mut self) -> Result<()> {
+        self.headless_logger.tear_down()?;
+
         // Restore stdout and stderr for direct use
         if let Some(stderr) = self.orig_stderr.as_ref() {
             dup2(stderr.as_raw_fd(), 2).context("tear_down: dup2 stderr")?;
