@@ -337,21 +337,19 @@ fn spawn_log_ui<W: Write + Send + 'static>(
         // Clear the TUI area before exiting, and move the cursor to the bottom of the log area
         // TODO: dedup with TUI clearing code when logging
         let tui_start = height - tui_height;
-        terminal
-            .backend_mut()
-            .execute(cursor::MoveTo(0, tui_start))
-            .unwrap();
-        for _ in 1..tui_height {
+        for i in 0..tui_height {
             terminal
                 .backend_mut()
-                .execute(terminal::Clear(ClearType::UntilNewLine))
-                .unwrap();
-            println!();
+                .execute(cursor::MoveTo(0, tui_start + i))?;
+            // UntilNewLine has better reflowing behavior than CurrentLine
+            terminal
+                .backend_mut()
+                .execute(terminal::Clear(ClearType::UntilNewLine))?;
         }
+        // Move back to the end of the logging area, where logging will continue
         terminal
             .backend_mut()
-            .execute(cursor::MoveTo(0, tui_start))
-            .unwrap();
+            .execute(cursor::MoveTo(0, tui_start))?;
 
         // Clean up terminal when exiting
         terminal::disable_raw_mode().unwrap();
