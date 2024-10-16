@@ -1,21 +1,24 @@
 mod apply;
 mod eval_client;
+mod interrupt;
 mod logging;
 mod provider;
 
 use anyhow::Result;
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
+use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
 use std::process::exit;
 
 fn main() {
+    let interrupt_state = set_up_process_interrupt_handler();
     let args = Args::parse();
-    handle_result(run_args(args));
+    handle_result(run_args(&interrupt_state, args));
 }
 
-fn run_args(args: Args) -> Result<()> {
+fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
     match &args.command {
         Commands::Apply(subargs) => {
             let logging = set_up_logging(&args)?;
