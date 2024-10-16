@@ -32,6 +32,7 @@ pub(crate) struct InteractiveLogger {
     log_shovel_thread: Option<thread::JoinHandle<()>>,
     tui_thread: Option<thread::JoinHandle<Result<()>>>,
     orig_stderr: Option<File>,
+    orig_stdout: Option<File>,
 }
 impl InteractiveLogger {
     pub(crate) fn new(interrupt_state: InterruptState) -> Self {
@@ -40,6 +41,7 @@ impl InteractiveLogger {
             log_shovel_thread: None,
             tui_thread: None,
             orig_stderr: None,
+            orig_stdout: None,
         }
     }
 }
@@ -58,6 +60,10 @@ impl Frontend for InteractiveLogger {
         self.orig_stderr = Some(unsafe {
             let stderr2 = dup(2).context("dup stderr")?;
             std::fs::File::from_raw_fd(stderr2)
+        });
+        self.orig_stdout = Some(unsafe {
+            let stdout2 = dup(1).context("dup stdout")?;
+            std::fs::File::from_raw_fd(stdout2)
         });
 
         // Use an internal pipe for logging
@@ -180,8 +186,11 @@ impl Frontend for InteractiveLogger {
         // Restore stdout and stderr for direct use
         if let Some(stderr) = self.orig_stderr.as_ref() {
             dup2(stderr.as_raw_fd(), 2).context("tear_down: dup2 stderr")?;
-            dup2(stderr.as_raw_fd(), 1).context("tear_down: dup2 stdout")?;
             self.orig_stderr = None;
+        }
+        if let Some(stdout) = self.orig_stdout.as_ref() {
+            dup2(stdout.as_raw_fd(), 1).context("tear_down: dup2 stdout")?;
+            self.orig_stdout = None;
         }
 
         // Stop the reader thread
