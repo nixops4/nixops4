@@ -188,50 +188,62 @@ impl Frontend for InteractiveLogger {
     }
 }
 
-fn spawn_log_ui<W: Write + Send + 'static>(
-    interrupt_state: InterruptState,
-    writer: W,
+struct TuiState<W: Write> {
+    terminal: Terminal<CrosstermBackend<io::BufWriter<W>>>,
     log_receiver: mpsc::Receiver<String>,
-    render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
-) -> Result<thread::JoinHandle<Result<()>>, anyhow::Error> {
-    let (mut width, mut height) = terminal::size()?;
-    let tui_height = height / 3;
-    Ok(thread::spawn(move || {
-        let mut tui_height = tui_height;
-        let mut graphics_mode = String::new();
-
+    width: u16,
+    height: u16,
+    graphics_mode: String,
+}
+impl<W: Write> TuiState<W> {
+    fn new(log_receiver: mpsc::Receiver<String>, writer: W) -> Result<Self> {
+        let (width, height) = terminal::size()?;
         let backend = CrosstermBackend::new(io::BufWriter::new(writer));
-        let mut terminal = Terminal::with_options(
+        let terminal = Terminal::with_options(
             backend,
             ratatui::TerminalOptions {
                 viewport: Viewport::Fixed(Rect {
                     x: 0,
-                    y: height - tui_height,
+                    y: height - height / 3,
                     width: width - 0,
-                    height: tui_height,
+                    height: height / 3,
                 }),
             },
         )
         .context("initializing ratatui Terminal")?;
-
-        terminal::enable_raw_mode().context("terminal::enable_raw_mode")?;
-
+        Ok(Self {
+            log_receiver,
+            terminal,
+            width,
+            height,
+            graphics_mode: String::new(),
+        })
+    }
+    fn enable(&mut self) -> Result<()> {
+        terminal::enable_raw_mode().context("terminal::enable_raw_mode")
+    }
+    fn run(
+        &mut self,
+        interrupt_state: InterruptState,
+        render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+    ) -> Result<()> {
+        let mut tui_height = self.height / 3;
         let mut input_active = true;
         while input_active {
             // Re-fetch terminal size in case it was resized
             let (new_width, new_height) = terminal::size().unwrap();
-            let tui_start = height - tui_height;
-            if new_width != width || new_height != height {
-                width = new_width;
-                height = new_height;
-                tui_height = height / 3;
+            let tui_start = self.height - tui_height;
+            if new_width != self.width || new_height != self.height {
+                self.width = new_width;
+                self.height = new_height;
+                tui_height = self.height / 3;
                 let rect = Rect {
-                    width: width as u16,
+                    width: self.width as u16,
                     height: tui_height as u16,
                     x: 0,
-                    y: height - tui_height,
+                    y: self.height - tui_height,
                 };
-                terminal.resize(rect).context("terminal.resize")?;
+                self.terminal.resize(rect).context("terminal.resize")?;
             }
 
             // Get all available log messages from the queue
@@ -239,7 +251,7 @@ fn spawn_log_ui<W: Write + Send + 'static>(
             let new_logs = {
                 let mut new_logs = Vec::new();
                 loop {
-                    let r = log_receiver.try_recv();
+                    let r = self.log_receiver.try_recv();
                     match r {
                         Ok(log) => {
                             new_logs.push(log);
@@ -260,45 +272,45 @@ fn spawn_log_ui<W: Write + Send + 'static>(
             if !new_logs.is_empty() {
                 // Clear the TUI area before printing the logs
                 for i in 0..tui_height {
-                    terminal
+                    self.terminal
                         .backend_mut()
                         .execute(cursor::MoveTo(0, tui_start + i))?;
                     // UntilNewLine has better reflowing behavior than CurrentLine
-                    terminal
+                    self.terminal
                         .backend_mut()
                         .execute(terminal::Clear(ClearType::UntilNewLine))?;
                 }
                 // Move back to the end of the logging area, where logging will continue
-                terminal
+                self.terminal
                     .backend_mut()
                     .execute(cursor::MoveTo(0, tui_start))?;
 
                 // Print the log lines.
                 // The first few lines will overwrite the TUI area; the rest will cause the terminal to scroll.
-                terminal
+                self.terminal
                     .backend_mut()
-                    .write(graphics_mode.as_bytes())
+                    .write(self.graphics_mode.as_bytes())
                     .unwrap();
                 for log in new_logs {
-                    terminal
+                    self.terminal
                         .backend_mut()
                         .write(log.replace("\n", "\r\n").as_bytes())
                         .unwrap();
-                    terminal.backend_mut().write(b"\r\n").unwrap();
-                    save_color(log.as_str(), &mut graphics_mode);
+                    self.terminal.backend_mut().write(b"\r\n").unwrap();
+                    save_color(log.as_str(), &mut self.graphics_mode);
                 }
 
                 // Create/"scroll" the TUI area before redrawing it
                 for _ in 1..tui_height {
-                    terminal.backend_mut().write(b"\r\n").unwrap();
+                    self.terminal.backend_mut().write(b"\r\n").unwrap();
                 }
 
                 // Prepare for redraw
-                terminal.clear().unwrap();
+                self.terminal.clear().unwrap();
             }
 
             // Redraw the TUI at the bottom
-            terminal
+            self.terminal
                 .draw(render_callback.as_ref())
                 .expect("terminal.draw");
 
@@ -323,26 +335,45 @@ fn spawn_log_ui<W: Write + Send + 'static>(
                 }
             }
         }
+        Ok(())
+    }
+
+    fn disable(&mut self) -> Result<()> {
         // We're done!
         // Clear the TUI area before exiting, and move the cursor to the bottom of the log area
         // TODO: dedup with TUI clearing code when logging
-        let tui_start = height - tui_height;
+        let tui_height = self.height / 3; // FIXME use saved height
+        let tui_start = self.height - tui_height;
         for i in 0..tui_height {
-            terminal
+            self.terminal
                 .backend_mut()
                 .execute(cursor::MoveTo(0, tui_start + i))?;
             // UntilNewLine has better reflowing behavior than CurrentLine
-            terminal
+            self.terminal
                 .backend_mut()
                 .execute(terminal::Clear(ClearType::UntilNewLine))?;
         }
         // Move back to the end of the logging area, where logging will continue
-        terminal
+        self.terminal
             .backend_mut()
             .execute(cursor::MoveTo(0, tui_start))?;
 
         // Clean up terminal when exiting
-        terminal::disable_raw_mode().unwrap();
+        terminal::disable_raw_mode().context("disable_raw_mode")
+    }
+}
+
+fn spawn_log_ui<W: Write + Send + 'static>(
+    interrupt_state: InterruptState,
+    writer: W,
+    log_receiver: mpsc::Receiver<String>,
+    render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+) -> Result<thread::JoinHandle<Result<()>>, anyhow::Error> {
+    let mut tui_state = TuiState::new(log_receiver, writer)?;
+    Ok(thread::spawn(move || {
+        tui_state.enable()?;
+        tui_state.run(interrupt_state, render_callback)?;
+        tui_state.disable()?;
         Ok(())
     }))
 }
