@@ -4,14 +4,16 @@ use super::Frontend;
 use anyhow::Result;
 use tracing_subscriber::{
     fmt::{format::FmtSpan, Layer as FmtLayer},
-    layer::SubscriberExt as _,
+    layer::{Layered, SubscriberExt as _},
     Registry,
 };
 
 pub(crate) struct HeadlessLogger {}
 
-impl Frontend for HeadlessLogger {
-    fn set_up(&mut self, options: &super::Options) -> Result<()> {
+pub(crate) type Logger = Layered<LevelFilter2<FmtLayer<Registry>>, Registry>;
+
+impl HeadlessLogger {
+    pub(crate) fn make_subscriber(&mut self, options: &super::Options) -> Result<Logger> {
         let filter = if options.verbose {
             eprintln!("setting up verbose logging");
             tracing::Level::TRACE
@@ -32,7 +34,13 @@ impl Frontend for HeadlessLogger {
             .with_ansi(options.color);
         let filter_layer = LevelFilter2::new(filter.into(), fmt_layer);
         let subscriber = Registry::default().with(filter_layer);
+        Ok(subscriber)
+    }
+}
 
+impl Frontend for HeadlessLogger {
+    fn set_up(&mut self, options: &super::Options) -> Result<()> {
+        let subscriber = self.make_subscriber(options)?;
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| anyhow::anyhow!("failed to set up tracing: {}", e))?;
 
