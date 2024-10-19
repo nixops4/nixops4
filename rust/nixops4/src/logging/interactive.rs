@@ -193,20 +193,23 @@ struct TuiState<W: Write> {
     log_receiver: mpsc::Receiver<String>,
     width: u16,
     height: u16,
+    /// Number of lines in the drawn TUI area. 0 if not drawn yet.
+    rendered_height: u16,
     graphics_mode: String,
 }
 impl<W: Write> TuiState<W> {
     fn new(log_receiver: mpsc::Receiver<String>, writer: W) -> Result<Self> {
         let (width, height) = terminal::size()?;
         let backend = CrosstermBackend::new(io::BufWriter::new(writer));
+        let tui_height = Self::compute_tui_height_from_height(height);
         let terminal = Terminal::with_options(
             backend,
             ratatui::TerminalOptions {
                 viewport: Viewport::Fixed(Rect {
                     x: 0,
-                    y: height - height / 3,
-                    width: width - 0,
-                    height: height / 3,
+                    y: height - tui_height,
+                    width,
+                    height: tui_height,
                 }),
             },
         )
@@ -216,33 +219,82 @@ impl<W: Write> TuiState<W> {
             terminal,
             width,
             height,
+            rendered_height: 0,
             graphics_mode: String::new(),
         })
     }
+    fn compute_tui_height_from_height(height: u16) -> u16 {
+        height / 3
+    }
+    fn compute_tui_height(&self) -> u16 {
+        TuiState::<W>::compute_tui_height_from_height(self.height)
+    }
     fn enable(&mut self) -> Result<()> {
-        terminal::enable_raw_mode().context("terminal::enable_raw_mode")
+        terminal::enable_raw_mode().context("terminal::enable_raw_mode")?;
+
+        // Free up space at the bottom of the terminal for the TUI
+        // It might be possible to read the current position to place the TUI
+        // at a clever height, but that would be more involved (requiring reading
+        // the cursor position)
+        let h = self.compute_tui_height();
+        for _ in 0..h {
+            self.terminal.backend_mut().write(b"\r\n")?;
+        }
+        self.terminal.backend_mut().flush()?;
+        // If the terminal had little content, we might not be at the TUI area yet
+        self.terminal
+            .backend_mut()
+            .execute(cursor::MoveTo(0, self.height - h))?;
+        self.rendered_height = h;
+
+        Ok(())
     }
     fn run(
         &mut self,
         interrupt_state: InterruptState,
         render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
     ) -> Result<()> {
-        let mut tui_height = self.height / 3;
+        let mut tui_height = self.compute_tui_height();
         let mut input_active = true;
         while input_active {
             // Re-fetch terminal size in case it was resized
             let (new_width, new_height) = terminal::size().unwrap();
-            let tui_start = self.height - tui_height;
+
             if new_width != self.width || new_height != self.height {
+                let old_height = self.height;
                 self.width = new_width;
                 self.height = new_height;
-                tui_height = self.height / 3;
+                tui_height = self.compute_tui_height();
                 let rect = Rect {
                     width: self.width as u16,
                     height: tui_height as u16,
                     x: 0,
                     y: self.height - tui_height,
                 };
+                self.terminal
+                    .backend_mut()
+                    .execute(cursor::MoveTo(0, self.height - 1))?;
+                if old_height < new_height {
+                    // This is probably dependent on terminal emulator specifics,
+                    // but if the terminal window is grown vertically and the
+                    // emulator keeps the bottom line attached to the bottom of
+                    // the screen (typically when it has scrollback to be shown
+                    // at the top), then the TUI area would line up exactly with
+                    // the new location.
+                    // However, in this branch we know that we've also increased
+                    // the TUI height, so to avoid clobbering the logs that have
+                    // been written in the TUI extension area, we need to scroll
+                    // the terminal so that the logs are above the _new_ TUI
+                    // area.
+                    // If the TUI area is shrunk, we could potentially scroll
+                    // so that we don't leave empty lines or garbage lines, but
+                    // that runs the risk of accidentally overwriting logs.
+                    // We prefer harmless garbage over lost logs.
+                    for _ in old_height..new_height {
+                        self.terminal.backend_mut().write(b"\r\n")?;
+                    }
+                    self.terminal.backend_mut().flush()?;
+                }
                 self.terminal.resize(rect).context("terminal.resize")?;
             }
 
@@ -270,15 +322,14 @@ impl<W: Write> TuiState<W> {
 
             // Handle log updates by reading from the log queue
             if !new_logs.is_empty() {
+                let tui_start = self.height - tui_height;
+
                 // Clear the TUI area before printing the logs
                 for i in 0..tui_height {
                     self.terminal
                         .backend_mut()
                         .execute(cursor::MoveTo(0, tui_start + i))?;
-                    // UntilNewLine has better reflowing behavior than CurrentLine
-                    self.terminal
-                        .backend_mut()
-                        .execute(terminal::Clear(ClearType::UntilNewLine))?;
+                    self.terminal.backend_mut().execute(CLEAR_LINE)?;
                 }
                 // Move back to the end of the logging area, where logging will continue
                 self.terminal
@@ -292,6 +343,7 @@ impl<W: Write> TuiState<W> {
                     .write(self.graphics_mode.as_bytes())
                     .unwrap();
                 for log in new_logs {
+                    self.terminal.backend_mut().write(b"nixops| ").unwrap();
                     self.terminal
                         .backend_mut()
                         .write(log.replace("\n", "\r\n").as_bytes())
@@ -300,19 +352,25 @@ impl<W: Write> TuiState<W> {
                     save_color(log.as_str(), &mut self.graphics_mode);
                 }
 
-                // Create/"scroll" the TUI area before redrawing it
+                // Cause the terminal to scroll so that the TUI area fits on screen
                 for _ in 1..tui_height {
                     self.terminal.backend_mut().write(b"\r\n").unwrap();
                 }
+                self.rendered_height = tui_height;
 
                 // Prepare for redraw
+                self.terminal.backend_mut().flush()?;
                 self.terminal.clear().unwrap();
             }
 
+            self.terminal
+                .backend_mut()
+                .execute(cursor::MoveTo(0, self.height - tui_height))?;
             // Redraw the TUI at the bottom
             self.terminal
                 .draw(render_callback.as_ref())
                 .expect("terminal.draw");
+            self.rendered_height = tui_height;
 
             // Check for user input
             if event::poll(Duration::from_millis(125))? {
@@ -340,28 +398,32 @@ impl<W: Write> TuiState<W> {
 
     fn disable(&mut self) -> Result<()> {
         // We're done!
-        // Clear the TUI area before exiting, and move the cursor to the bottom of the log area
-        // TODO: dedup with TUI clearing code when logging
-        let tui_height = self.height / 3; // FIXME use saved height
-        let tui_start = self.height - tui_height;
-        for i in 0..tui_height {
+        // Clear the TUI area before exiting
+        let tui_start = self.height - self.rendered_height;
+        self.terminal
+            .backend_mut()
+            .execute(cursor::MoveTo(0, tui_start))?;
+        for i in 0..self.rendered_height {
             self.terminal
                 .backend_mut()
                 .execute(cursor::MoveTo(0, tui_start + i))?;
             // UntilNewLine has better reflowing behavior than CurrentLine
-            self.terminal
-                .backend_mut()
-                .execute(terminal::Clear(ClearType::UntilNewLine))?;
+            self.terminal.backend_mut().execute(CLEAR_LINE)?;
         }
-        // Move back to the end of the logging area, where logging will continue
+        // Move back to the end of the logging area, where logging or shell session will continue
         self.terminal
             .backend_mut()
             .execute(cursor::MoveTo(0, tui_start))?;
 
-        // Clean up terminal when exiting
         terminal::disable_raw_mode().context("disable_raw_mode")
     }
 }
+
+// ClearType::CurrentLine makes the terminal behave as if spaces were written
+// across the whole line, and these spaces are reflowed when the terminal is
+// resized. This would lead to many empty lines appearing in the log, instead of
+// the normal text reflowing behavior.
+const CLEAR_LINE: crossterm::terminal::Clear = terminal::Clear(ClearType::UntilNewLine);
 
 fn spawn_log_ui<W: Write + Send + 'static>(
     interrupt_state: InterruptState,
