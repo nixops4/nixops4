@@ -28,8 +28,8 @@ tracing-subscriber = { version = "0.3.18", features = ["registry"] }
 nix = "0.29.0"
 crossterm = "0.28.1"
 ansi-parser = "0.9.1"
-# https://github.com/ratatui/ratatui/commit/0f4823977894cef51d5ffafe6ae35ca7ad56e1ac
-ratatui = "0.28.2-alpha.6"
+# https://github.com/ratatui/ratatui/pull/1427
+ratatui = { git = "https://github.com/ratatui/ratatui", rev = "0bb42842ebbea5adcbfbf2251b66994415355ef1" }
 ctrlc = "3.4.5"
 
 [[bin]]
