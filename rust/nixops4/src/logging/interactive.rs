@@ -294,6 +294,10 @@ impl Frontend for InteractiveLogger {
             // like the TUI thread to render the log message with context
             // before we exit, and not have it interfere with our direct use
             // of stderr.
+            // TODO: wait for longer, but check another atomic bool to see if we're done?
+            //       that would still be quite robust in terms of not hanging,
+            //       but it would be a bit more responsive, and more likely to
+            //       succeed under load.
             sleep(Duration::from_millis(300));
 
             eprintln!(
