@@ -10,16 +10,21 @@ use ratatui::{
     layout::Rect,
     prelude::CrosstermBackend,
     style::{Color, Modifier},
-    widgets::Paragraph,
+    widgets::{Paragraph, Wrap},
     Frame, Terminal, Viewport,
 };
 use std::{
+    collections::BTreeSet,
     fs::File,
     io::{self, BufRead as _, Write},
     os::fd::{AsRawFd as _, FromRawFd},
-    sync::{mpsc, Arc},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::Duration,
+};
+use tracing_subscriber::{
+    layer::SubscriberExt as _,
+    registry::{LookupSpan as _, SpanData},
 };
 
 use crate::interrupt::InterruptState;
@@ -33,6 +38,7 @@ pub(crate) struct InteractiveLogger {
     tui_thread: Option<thread::JoinHandle<Result<()>>>,
     orig_stderr: Option<File>,
     orig_stdout: Option<File>,
+    active_spans: Arc<Mutex<BTreeSet<u64>>>,
 }
 impl InteractiveLogger {
     pub(crate) fn new(interrupt_state: InterruptState) -> Self {
@@ -43,6 +49,7 @@ impl InteractiveLogger {
             tui_thread: None,
             orig_stderr: None,
             orig_stdout: None,
+            active_spans: Arc::new(Mutex::new(BTreeSet::new())),
         }
     }
 }
@@ -101,6 +108,12 @@ impl Frontend for InteractiveLogger {
 
         let interrupt_state = self.interrupt_state.clone();
 
+        let logger = Arc::new(self.headless_logger.make_subscriber(options)?);
+        // We use the logger as a reference to the registry, containing span data (except active spans)
+        let registry_ref = logger.clone();
+        let logger = logger.with(SpanCollector::new(self.active_spans.clone()));
+        let active_spans = self.active_spans.clone();
+
         let tui_thread = spawn_log_ui(
             self.interrupt_state.clone(),
             self.orig_stderr
@@ -113,7 +126,6 @@ impl Frontend for InteractiveLogger {
                 let tui_area = frame.area();
                 let time = std::time::SystemTime::now();
 
-                // TODO: Show current activites
                 let spinner = (time
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -127,7 +139,7 @@ impl Frontend for InteractiveLogger {
                     "    ▄▀  ".chars().nth(spinner % 8).unwrap(),
                 );
 
-                let paragraph = Paragraph::new(text)
+                let spinner_paragraph = Paragraph::new(text)
                     .style(
                         ratatui::style::Style::default()
                             .fg(Color::Reset)
@@ -147,16 +159,70 @@ impl Frontend for InteractiveLogger {
                     "Running"
                 };
 
+                let spans_paragraph = {
+                    let x = active_spans.as_ref().lock().expect("active_spans lock");
+                    let text = x
+                        .iter()
+                        .map(|id| {
+                            let id = tracing::Id::from_u64(*id);
+                            let data = registry_ref.span_data(&id);
+                            match data {
+                                Some(data) => format!("{}", data.metadata().name()),
+                                None => format!("<unknown {:?}>", id),
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
+                    Paragraph::new(format!("Current activities:\n{}", text))
+                        .style(ratatui::style::Style::default().fg(Color::Reset))
+                        .alignment(ratatui::layout::Alignment::Left)
+                        .wrap(Wrap { trim: true })
+                };
+
                 let block = ratatui::widgets::Block::default()
                     .title(title)
                     .borders(ratatui::widgets::Borders::ALL)
                     .style(ratatui::style::Style::default().fg(border_color));
-                frame.render_widget(paragraph.clone().block(block), tui_area)
+
+                let layout = ratatui::layout::Layout::default()
+                    .direction(ratatui::layout::Direction::Vertical)
+                    .constraints(
+                        [
+                            ratatui::layout::Constraint::Length(1),
+                            ratatui::layout::Constraint::Min(0),
+                        ]
+                        .as_ref(),
+                    )
+                    .split(block.inner(tui_area));
+                frame.render_widget(&block, tui_area);
+                frame.render_widget(&spinner_paragraph, layout[0]);
+                frame.render_widget(&spans_paragraph, layout[1]);
+                // Hint if we can't show everything on screen. This is a temporary solution
+                // This overwrites the last line, which is very ugly, but it gets the job done avoiding some confusion for now.
+                if spans_paragraph.line_count(layout[1].width) > layout[1].height as usize
+                    && layout[1].height > 0
+                {
+                    let bottom = Rect {
+                        x: layout[1].x,
+                        y: layout[1].bottom() - 1,
+                        width: layout[1].width,
+                        height: 1,
+                    };
+                    frame.render_widget(
+                        ratatui::widgets::Paragraph::new(
+                            "... (more)                                                  ",
+                        )
+                        .style(ratatui::style::Style::default().fg(Color::Magenta))
+                        .alignment(ratatui::layout::Alignment::Left),
+                        bottom,
+                    );
+                }
             })),
         )?;
         self.tui_thread = Some(tui_thread);
 
-        self.headless_logger.set_up(options)?;
+        tracing::subscriber::set_global_default(logger).context("set_global_default")?;
 
         Ok(())
     }
@@ -458,5 +524,30 @@ fn save_color(log: &str, graphics_mode: &mut String) {
                 }
             }
         }
+    }
+}
+
+/// A `tracing_subscriber` layer that maintains a set of IDs of active spans.
+/// The library does not seem to offer this information by itself, and we don't
+/// want to track all spans in the end; just the ones that we may want to show.
+struct SpanCollector {
+    active_spans: Arc<Mutex<BTreeSet<u64>>>,
+}
+impl SpanCollector {
+    fn new(active_spans: Arc<Mutex<BTreeSet<u64>>>) -> Self {
+        Self { active_spans }
+    }
+}
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SpanCollector {
+    fn on_new_span(
+        &self,
+        _span: &tracing::span::Attributes,
+        id: &tracing::span::Id,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        self.active_spans.lock().unwrap().insert(id.into_u64());
+    }
+    fn on_close(&self, id: tracing::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        self.active_spans.lock().unwrap().remove(&id.into_u64());
     }
 }
