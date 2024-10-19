@@ -36,6 +36,27 @@ impl HeadlessLogger {
         let subscriber = Registry::default().with(filter_layer);
         Ok(subscriber)
     }
+
+    pub fn handle_panic_no_exit(panic_info: &std::panic::PanicInfo<'_>) {
+        // This is based on the tracing panic handler:
+        //   https://github.com/tokio-rs/tracing/blob/bdbaf8007364ed2a766cca851d63de31b7c47e72/examples/examples/panic_hook.rs
+
+        // If the panic has a source location, record it as structured fields.
+        if let Some(location) = panic_info.location() {
+            // On nightly Rust, where the `PanicInfo` type also exposes a
+            // `message()` method returning just the message, we could record
+            // just the message instead of the entire `fmt::Display`
+            // implementation, avoiding the duplicated location
+            tracing::error!(
+                message = %panic_info,
+                panic.file = location.file(),
+                panic.line = location.line(),
+                panic.column = location.column(),
+            );
+        } else {
+            tracing::error!(message = %panic_info);
+        }
+    }
 }
 
 impl Frontend for HeadlessLogger {
@@ -49,5 +70,12 @@ impl Frontend for HeadlessLogger {
 
     fn tear_down(&mut self) -> Result<()> {
         Ok(())
+    }
+
+    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicInfo<'_>) + Send + Sync> {
+        Box::new(|panic_info| {
+            HeadlessLogger::handle_panic_no_exit(panic_info);
+            std::process::exit(101);
+        })
     }
 }

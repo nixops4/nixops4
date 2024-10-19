@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use core::panic;
 use crossterm::{
     cursor,
     event::{self, KeyCode},
@@ -18,8 +19,8 @@ use std::{
     fs::File,
     io::{self, BufRead as _, Write},
     os::fd::{AsRawFd as _, FromRawFd},
-    sync::{mpsc, Arc, Mutex},
-    thread,
+    sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
+    thread::{self, sleep},
     time::Duration,
 };
 use tracing_subscriber::{
@@ -27,7 +28,7 @@ use tracing_subscriber::{
     registry::{LookupSpan as _, SpanData},
 };
 
-use crate::interrupt::InterruptState;
+use crate::{interrupt::InterruptState, logging::headless::HeadlessLogger};
 
 use super::Frontend;
 
@@ -36,9 +37,11 @@ pub(crate) struct InteractiveLogger {
     headless_logger: super::headless::HeadlessLogger,
     log_shovel_thread: Option<thread::JoinHandle<()>>,
     tui_thread: Option<thread::JoinHandle<Result<()>>>,
-    orig_stderr: Option<File>,
+    orig_stderr: Option<Arc<File>>,
     orig_stdout: Option<File>,
     active_spans: Arc<Mutex<BTreeSet<u64>>>,
+    // Disable the TUI crudely, robustly, during panic
+    crashing: Arc<AtomicBool>,
 }
 impl InteractiveLogger {
     pub(crate) fn new(interrupt_state: InterruptState) -> Self {
@@ -50,6 +53,7 @@ impl InteractiveLogger {
             orig_stderr: None,
             orig_stdout: None,
             active_spans: Arc::new(Mutex::new(BTreeSet::new())),
+            crashing: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -65,10 +69,10 @@ impl Drop for InteractiveLogger {
 impl Frontend for InteractiveLogger {
     fn set_up(&mut self, options: &super::Options) -> Result<()> {
         // Shuffle file descriptors around to capture all logs
-        self.orig_stderr = Some(unsafe {
+        self.orig_stderr = Some(Arc::new(unsafe {
             let stderr2 = dup(2).context("dup stderr")?;
             std::fs::File::from_raw_fd(stderr2)
-        });
+        }));
         self.orig_stdout = Some(unsafe {
             let stdout2 = dup(1).context("dup stdout")?;
             std::fs::File::from_raw_fd(stdout2)
@@ -113,9 +117,11 @@ impl Frontend for InteractiveLogger {
         let registry_ref = logger.clone();
         let logger = logger.with(SpanCollector::new(self.active_spans.clone()));
         let active_spans = self.active_spans.clone();
+        let crashing = self.crashing.clone();
 
         let tui_thread = spawn_log_ui(
             self.interrupt_state.clone(),
+            crashing,
             self.orig_stderr
                 .as_mut()
                 .unwrap()
@@ -252,6 +258,51 @@ impl Frontend for InteractiveLogger {
         }
         Ok(())
     }
+
+    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicInfo<'_>) + Send + Sync> {
+        let orig_stderr = self.orig_stderr.clone();
+        let dev_null = File::open("/dev/null").expect("open /dev/null");
+        let crashing = self.crashing.clone();
+        Box::new(move |panic_info| {
+            // // This sends a panic event that we may or may not be able to handle
+            // basic_handler(panic_info);
+            HeadlessLogger::handle_panic_no_exit(panic_info);
+
+            // Perform a crude teardown
+            // (a None would be highly unexpected here)
+            // These dup2 calls close the inputs to the shovel thread, so it
+            // can exit and close the queue, allowing the TUI thread to exit.
+            // More importantly, it restores the original stderr and stdout for
+            // direct use.
+            if let Some(stderr) = &orig_stderr {
+                let _ = dup2(stderr.as_raw_fd(), 2);
+                let _ = stderr
+                    .as_ref()
+                    .write(b"\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+                let _ = stderr.as_ref().execute(cursor::Show);
+                let _ = stderr.as_ref().flush();
+                let _ = terminal::disable_raw_mode();
+            }
+            // Redirect stdout to /dev/null
+            let _ = dup2(dev_null.as_raw_fd(), 1);
+
+            crashing
+                .as_ref()
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+
+            // Since we're panic-ing, we can't risk a deadlock, but we would
+            // like the TUI thread to render the log message with context
+            // before we exit, and not have it interfere with our direct use
+            // of stderr.
+            sleep(Duration::from_millis(300));
+
+            eprintln!(
+                "terminating due to unanticipated error condition, {}",
+                panic_info
+            );
+            std::process::exit(101);
+        })
+    }
 }
 
 struct TuiState<W: Write> {
@@ -262,9 +313,14 @@ struct TuiState<W: Write> {
     /// Number of lines in the drawn TUI area. 0 if not drawn yet.
     rendered_height: u16,
     graphics_mode: String,
+    crashing: Arc<AtomicBool>,
 }
 impl<W: Write> TuiState<W> {
-    fn new(log_receiver: mpsc::Receiver<String>, writer: W) -> Result<Self> {
+    fn new(
+        log_receiver: mpsc::Receiver<String>,
+        crashing: Arc<AtomicBool>,
+        writer: W,
+    ) -> Result<Self> {
         let (width, height) = terminal::size()?;
         let backend = CrosstermBackend::new(io::BufWriter::new(writer));
         let tui_height = Self::compute_tui_height_from_height(height);
@@ -287,6 +343,7 @@ impl<W: Write> TuiState<W> {
             height,
             rendered_height: 0,
             graphics_mode: String::new(),
+            crashing,
         })
     }
     fn compute_tui_height_from_height(height: u16) -> u16 {
@@ -424,11 +481,21 @@ impl<W: Write> TuiState<W> {
                 }
                 self.rendered_height = tui_height;
 
-                // Prepare for redraw
                 self.terminal.backend_mut().flush()?;
+
+                if self.crashing.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                // Prepare for redraw
                 self.terminal.clear().unwrap();
             }
 
+            if self.crashing.load(std::sync::atomic::Ordering::SeqCst) {
+                // Messages must be put before setting crashing to true, so
+                // we should simply break here even if we didn't write logs in
+                // this iteration.
+                break;
+            }
             self.terminal
                 .backend_mut()
                 .execute(cursor::MoveTo(0, self.height - tui_height))?;
@@ -493,11 +560,12 @@ const CLEAR_LINE: crossterm::terminal::Clear = terminal::Clear(ClearType::UntilN
 
 fn spawn_log_ui<W: Write + Send + 'static>(
     interrupt_state: InterruptState,
+    crashing: Arc<AtomicBool>,
     writer: W,
     log_receiver: mpsc::Receiver<String>,
     render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
 ) -> Result<thread::JoinHandle<Result<()>>, anyhow::Error> {
-    let mut tui_state = TuiState::new(log_receiver, writer)?;
+    let mut tui_state = TuiState::new(log_receiver, crashing, writer)?;
     Ok(thread::spawn(move || {
         tui_state.enable()?;
         tui_state.run(interrupt_state, render_callback)?;

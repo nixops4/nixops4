@@ -15,6 +15,7 @@ pub(crate) struct Options {
 pub(crate) trait Frontend {
     fn set_up(&mut self, options: &Options) -> Result<()>;
     fn tear_down(&mut self) -> Result<()>;
+    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicInfo<'_>) + Send + Sync>;
 }
 
 pub(crate) fn set_up(
@@ -28,5 +29,6 @@ pub(crate) fn set_up(
         logger = Box::new(headless::HeadlessLogger {});
     }
     logger.set_up(&options)?;
+    std::panic::set_hook(logger.get_panic_handler());
     Ok(logger)
 }
