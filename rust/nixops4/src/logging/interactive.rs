@@ -10,7 +10,8 @@ use nix::unistd::{dup, dup2, pipe};
 use ratatui::{
     layout::Rect,
     prelude::CrosstermBackend,
-    style::{Color, Modifier},
+    style::{Color, Modifier, Style},
+    text::Line,
     widgets::{Paragraph, Wrap},
     Frame, Terminal, Viewport,
 };
@@ -24,8 +25,9 @@ use std::{
     time::Duration,
 };
 use tracing_subscriber::{
+    fmt::{format::DefaultFields, FormattedFields},
     layer::SubscriberExt as _,
-    registry::{LookupSpan as _, SpanData},
+    registry::{LookupSpan, SpanData},
 };
 
 use crate::{interrupt::InterruptState, logging::headless::HeadlessLogger};
@@ -112,10 +114,10 @@ impl Frontend for InteractiveLogger {
 
         let interrupt_state = self.interrupt_state.clone();
 
-        let logger = Arc::new(self.headless_logger.make_subscriber(options)?);
+        let logger = self.headless_logger.make_subscriber(options)?;
         // We use the logger as a reference to the registry, containing span data (except active spans)
+        let logger = Arc::new(logger.with(SpanCollector::new(self.active_spans.clone())));
         let registry_ref = logger.clone();
-        let logger = logger.with(SpanCollector::new(self.active_spans.clone()));
         let active_spans = self.active_spans.clone();
         let crashing = self.crashing.clone();
 
@@ -165,22 +167,81 @@ impl Frontend for InteractiveLogger {
                     "Running"
                 };
 
+                let now = std::time::Instant::now();
+
                 let spans_paragraph = {
                     let x = active_spans.as_ref().lock().expect("active_spans lock");
-                    let text = x
+                    let mut spans = x
                         .iter()
-                        .map(|id| {
+                        .flat_map(|id| {
                             let id = tracing::Id::from_u64(*id);
-                            let data = registry_ref.span_data(&id);
-                            match data {
-                                Some(data) => format!("{}", data.metadata().name()),
-                                None => format!("<unknown {:?}>", id),
-                            }
+                            registry_ref.span_data(&id).map(|data| (id, data))
                         })
-                        .collect::<Vec<String>>()
-                        .join("\n");
+                        .collect::<Vec<_>>();
+                    spans.sort_by(|(a_id, a), (b_id, b)| {
+                        a.metadata()
+                            .level()
+                            .cmp(&b.metadata().level())
+                            .then_with(|| a_id.into_u64().cmp(&b_id.into_u64()))
+                    });
+                    let lines: Vec<Line> = spans
+                        .iter()
+                        .map(|(_id, data)| {
+                            let mut text_spans = Vec::new();
+                            let mut append = |span| {
+                                text_spans.push(span);
+                            };
 
-                    Paragraph::new(format!("Current activities:\n{}", text))
+                            let level = data.metadata().level();
+                            let color = match *level {
+                                tracing::Level::ERROR => Color::Red,
+                                tracing::Level::WARN => Color::Magenta,
+                                tracing::Level::INFO => Color::Reset,
+                                tracing::Level::DEBUG => Color::Gray,
+                                tracing::Level::TRACE => Color::Gray,
+                            };
+                            let name_style = if *level <= tracing::Level::INFO {
+                                Style::default().fg(color).add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(color)
+                            };
+                            append(ratatui::text::Span::styled(
+                                data.metadata().name(),
+                                name_style,
+                            ));
+
+                            let extensions = data.extensions();
+                            if let Some(fields) = extensions.get::<FormattedFields<DefaultFields>>()
+                            {
+                                // TODO: fields contains ANSI codes, confusing the visual length computation.
+                                //       it will also mess up the placement when a partial refresh is done.
+                                append(ratatui::text::Span::styled(
+                                    " ",
+                                    Style::default().fg(Color::Reset),
+                                ));
+                                append(ratatui::text::Span::styled(
+                                    fields.to_string(),
+                                    Style::default().fg(Color::Blue),
+                                ));
+                            }
+                            if let Some(start_time) = extensions.get::<StartTime>() {
+                                let seconds = now.duration_since(start_time.time).as_secs();
+                                if seconds > 0 {
+                                    append(ratatui::text::Span::styled(
+                                        " ",
+                                        Style::default().fg(Color::Reset),
+                                    ));
+                                    append(ratatui::text::Span::styled(
+                                        format!("{}s", seconds),
+                                        Style::default().fg(Color::Gray),
+                                    ));
+                                }
+                            }
+                            Line::from(text_spans)
+                        })
+                        .collect();
+
+                    Paragraph::new(ratatui::text::Text::from(lines))
                         .style(ratatui::style::Style::default().fg(Color::Reset))
                         .alignment(ratatui::layout::Alignment::Left)
                         .wrap(Wrap { trim: true })
@@ -599,6 +660,10 @@ fn save_color(log: &str, graphics_mode: &mut String) {
     }
 }
 
+struct StartTime {
+    time: std::time::Instant,
+}
+
 /// A `tracing_subscriber` layer that maintains a set of IDs of active spans.
 /// The library does not seem to offer this information by itself, and we don't
 /// want to track all spans in the end; just the ones that we may want to show.
@@ -610,14 +675,20 @@ impl SpanCollector {
         Self { active_spans }
     }
 }
-impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SpanCollector {
+impl<S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>>
+    tracing_subscriber::Layer<S> for SpanCollector
+{
     fn on_new_span(
         &self,
         _span: &tracing::span::Attributes,
         id: &tracing::span::Id,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         self.active_spans.lock().unwrap().insert(id.into_u64());
+        let span = ctx.span(id).expect("Missing span");
+        let mut extensions = span.extensions_mut();
+        let time = std::time::Instant::now();
+        extensions.insert(StartTime { time })
     }
     fn on_close(&self, id: tracing::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         self.active_spans.lock().unwrap().remove(&id.into_u64());
