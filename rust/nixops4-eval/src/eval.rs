@@ -12,7 +12,7 @@ use nix_expr::{
 use nixops4_core::eval_api::{
     AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
     QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
-    ResourceProviderInfo,
+    ResourceProviderInfo, ResourceType,
 };
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +28,7 @@ pub struct EvaluationDriver {
     values: HashMap<IdNum, Value>,
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
+    resource_names: HashMap<Id<ResourceType>, String>,
 }
 impl EvaluationDriver {
     pub fn new(eval_state: EvalState, respond: Box<dyn Respond>) -> EvaluationDriver {
@@ -36,6 +37,7 @@ impl EvaluationDriver {
             eval_state,
             respond,
             known_outputs: Arc::new(Mutex::new(HashMap::new())),
+            resource_names: HashMap::new(),
         }
     }
 
@@ -181,9 +183,9 @@ impl EvaluationDriver {
                 })
                 .await
             }
-            EvalRequest::LoadResource(req) => {
+            EvalRequest::LoadResource(areq) => {
                 self.handle_assign_request(
-                    req,
+                    areq,
                     |this, req| {
                         let deployment = this.get_value(req.deployment)?.clone();
                         let resources_attrset = this
@@ -192,7 +194,8 @@ impl EvaluationDriver {
                         let resource = this
                             .eval_state
                             .require_attrs_select(&resources_attrset, &req.name)?;
-                        Ok(resource.clone())
+                        this.resource_names.insert(areq.assign_to, req.name.clone());
+                        Ok(resource)
                     },
                     EvaluationDriver::assign_value,
                 )
@@ -337,8 +340,11 @@ fn perform_get_resource(
         .eval_state
         .require_attrs_select(&resource, "provider")?;
     let provider_json = {
-        let span =
-            tracing::info_span!("evaluating and realising provider", resource_id = req.num());
+        let resource_name = this.resource_names.get(req).unwrap();
+        let span = tracing::info_span!(
+            "evaluating and realising provider",
+            resource_name = resource_name
+        );
         let r = value_to_json(&mut this.eval_state, &provider_value)?;
         drop(span);
         r
