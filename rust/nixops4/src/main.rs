@@ -1,25 +1,44 @@
 mod apply;
 mod eval_client;
+mod interrupt;
+mod logging;
 mod provider;
 
 use anyhow::Result;
-use clap::{CommandFactory as _, Parser, Subcommand};
+use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
+use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
 use std::process::exit;
 
 fn main() {
+    let interrupt_state = set_up_process_interrupt_handler();
     let args = Args::parse();
-    handle_result(run_args(args));
+    handle_result(run_args(&interrupt_state, args));
 }
 
-fn run_args(args: Args) -> Result<()> {
+fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
     match &args.command {
-        Commands::Apply(subargs) => apply::apply(&args.options, subargs),
-        Commands::Deployments(sub) => match sub {
-            Deployments::List {} => deployments_list(&args.options),
-        },
+        Commands::Apply(subargs) => {
+            let mut logging = set_up_logging(interrupt_state, &args)?;
+            apply::apply(interrupt_state, &args.options, subargs)?;
+            logging.tear_down()?;
+            Ok(())
+        }
+        Commands::Deployments(sub) => {
+            match sub {
+                Deployments::List {} => {
+                    let mut logging = set_up_logging(interrupt_state, &args)?;
+                    let deployments = deployments_list(&args.options)?;
+                    logging.tear_down()?;
+                    for d in deployments {
+                        println!("{}", d);
+                    }
+                }
+            };
+            Ok(())
+        }
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -42,6 +61,39 @@ fn run_args(args: Args) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn determine_color(choice: ColorChoice) -> bool {
+    match choice {
+        ColorChoice::Auto => nix::unistd::isatty(nix::libc::STDERR_FILENO).unwrap_or(false),
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+    }
+}
+
+fn determine_interactive(options: &Options) -> bool {
+    match (options.interactive, options.no_interactive) {
+        (true, false) => true,
+        (false, true) => false,
+        // (true, true) is ambiguous and already rejected by clap
+        _ => nix::unistd::isatty(nix::libc::STDIN_FILENO).unwrap_or(false),
+    }
+}
+
+fn set_up_logging(
+    interrupt_state: &InterruptState,
+    args: &Args,
+) -> Result<Box<dyn logging::Frontend>> {
+    let color = determine_color(args.options.color);
+    let interactive = determine_interactive(&args.options);
+    logging::set_up(
+        interrupt_state,
+        logging::Options {
+            verbose: args.options.verbose,
+            color,
+            interactive,
+        },
+    )
 }
 
 fn to_eval_options(options: &Options) -> eval_client::Options {
@@ -70,7 +122,7 @@ fn with_flake<T>(
     })
 }
 
-fn deployments_list(options: &Options) -> Result<()> {
+fn deployments_list(options: &Options) -> Result<Vec<String>> {
     with_flake(options, |c, flake_id| {
         let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
         let deployments = c.receive_until(|client, _resp| {
@@ -79,10 +131,7 @@ fn deployments_list(options: &Options) -> Result<()> {
             let x = client.get_deployments(flake_id);
             Ok(x.map(|x| x.clone()))
         })?;
-        for d in deployments {
-            println!("{}", d);
-        }
-        Ok(())
+        Ok(deployments)
     })
 }
 
@@ -111,6 +160,20 @@ struct Args {
 struct Options {
     #[arg(short, long, global = true, default_value = "false")]
     verbose: bool,
+
+    #[arg(long, global = true, default_value_t = ColorChoice::Auto)]
+    color: ColorChoice,
+
+    #[arg(long, global = true, default_value_t = false)]
+    interactive: bool,
+
+    #[arg(
+        long,
+        global = true,
+        default_value_t = false,
+        conflicts_with = "interactive"
+    )]
+    no_interactive: bool,
 }
 
 #[derive(Subcommand, Debug)]
