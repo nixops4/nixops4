@@ -71,6 +71,16 @@
       NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
     };
   };
+  hercules-ci.flake-update = {
+    enable = true;
+    baseMerge.enable = true;
+    autoMergeMethod = "merge";
+    when = { dayOfMonth = 2; };
+    flakes = {
+      "." = { };
+      "dev" = { };
+    };
+  };
   herculesCI = hci@{ config, primaryRepo, ... }: {
     ciSystems = [ "x86_64-linux" ];
     onPush.default.outputs = {
