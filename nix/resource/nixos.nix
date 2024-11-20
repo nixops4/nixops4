@@ -24,7 +24,7 @@ in
       default = { };
     };
     ssh.user = mkOption {
-      type = types.str;
+      type = types.nullOr types.str;
       default = "root";
     };
     ssh.host = mkOption {
@@ -61,7 +61,7 @@ in
           nix copy --to "ssh-ng://$0" "$1" --no-check-sigs --extra-experimental-features nix-command
           ssh $NIX_SSHOPTS "$0" "$1/bin/apply switch"
         ''
-        "${config.ssh.user}@${config.ssh.host}"
+        "${lib.optionalString (config.ssh.user != null) "${config.ssh.user}@"}${config.ssh.host}"
         config.nixos.configuration.config.system.build.toplevel
       ];
     };
