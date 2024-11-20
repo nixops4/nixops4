@@ -37,6 +37,13 @@ in
       type = types.str;
       default = "";
     };
+    ssh.sudo = mkOption {
+      type = types.bool;
+      # If we're logging in as root, we don't need sudo
+      # Otherwise, we assume we do (although ssh_config may still log us in as root)
+      # You might need to set this to false on a host without sudo
+      default = config.ssh.user != "root";
+    };
   };
   config = {
     nixos = {
@@ -60,7 +67,7 @@ in
               ${config.ssh.host} ${config.ssh.hostPublicKey}
             ''} "${lib.strings.escapeShellArg "${config.ssh.opts}"}
           nix copy --to "ssh-ng://$0" "$1" --no-check-sigs --extra-experimental-features nix-command
-          ssh $NIX_SSHOPTS "$0" "$1/bin/apply switch"
+          ssh $NIX_SSHOPTS "$0" "${lib.optionalString (config.ssh.sudo) "sudo -- "}$1/bin/apply switch"
         ''
         "${lib.optionalString (config.ssh.user != null) "${config.ssh.user}@"}${config.ssh.host}"
         config.nixos.configuration.config.system.build.toplevel
