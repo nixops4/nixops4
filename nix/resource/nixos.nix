@@ -35,6 +35,7 @@ in
     };
     ssh.opts = mkOption {
       type = types.str;
+      default = "";
     };
   };
   config = {
