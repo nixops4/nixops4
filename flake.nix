@@ -1,5 +1,5 @@
 {
-  description = "A flake with pre-commit hooks";
+  description = "NixOps4, deployment tool";
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
