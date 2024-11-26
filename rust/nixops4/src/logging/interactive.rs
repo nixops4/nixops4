@@ -339,7 +339,7 @@ impl Frontend for InteractiveLogger {
                 let _ = dup2(stderr.as_raw_fd(), 2);
                 let _ = stderr
                     .as_ref()
-                    .write(b"\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+                    .write_all(b"\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
                 let _ = stderr.as_ref().execute(cursor::Show);
                 let _ = stderr.as_ref().flush();
                 let _ = terminal::disable_raw_mode();
@@ -426,7 +426,7 @@ impl<W: Write> TuiState<W> {
         // the cursor position)
         let h = self.compute_tui_height();
         for _ in 0..h {
-            self.terminal.backend_mut().write(b"\r\n")?;
+            self.terminal.backend_mut().write_all(b"\r\n")?;
         }
         self.terminal.backend_mut().flush()?;
         // If the terminal had little content, we might not be at the TUI area yet
@@ -479,7 +479,7 @@ impl<W: Write> TuiState<W> {
                     // that runs the risk of accidentally overwriting logs.
                     // We prefer harmless garbage over lost logs.
                     for _ in old_height..new_height {
-                        self.terminal.backend_mut().write(b"\r\n")?;
+                        self.terminal.backend_mut().write_all(b"\r\n")?;
                     }
                     self.terminal.backend_mut().flush()?;
                 }
@@ -528,21 +528,21 @@ impl<W: Write> TuiState<W> {
                 // The first few lines will overwrite the TUI area; the rest will cause the terminal to scroll.
                 self.terminal
                     .backend_mut()
-                    .write(self.graphics_mode.as_bytes())
+                    .write_all(self.graphics_mode.as_bytes())
                     .unwrap();
                 for log in new_logs {
-                    self.terminal.backend_mut().write(b"nixops| ").unwrap();
+                    self.terminal.backend_mut().write_all(b"nixops| ").unwrap();
                     self.terminal
                         .backend_mut()
-                        .write(log.replace("\n", "\r\n").as_bytes())
+                        .write_all(log.replace("\n", "\r\n").as_bytes())
                         .unwrap();
-                    self.terminal.backend_mut().write(b"\r\n").unwrap();
+                    self.terminal.backend_mut().write_all(b"\r\n").unwrap();
                     save_color(log.as_str(), &mut self.graphics_mode);
                 }
 
                 // Cause the terminal to scroll so that the TUI area fits on screen
                 for _ in 1..tui_height {
-                    self.terminal.backend_mut().write(b"\r\n").unwrap();
+                    self.terminal.backend_mut().write_all(b"\r\n").unwrap();
                 }
                 self.rendered_height = tui_height;
 

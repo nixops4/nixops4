@@ -1,13 +1,16 @@
 {
-  description = "A flake with pre-commit hooks";
+  description = "NixOps4, deployment tool";
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix.url = "github:NixOS/nix/ed129267dcd7dd2cce48c09b17aefd6cfc488bcd"; # 2.24-pre, before splitting libnixflake
+    nix.url = "github:NixOS/nix/master";
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # https://github.com/NixOS/nixpkgs/issues/359286
+    nixpkgs-old.url = "github:NixOS/nixpkgs/nixos-24.05";
   };
 
   outputs = inputs@{ self, flake-parts, ... }:

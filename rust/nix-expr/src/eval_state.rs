@@ -532,12 +532,15 @@ pub fn test_init() {
     // would cause the test suite to reinvokes itself, causing an infinite loop.
     // While _NIX_TEST_NO_SANDBOX=1 should prevent this, we may also set the
     // build hook to "" to prevent this.
-    // settings::set("build-hook", "")?;
+    nix_util::settings::set("build-hook", "").unwrap();
 
     // When testing in the sandbox, the default build dir would be a parent of the storeDir,
     // which causes an error. So we set a custom build dir here.
     nix_util::settings::set("sandbox-build-dir", "/custom-build-dir-for-test").unwrap();
     std::env::set_var("_NIX_TEST_NO_SANDBOX", "1");
+
+    // The tests run offline
+    nix_util::settings::set("substituters", "").unwrap();
 }
 
 #[cfg(test)]

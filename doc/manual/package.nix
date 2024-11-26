@@ -1,4 +1,4 @@
-{ buildPackages
+{ json-schema-for-humans
 , cargo
 , jq
 , lib
@@ -57,7 +57,7 @@ stdenv.mkDerivation (finalAttrs: {
     externalBuildTools = [
       mdbook
       mdbook-mermaid
-      buildPackages.python3Packages.json-schema-for-humans
+      json-schema-for-humans
       jq
     ];
   };
