@@ -538,6 +538,9 @@ pub fn test_init() {
     // which causes an error. So we set a custom build dir here.
     nix_util::settings::set("sandbox-build-dir", "/custom-build-dir-for-test").unwrap();
     std::env::set_var("_NIX_TEST_NO_SANDBOX", "1");
+
+    // The tests run offline
+    nix_util::settings::set("substituters", "").unwrap();
 }
 
 #[cfg(test)]
