@@ -452,8 +452,12 @@ mod tests {
 
     #[ctor]
     fn setup() {
-        nix_expr::eval_state::test_init();
         nix_util::settings::set("experimental-features", "flakes").unwrap();
+        nix_flake::FlakeSettings::new()
+            .unwrap()
+            .init_globally()
+            .unwrap();
+        nix_expr::eval_state::test_init();
     }
 
     #[test]

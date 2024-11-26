@@ -668,6 +668,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix-flake"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cstr",
+ "ctor",
+ "lazy_static",
+ "nix-c-raw",
+ "nix-expr",
+ "nix-store",
+ "nix-util",
+ "tempfile",
+]
+
+[[package]]
 name = "nix-store"
 version = "0.1.0"
 dependencies = [
@@ -731,6 +746,7 @@ dependencies = [
  "ctor",
  "ctrlc",
  "nix-expr",
+ "nix-flake",
  "nix-store",
  "nix-util",
  "nixops4-core",

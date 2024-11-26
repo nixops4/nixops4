@@ -12,6 +12,7 @@ description = "Internal child process of [`nixops4`](#nixops4) that performs Nix
 [dependencies]
 nixops4-core = { path = "../nixops4-core" }
 nix-expr = { path = "../nix-expr" }
+nix-flake = { path = "../nix-flake" }
 nix-store = { path = "../nix-store" }
 nix-util = { path = "../nix-util" }
 anyhow = "1.0.81"
