@@ -1,13 +1,14 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Error, Result};
 use lazy_static::lazy_static;
 use nix_c_raw as raw;
 use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, result_string_init};
+use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 use std::ptr::null_mut;
 use std::ptr::NonNull;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 /* TODO make Nix itself thread safe */
 lazy_static! {
@@ -33,6 +34,8 @@ impl Drop for StoreRef {
     }
 }
 unsafe impl Send for StoreRef {}
+/// Unlike pointers in general, operations on raw::Store are thread safe and it is therefore safe to share them between threads.
+unsafe impl Sync for StoreRef {}
 
 /// A [Weak] reference to a store.
 pub struct StoreWeak {
@@ -50,6 +53,13 @@ impl StoreWeak {
     }
 }
 
+/// Protects against https://github.com/NixOS/nix/issues/11979 (unless different parameters are passed, in which case it's up to luck, but you do get your own parameters as you asked for).
+type StoreCacheMap = HashMap<(String, Vec<(String, String)>), StoreWeak>;
+
+lazy_static! {
+    static ref STORE_CACHE: Arc<Mutex<StoreCacheMap>> = Arc::new(Mutex::new(HashMap::new()));
+}
+
 pub struct Store {
     inner: Arc<StoreRef>,
     /* An error context to reuse. This way we don't have to allocate them for each store operation. */
@@ -57,6 +67,41 @@ pub struct Store {
 }
 impl Store {
     pub fn open<'a, 'b>(
+        url: &str,
+        params: impl IntoIterator<Item = (&'a str, &'b str)>,
+    ) -> Result<Self> {
+        let params = params
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect::<Vec<(String, String)>>();
+        let params2 = params.clone();
+        let mut store_cache = STORE_CACHE
+            .lock()
+            .map_err(|_| Error::msg("Failed to lock store cache. This should never happen."))?;
+        match store_cache.entry((url.to_string(), params)) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if let Some(store) = e.get().upgrade() {
+                    Ok(store)
+                } else {
+                    let store = Self::open_uncached(
+                        url,
+                        params2.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                    )?;
+                    e.insert(store.weak_ref());
+                    Ok(store)
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let store = Self::open_uncached(
+                    url,
+                    params2.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                )?;
+                e.insert(store.weak_ref());
+                Ok(store)
+            }
+        }
+    }
+    fn open_uncached<'a, 'b>(
         url: &str,
         params: impl IntoIterator<Item = (&'a str, &'b str)>,
     ) -> Result<Self> {
@@ -191,7 +236,9 @@ mod tests {
     #[test]
     fn weak_ref_gone() {
         let weak = {
-            let store = Store::open("auto", HashMap::new()).unwrap();
+            // Concurrent tests calling Store::open will keep the weak reference to auto alive,
+            // so for this test we need to bypass the global cache.
+            let store = Store::open_uncached("auto", HashMap::new()).unwrap();
             store.weak_ref()
         };
         assert!(weak.upgrade().is_none());

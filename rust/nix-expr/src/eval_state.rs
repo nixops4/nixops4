@@ -594,7 +594,8 @@ mod tests {
     fn weak_ref_gone() {
         gc_registering_current_thread(|| {
             let weak = {
-                let store = Store::open("auto", HashMap::new()).unwrap();
+                // Use a slightly different URL which is unique in the test suite, to bypass the global store cache
+                let store = Store::open("auto?foo=bar", HashMap::new()).unwrap();
                 let es = EvalState::new(store, []).unwrap();
                 es.weak_ref()
             };
