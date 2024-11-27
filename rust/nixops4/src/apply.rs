@@ -26,7 +26,7 @@ pub(crate) fn apply(
     options: &Options, /* global options; apply options tbd, extra param */
     args: &Args,
 ) -> Result<()> {
-    with_flake(&options, |c, flake_id| {
+    with_flake(options, |c, flake_id| {
         let deployment_id = c.next_id();
         c.send(&EvalRequest::LoadDeployment(AssignRequest {
             assign_to: deployment_id,
@@ -40,7 +40,7 @@ pub(crate) fn apply(
             client.check_error(flake_id)?;
             client.check_error(deployment_id)?;
             client.check_error(resources_list_id)?;
-            Ok(client.get_resources(deployment_id).map(|x| x.clone()))
+            Ok(client.get_resources(deployment_id).cloned())
         })?;
         if resources.is_empty() {
             eprintln!("Deployment contains no resources; nothing to apply.");
@@ -63,9 +63,9 @@ pub(crate) fn apply(
                 },
             }))?;
             // TODO: check for errors on this id
-            c.query(&EvalRequest::GetResource, *id)?;
+            c.query(EvalRequest::GetResource, *id)?;
             // TODO: check for errors on this id
-            c.query(&EvalRequest::ListResourceInputs, *id)?;
+            c.query(EvalRequest::ListResourceInputs, *id)?;
         }
         let resource_ids_to_names: BTreeMap<Id<ResourceType>, String> =
             resource_ids.iter().map(|(k, v)| (*v, k.clone())).collect();
@@ -114,7 +114,7 @@ pub(crate) fn apply(
                             resource_provider_info
                                 .lock()
                                 .unwrap()
-                                .insert(info.id.clone(), info.clone());
+                                .insert(info.id, info.clone());
                         }
 
                         QueryResponseValue::ResourceInputState((_property, st)) => match st {
@@ -240,8 +240,8 @@ pub(crate) fn apply(
                                                         resources_blocked.lock().unwrap();
                                                     let blocker_resource = prop.resource;
                                                     outputs
-                                                        .iter()
-                                                        .map(|(k, _)| {
+                                                        .keys()
+                                                        .flat_map(|k| {
                                                             let blocker_property = Property {
                                                                 resource: blocker_resource,
                                                                 name: k.clone(),
@@ -251,7 +251,6 @@ pub(crate) fn apply(
                                                                 .unwrap_or(&BTreeSet::new())
                                                                 .clone()
                                                         })
-                                                        .flatten()
                                                         .collect()
                                                 };
                                                 for dependent_property in dependents.iter() {
@@ -335,7 +334,7 @@ pub(crate) fn apply(
         };
 
         if options.verbose {
-            eprintln!("");
+            eprintln!();
             eprintln!("Done!");
         }
         eprintln!("The following resources were created:");

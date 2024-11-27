@@ -5,6 +5,12 @@ use anyhow::Result;
 /// This function is used by the other nix_* crates, and you should never need to call it yourself.
 ///
 /// Some functions in the nix library "return" strings without giving you ownership over them, by letting you pass a callback function that gets to look at that string. This callback simply turns that string pointer into an owned rust String.
+///
+/// # Safety
+///
+/// _Manual memory management_
+///
+/// Only for passing to the nix C API. Do not call this function directly.
 pub unsafe extern "C" fn callback_get_result_string(
     start: *const ::std::os::raw::c_char,
     n: std::os::raw::c_uint,
@@ -12,7 +18,7 @@ pub unsafe extern "C" fn callback_get_result_string(
 ) {
     let ret = user_data as *mut Result<String>;
 
-    if start == std::ptr::null() {
+    if start.is_null() {
         if n != 0 {
             panic!("callback_get_result_string: start is null but n is not zero");
         }
@@ -22,7 +28,7 @@ pub unsafe extern "C" fn callback_get_result_string(
 
     let slice = std::slice::from_raw_parts(start as *const u8, n as usize);
 
-    if !(*ret).is_err() {
+    if (*ret).is_ok() {
         panic!(
             "callback_get_result_string: Result must be initialized to Err. Did Nix call us twice?"
         );

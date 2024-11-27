@@ -181,7 +181,7 @@ impl Frontend for InteractiveLogger {
                     spans.sort_by(|(a_id, a), (b_id, b)| {
                         a.metadata()
                             .level()
-                            .cmp(&b.metadata().level())
+                            .cmp(b.metadata().level())
                             .then_with(|| a_id.into_u64().cmp(&b_id.into_u64()))
                     });
                     let lines: Vec<Line> = spans
@@ -320,7 +320,7 @@ impl Frontend for InteractiveLogger {
         Ok(())
     }
 
-    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicInfo<'_>) + Send + Sync> {
+    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync> {
         let orig_stderr = self.orig_stderr.clone();
         let dev_null = File::open("/dev/null").expect("open /dev/null");
         let crashing = self.crashing.clone();
@@ -454,8 +454,8 @@ impl<W: Write> TuiState<W> {
                 self.height = new_height;
                 tui_height = self.compute_tui_height();
                 let rect = Rect {
-                    width: self.width as u16,
-                    height: tui_height as u16,
+                    width: self.width,
+                    height: tui_height,
                     x: 0,
                     y: self.height - tui_height,
                 };
