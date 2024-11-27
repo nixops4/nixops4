@@ -52,8 +52,8 @@ impl EvalStateWeak {
     pub fn upgrade(&self) -> Option<EvalState> {
         self.inner.upgrade().and_then(|eval_state| {
             self.store.upgrade().map(|store| EvalState {
-                eval_state: eval_state,
-                store: store,
+                eval_state,
+                store,
                 context: Context::new(),
             })
         })

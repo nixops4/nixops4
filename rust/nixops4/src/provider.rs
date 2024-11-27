@@ -21,9 +21,7 @@ pub(crate) fn parse_provider(provider_value: &Value) -> Result<ProviderStdio> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Provider type must be a string"))?;
     match type_ {
-        "stdio" => serde_json::from_value(provider_value.clone())
-            .map_err(|e| e.into())
-            .map(|x: ProviderStdio| x.clone()),
+        "stdio" => serde_json::from_value(provider_value.clone()).map_err(|e| e.into()),
         _ => {
             bail!("Unknown provider type: {}", type_);
         }

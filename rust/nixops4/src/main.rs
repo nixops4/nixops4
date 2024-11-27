@@ -8,7 +8,6 @@ use anyhow::Result;
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use eval_client::EvalClient;
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
-use nixops4_core;
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
 use std::process::exit;
 
@@ -57,7 +56,7 @@ fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             // TODO: remove the generate-* commands from the completion
             //       same problem in nixops4-resource-runner
             let mut cmd = Args::command();
-            clap_complete::generate(shell.clone(), &mut cmd, "nixops4", &mut std::io::stdout());
+            clap_complete::generate(*shell, &mut cmd, "nixops4", &mut std::io::stdout());
             Ok(())
         }
     }
@@ -129,7 +128,7 @@ fn deployments_list(options: &Options) -> Result<Vec<String>> {
             client.check_error(flake_id)?;
             client.check_error(deployments_id)?;
             let x = client.get_deployments(flake_id);
-            Ok(x.map(|x| x.clone()))
+            Ok(x.cloned())
         })?;
         Ok(deployments)
     })
@@ -139,7 +138,7 @@ fn handle_result(r: Result<()>) {
     match r {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("nixops4 error: {}, {}", e.root_cause(), e.to_string());
+            eprintln!("nixops4 error: {}, {}", e.root_cause(), e);
             exit(1);
         }
     }

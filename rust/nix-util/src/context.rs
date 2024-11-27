@@ -18,10 +18,9 @@ impl Context {
             // We're almost certainly going to crash anyways.
             panic!("nix_c_context_create returned a null pointer");
         }
-        let ctx = Context {
+        Context {
             inner: NonNull::new(ctx).unwrap(),
-        };
-        ctx
+        }
     }
 
     /// Access the C context pointer.
@@ -36,7 +35,7 @@ impl Context {
     /// We recommend to use `check_call!` if possible.
     pub fn check_err(&self) -> Result<()> {
         let err = unsafe { raw::err_code(self.inner.as_ptr()) };
-        if err != raw::err_NIX_OK.try_into().unwrap() {
+        if err != raw::err_NIX_OK {
             // msgp is a borrowed pointer (pointing into the context), so we don't need to free it
             let msgp = unsafe { raw::err_msg(null_mut(), self.inner.as_ptr(), null_mut()) };
             // Turn the i8 pointer into a Rust string by copying
@@ -50,7 +49,7 @@ impl Context {
         unsafe {
             raw::set_err_msg(
                 self.inner.as_ptr(),
-                raw::err_NIX_OK.try_into().unwrap(),
+                raw::err_NIX_OK,
                 b"\0".as_ptr() as *const i8,
             );
         }

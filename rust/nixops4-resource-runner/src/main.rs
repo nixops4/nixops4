@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{arg, CommandFactory};
 use clap::{Parser, Subcommand};
-use clap_mangen;
 use core::str;
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
@@ -37,7 +36,7 @@ fn main() -> Result<()> {
             let mut inputs = match input_properties_json {
                 Some(json_string) => {
                     serde_json::from_str::<BTreeMap<String, Value>>(json_string.as_str())
-                        .with_context(|| format!("failed to parse value of --inputs-json"))?
+                        .with_context(|| "failed to parse value of --inputs-json")?
                 }
                 None => BTreeMap::new(),
             };
@@ -97,7 +96,7 @@ fn main() -> Result<()> {
             //       same problem in nixops4 cli
             let mut cmd = Args::command();
             clap_complete::generate(
-                shell.clone(),
+                *shell,
                 &mut cmd,
                 "nixops4-resource-runner",
                 &mut std::io::stdout(),

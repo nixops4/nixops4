@@ -55,10 +55,7 @@ impl PrimOp {
             // TODO: Use the GC with finalizer, if possible.
             let user_data = ManuallyDrop::new(Box::new(PrimOpContext {
                 arity: N,
-                function: Box::new(move |eval_state, args| {
-                    let r = f(eval_state, args.try_into().unwrap());
-                    r
-                }),
+                function: Box::new(move |eval_state, args| f(eval_state, args.try_into().unwrap())),
                 eval_state: eval_state.weak_ref(),
             }));
             user_data.as_ref() as *const PrimOpContext as *mut c_void

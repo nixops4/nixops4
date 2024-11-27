@@ -45,7 +45,7 @@ impl EvaluationDriver {
         self.respond.call(response).await
     }
 
-    fn assign_value<'a, T: 'static>(&'a mut self, id: Id<T>, value: Value) -> AsyncResult<'a, ()> {
+    fn assign_value<T: 'static>(&mut self, id: Id<T>, value: Value) -> AsyncResult<'_, ()> {
         if let Some(_value) = self.values.get(&id.num()) {
             return Box::pin(async move {
                 self.respond(EvalResponse::Error(
@@ -205,7 +205,7 @@ impl EvaluationDriver {
                 self.handle_simple_request(
                     req,
                     QueryResponseValue::ResourceProviderInfo,
-                    |this, req| perform_get_resource(this, req),
+                    perform_get_resource,
                 )
                 .await
             }
@@ -226,7 +226,7 @@ impl EvaluationDriver {
                 self.handle_simple_request(
                     req,
                     |x| QueryResponseValue::ResourceInputState((req.payload.clone(), x)),
-                    |this, req| perform_get_resource_input(this, req),
+                    perform_get_resource_input,
                 )
                 .await
             }
@@ -298,7 +298,7 @@ fn perform_load_deployment(
             };
             let val = {
                 let known_outputs = known_outputs.lock().unwrap();
-                known_outputs.get(&property).map(Clone::clone)
+                known_outputs.get(&property).cloned()
             };
             match val {
                 Some(val) => Ok(val),

@@ -37,7 +37,7 @@ impl HeadlessLogger {
         Ok(subscriber)
     }
 
-    pub fn handle_panic_no_exit(panic_info: &std::panic::PanicInfo<'_>) {
+    pub fn handle_panic_no_exit(panic_info: &std::panic::PanicHookInfo<'_>) {
         // This is based on the tracing panic handler:
         //   https://github.com/tokio-rs/tracing/blob/bdbaf8007364ed2a766cca851d63de31b7c47e72/examples/examples/panic_hook.rs
 
@@ -72,7 +72,7 @@ impl Frontend for HeadlessLogger {
         Ok(())
     }
 
-    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicInfo<'_>) + Send + Sync> {
+    fn get_panic_handler(&self) -> Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync> {
         Box::new(|panic_info| {
             HeadlessLogger::handle_panic_no_exit(panic_info);
             std::process::exit(101);
