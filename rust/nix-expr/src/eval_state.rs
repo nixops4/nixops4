@@ -433,6 +433,24 @@ impl EvalState {
         Ok(value)
     }
 
+    /// Eagerly apply a function with multiple curried arguments.
+    #[doc(alias = "nix_value_call_multi")]
+    pub fn call_multi(&mut self, f: &Value, args: &[Value]) -> Result<Value> {
+        let value = self.new_value_uninitialized()?;
+        let mut args_ptrs = args.iter().map(|a| a.raw_ptr()).collect::<Vec<_>>();
+        unsafe {
+            check_call!(raw::value_call_multi(
+                &mut self.context,
+                self.eval_state.as_ptr(),
+                f.raw_ptr(),
+                args_ptrs.len(),
+                args_ptrs.as_mut_ptr(),
+                value.raw_ptr()
+            ))
+        }?;
+        Ok(value)
+    }
+
     /// Apply a function to an argument, but don't evaluate the result just yet.
     ///
     /// For an eager version, see [`call`][`EvalState::call`].
@@ -1165,6 +1183,24 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_call_multi() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("x: y: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let b = es.eval_from_string("3", "<test>").unwrap();
+            let v = es.call_multi(&f, &[a, b]).unwrap();
+            let t = es.value_type_unforced(&v);
+            assert!(t == Some(ValueType::Int));
+            let i = es.require_int(&v).unwrap();
+            assert!(i == -1);
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn eval_state_apply() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
@@ -1195,6 +1231,29 @@ mod tests {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
                     if !e.to_string().contains("cannot coerce") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_multi_fail_body() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("x: y: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let b = es.eval_from_string("true", "<test>").unwrap();
+            let r = es.call_multi(&f, &[a, b]);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("expected an integer but found") {
                         eprintln!("{}", e);
                         assert!(false);
                     }
@@ -1237,6 +1296,29 @@ mod tests {
             let f = es.eval_from_string("{x}: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("{}", "<test>").unwrap();
             let r = es.call(f, a);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("called without required argument") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_multi_fail_args() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("{x}: {y}: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("{x = 2;}", "<test>").unwrap();
+            let b = es.eval_from_string("{}", "<test>").unwrap();
+            let r = es.call_multi(&f, &[a, b]);
             match r {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
