@@ -492,6 +492,60 @@ impl EvalState {
         };
         Ok(value)
     }
+
+    pub fn new_value_attrs<I>(&mut self, attrs: I) -> Result<Value>
+    where
+        I: IntoIterator<Item = (String, Value)>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let iter = attrs.into_iter();
+        let size = iter.len();
+        let bindings_builder = BindingsBuilder::new(self, size)?;
+        for (name, value) in iter {
+            let name =
+                CString::new(name).with_context(|| "new_value_attrs: name contains null byte")?;
+            unsafe {
+                check_call!(raw::bindings_builder_insert(
+                    &mut self.context,
+                    bindings_builder.ptr,
+                    name.as_ptr(),
+                    value.raw_ptr()
+                ))?;
+            }
+        }
+        let value = self.new_value_uninitialized()?;
+        unsafe {
+            check_call!(raw::make_attrs(
+                &mut self.context,
+                value.raw_ptr(),
+                bindings_builder.ptr
+            ))?;
+        }
+        Ok(value)
+    }
+}
+
+struct BindingsBuilder {
+    ptr: *mut raw::BindingsBuilder,
+}
+impl Drop for BindingsBuilder {
+    fn drop(&mut self) {
+        unsafe {
+            raw::bindings_builder_free(self.ptr);
+        }
+    }
+}
+impl BindingsBuilder {
+    fn new(eval_state: &mut EvalState, capacity: usize) -> Result<Self> {
+        let ptr = unsafe {
+            check_call!(raw::make_bindings_builder(
+                &mut eval_state.context,
+                eval_state.eval_state.as_ptr(),
+                capacity
+            ))
+        }?;
+        Ok(BindingsBuilder { ptr })
+    }
 }
 
 pub fn gc_now() {
@@ -1631,6 +1685,74 @@ mod tests {
                     }
                 }
             }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_slice_empty() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = es.new_value_attrs([]).unwrap();
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert!(names.is_empty());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_vec() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = {
+                let a = es.new_value_int(1).unwrap();
+                let b = es.new_value_int(2).unwrap();
+                es.new_value_attrs(vec![("a".to_string(), a), ("b".to_string(), b)])
+                    .unwrap()
+            };
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert_eq!(names.len(), 2);
+            assert_eq!(names[0], "a");
+            assert_eq!(names[1], "b");
+            let a = es.require_attrs_select(&attrs, "a").unwrap();
+            let b = es.require_attrs_select(&attrs, "b").unwrap();
+            let i = es.require_int(&a).unwrap();
+            assert_eq!(i, 1);
+            let i = es.require_int(&b).unwrap();
+            assert_eq!(i, 2);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_hashmap() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = {
+                let a = es.new_value_int(1).unwrap();
+                let b = es.new_value_int(2).unwrap();
+                es.new_value_attrs(HashMap::from([("a".to_string(), a), ("b".to_string(), b)]))
+                    .unwrap()
+            };
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert_eq!(names.len(), 2);
+            assert_eq!(names[0], "a");
+            assert_eq!(names[1], "b");
+            let a = es.require_attrs_select(&attrs, "a").unwrap();
+            let b = es.require_attrs_select(&attrs, "b").unwrap();
+            let i = es.require_int(&a).unwrap();
+            assert_eq!(i, 1);
+            let i = es.require_int(&b).unwrap();
+            assert_eq!(i, 2);
         })
         .unwrap();
     }
