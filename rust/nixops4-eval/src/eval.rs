@@ -264,10 +264,12 @@ fn perform_load_deployment(
                         loadResourceAttr:
                         # user expr
                         deploymentFunction:
+                        # other args, such as resourceProviderSystem
+                        extraArgs:
                         let
                           arg = {
                             inherit resources;
-                          };
+                          } // extraArgs;
                           resources =
                             builtins.mapAttrs
                               (name: value:
@@ -322,10 +324,17 @@ fn perform_load_deployment(
         }),
     )?;
     let load_resource_attr = es.new_value_primop(prim_load_resource_attr)?;
+    // let extra_args = es.new_value_attrs(HashMap::new())?;
+    let resource_provider_system = nix_util::settings::get("system")?;
+    let resource_provider_system_value = es.new_value_str(resource_provider_system.as_str())?;
+    let extra_args = es.new_value_attrs([(
+        "resourceProviderSystem".to_string(),
+        resource_provider_system_value,
+    )])?;
+
     let fixpoint = {
         let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
-        let v = es.call(v, load_resource_attr)?;
-        es.call(v, deployment_function)
+        es.call_multi(&v, &[load_resource_attr, deployment_function, extra_args])
     }?;
     Ok(fixpoint)
 }
@@ -743,7 +752,8 @@ mod tests {
                     nixops4Deployments = {
                         example = {
                             _type = "nixops4Deployment";
-                            deploymentFunction = { resources }:
+                            deploymentFunction = { resources, resourceProviderSystem }:
+                            assert resourceProviderSystem == builtins.currentSystem;
                             {
                                 resources = {
                                     a = {
