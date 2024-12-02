@@ -77,7 +77,7 @@ in
               args;
         in
         {
-          inherit (configuration) resources;
+          resources = lib.mapAttrs (_: res: res._resourceForNixOps) configuration.config.resources;
         };
     };
 
