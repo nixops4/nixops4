@@ -785,7 +785,7 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = throw "nope a"; b = throw "nope b"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
-            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
+            let attrs = es.require_attrs_names(&v).unwrap();
             assert_eq!(attrs.len(), 2);
             assert_eq!(attrs[0], "a");
             assert_eq!(attrs[1], "b");
