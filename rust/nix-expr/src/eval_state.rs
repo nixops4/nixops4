@@ -208,8 +208,20 @@ impl EvalState {
         }
         unsafe { check_call!(raw::get_int(&mut self.context, v.raw_ptr())) }
     }
+
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
+    ///
+    /// NOTE: this currently implements its own sorting, which probably matches Nix's implementation, but is not guaranteed.
+    pub fn require_attrs_names(&mut self, v: &Value) -> Result<Vec<String>> {
+        self.require_attrs_names_unsorted(v).map(|mut v| {
+            v.sort();
+            v
+        })
+    }
+
+    /// For when [require_attrs_names] isn't fast enough.
+    /// Only use when it's ok that the keys are returned in an arbitrary order.
     pub fn require_attrs_names_unsorted(&mut self, v: &Value) -> Result<Vec<String>> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
