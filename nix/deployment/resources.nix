@@ -1,7 +1,12 @@
-{ lib, ... }:
+{ lib, resources, ... }:
 let
   inherit (lib) mkOption types;
 
+  injectOutputs = { name, ... }: {
+    outputs = { ... }: {
+      config = resources.${name};
+    };
+  };
 in
 {
   options = {
@@ -10,7 +15,10 @@ in
         types.lazyAttrsOf
           (types.submoduleWith {
             class = "nixops4Resource";
-            modules = [ ];
+            modules = [
+              ./resource.nix
+              injectOutputs
+            ];
           });
       default = { };
       description = ''
