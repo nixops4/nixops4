@@ -16,7 +16,7 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake
       { inherit inputs; }
-      ({ lib, ... }: {
+      ({ lib, withSystem, ... }: {
         imports = [
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
@@ -48,6 +48,10 @@
               config.packages.nixops4-resource-runner
             ];
           };
+        };
+        flake.lib = import ./nix/lib/lib.nix {
+          inherit lib self;
+          selfWithSystem = withSystem;
         };
 
         partitionedAttrs.devShells = "dev";

@@ -1,0 +1,5 @@
+{
+  imports = [
+    ./resources.nix
+  ];
+}
