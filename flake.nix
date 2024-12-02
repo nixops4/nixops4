@@ -52,6 +52,7 @@
 
         partitionedAttrs.devShells = "dev";
         partitionedAttrs.checks = "dev";
+        partitionedAttrs.tests = "dev"; # nix-unit
         partitionedAttrs.herculesCI = "dev";
         partitions.dev.extraInputsFlake = ./dev;
         partitions.dev.module = {

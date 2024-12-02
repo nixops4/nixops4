@@ -1,9 +1,20 @@
-{ lib, inputs, withSystem, ... }: {
+{ lib, inputs, self, withSystem, ... }: {
   imports = [
     inputs.pre-commit-hooks-nix.flakeModule
     inputs.hercules-ci-effects.flakeModule
+    inputs.nix-unit.modules.flake.default
   ];
-  perSystem = { config, pkgs, ... }: {
+  perSystem = { config, pkgs, inputs', system, ... }: {
+
+    nix-unit.tests = import ../nix/lib/tests.nix {
+      inherit lib self system;
+    };
+    nix-unit.inputs = {
+      inherit (inputs) flake-parts nixpkgs nix-cargo-integration;
+      "flake-parts/nixpkgs-lib" = inputs.flake-parts.inputs.nixpkgs-lib;
+      "nix-cargo-integration/treefmt" = inputs.nix-cargo-integration.inputs.treefmt;
+    };
+    nix-unit.allowNetwork = true;
 
     pre-commit.settings.hooks.nixpkgs-fmt.enable = true;
     pre-commit.settings.hooks.rustfmt.enable = true;
@@ -58,6 +69,7 @@
         pkgs.valgrind
         pkgs.gdb
         pkgs.hci
+        inputs'.nix-unit.packages.nix-unit
         # TODO: set up cargo-valgrind in shell and build
         #       currently both this and `cargo install cargo-valgrind`
         #       produce a binary that says ENOENT.
