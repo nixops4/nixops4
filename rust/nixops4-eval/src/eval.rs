@@ -157,8 +157,9 @@ impl EvaluationDriver {
                     let deployments_opt = this
                         .eval_state
                         .require_attrs_select_opt(&outputs, "nixops4Deployments")?;
-                    let deployments = deployments_opt
-                        .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
+                    let deployments = deployments_opt.map_or(Ok(Vec::new()), |v| {
+                        this.eval_state.require_attrs_names_unsorted(&v)
+                    })?;
                     Ok((*req, deployments))
                 })
                 .await
@@ -178,7 +179,9 @@ impl EvaluationDriver {
                     let resources_attrset = this
                         .eval_state
                         .require_attrs_select(&deployment, "resources")?;
-                    let resources = this.eval_state.require_attrs_names(&resources_attrset)?;
+                    let resources = this
+                        .eval_state
+                        .require_attrs_names_unsorted(&resources_attrset)?;
                     Ok((*req, resources))
                 })
                 .await
@@ -216,7 +219,7 @@ impl EvaluationDriver {
                     |this, req| {
                         let resource = this.get_value(req.to_owned())?.clone();
                         let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
-                        let inputs = this.eval_state.require_attrs_names(&inputs)?;
+                        let inputs = this.eval_state.require_attrs_names_unsorted(&inputs)?;
                         Ok((*req, inputs))
                     },
                 )

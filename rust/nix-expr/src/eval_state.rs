@@ -210,7 +210,7 @@ impl EvalState {
     }
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
-    pub fn require_attrs_names(&mut self, v: &Value) -> Result<Vec<String>> {
+    pub fn require_attrs_names_unsorted(&mut self, v: &Value) -> Result<Vec<String>> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
@@ -729,34 +729,34 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type_unforced(&v);
             assert!(t == Some(ValueType::AttrSet));
-            let attrs = es.require_attrs_names(&v).unwrap();
+            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
             assert_eq!(attrs.len(), 0);
         })
         .unwrap()
     }
 
     #[test]
-    fn eval_state_require_attrs_names_forces_thunk() {
+    fn eval_state_require_attrs_names_unsorted_forces_thunk() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
             let v = make_thunk(&mut es, "{ a = 1; b = 2; }");
             let t = es.value_type_unforced(&v);
             assert!(t == None);
-            let attrs = es.require_attrs_names(&v).unwrap();
+            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
             assert_eq!(attrs.len(), 2);
         })
         .unwrap()
     }
 
     #[test]
-    fn eval_state_require_attrs_names_bad_type() {
+    fn eval_state_require_attrs_names_unsorted_bad_type() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("1", "<test>").unwrap();
             es.force(&v).unwrap();
-            let r = es.require_attrs_names(&v);
+            let r = es.require_attrs_names_unsorted(&v);
             assert!(r.is_err());
             assert_eq!(
                 r.unwrap_err().to_string(),
@@ -773,7 +773,7 @@ mod tests {
             let mut es = EvalState::new(store, []).unwrap();
             let expr = r#"{ a = throw "nope a"; b = throw "nope b"; }"#;
             let v = es.eval_from_string(expr, "<test>").unwrap();
-            let attrs = es.require_attrs_names(&v).unwrap();
+            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
             assert_eq!(attrs.len(), 2);
             assert_eq!(attrs[0], "a");
             assert_eq!(attrs[1], "b");
