@@ -13,7 +13,8 @@ GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4.md \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
-	src/architecture/cargo-deps.gen.md
+	src/architecture/cargo-deps.gen.md \
+	src/lib/lib.gen.md
 
 clean:
 	rm -rf book $(GENERATED)
@@ -66,3 +67,7 @@ src/cli/nixops4.md: $(NIXOPS4_EXE)
 	@echo "  GENERATING" $@
 	@mkdir -p $(dir $@)
 	@$(NIXOPS4_CMD) generate-markdown > $@
+
+src/lib/lib.gen.md: ../../nix/lib/lib.nix Makefile
+	@echo "      NIXDOC" $@
+	@nixdoc --file $< --category "" --description "" --prefix "" --anchor-prefix "" >src/lib/lib.gen.md

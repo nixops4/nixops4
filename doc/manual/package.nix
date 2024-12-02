@@ -4,6 +4,7 @@
 , lib
 , mdbook
 , mdbook-mermaid
+, nixdoc
 , nixops4
 , nixops4-resource-runner
 , stdenv
@@ -16,6 +17,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = fileset.toSource {
     fileset = fileset.unions [
+      ../../nix/lib/lib.nix
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
@@ -57,6 +59,7 @@ stdenv.mkDerivation (finalAttrs: {
     externalBuildTools = [
       mdbook
       mdbook-mermaid
+      (nixdoc.overrideAttrs (o: { patches = o.patches ++ [ ./nixdoc-140-minimal.patch ]; }))
       json-schema-for-humans
       jq
     ];
