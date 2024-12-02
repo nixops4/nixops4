@@ -208,9 +208,21 @@ impl EvalState {
         }
         unsafe { check_call!(raw::get_int(&mut self.context, v.raw_ptr())) }
     }
+
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
+    ///
+    /// NOTE: this currently implements its own sorting, which probably matches Nix's implementation, but is not guaranteed.
     pub fn require_attrs_names(&mut self, v: &Value) -> Result<Vec<String>> {
+        self.require_attrs_names_unsorted(v).map(|mut v| {
+            v.sort();
+            v
+        })
+    }
+
+    /// For when [require_attrs_names] isn't fast enough.
+    /// Only use when it's ok that the keys are returned in an arbitrary order.
+    pub fn require_attrs_names_unsorted(&mut self, v: &Value) -> Result<Vec<String>> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
             bail!("expected an attrset, but got a {:?}", t);
@@ -421,6 +433,24 @@ impl EvalState {
         Ok(value)
     }
 
+    /// Eagerly apply a function with multiple curried arguments.
+    #[doc(alias = "nix_value_call_multi")]
+    pub fn call_multi(&mut self, f: &Value, args: &[Value]) -> Result<Value> {
+        let value = self.new_value_uninitialized()?;
+        let mut args_ptrs = args.iter().map(|a| a.raw_ptr()).collect::<Vec<_>>();
+        unsafe {
+            check_call!(raw::value_call_multi(
+                &mut self.context,
+                self.eval_state.as_ptr(),
+                f.raw_ptr(),
+                args_ptrs.len(),
+                args_ptrs.as_mut_ptr(),
+                value.raw_ptr()
+            ))
+        }?;
+        Ok(value)
+    }
+
     /// Apply a function to an argument, but don't evaluate the result just yet.
     ///
     /// For an eager version, see [`call`][`EvalState::call`].
@@ -461,6 +491,60 @@ impl EvalState {
             ))?;
         };
         Ok(value)
+    }
+
+    pub fn new_value_attrs<I>(&mut self, attrs: I) -> Result<Value>
+    where
+        I: IntoIterator<Item = (String, Value)>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let iter = attrs.into_iter();
+        let size = iter.len();
+        let bindings_builder = BindingsBuilder::new(self, size)?;
+        for (name, value) in iter {
+            let name =
+                CString::new(name).with_context(|| "new_value_attrs: name contains null byte")?;
+            unsafe {
+                check_call!(raw::bindings_builder_insert(
+                    &mut self.context,
+                    bindings_builder.ptr,
+                    name.as_ptr(),
+                    value.raw_ptr()
+                ))?;
+            }
+        }
+        let value = self.new_value_uninitialized()?;
+        unsafe {
+            check_call!(raw::make_attrs(
+                &mut self.context,
+                value.raw_ptr(),
+                bindings_builder.ptr
+            ))?;
+        }
+        Ok(value)
+    }
+}
+
+struct BindingsBuilder {
+    ptr: *mut raw::BindingsBuilder,
+}
+impl Drop for BindingsBuilder {
+    fn drop(&mut self) {
+        unsafe {
+            raw::bindings_builder_free(self.ptr);
+        }
+    }
+}
+impl BindingsBuilder {
+    fn new(eval_state: &mut EvalState, capacity: usize) -> Result<Self> {
+        let ptr = unsafe {
+            check_call!(raw::make_bindings_builder(
+                &mut eval_state.context,
+                eval_state.eval_state.as_ptr(),
+                capacity
+            ))
+        }?;
+        Ok(BindingsBuilder { ptr })
     }
 }
 
@@ -729,34 +813,34 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type_unforced(&v);
             assert!(t == Some(ValueType::AttrSet));
-            let attrs = es.require_attrs_names(&v).unwrap();
+            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
             assert_eq!(attrs.len(), 0);
         })
         .unwrap()
     }
 
     #[test]
-    fn eval_state_require_attrs_names_forces_thunk() {
+    fn eval_state_require_attrs_names_unsorted_forces_thunk() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
             let v = make_thunk(&mut es, "{ a = 1; b = 2; }");
             let t = es.value_type_unforced(&v);
             assert!(t == None);
-            let attrs = es.require_attrs_names(&v).unwrap();
+            let attrs = es.require_attrs_names_unsorted(&v).unwrap();
             assert_eq!(attrs.len(), 2);
         })
         .unwrap()
     }
 
     #[test]
-    fn eval_state_require_attrs_names_bad_type() {
+    fn eval_state_require_attrs_names_unsorted_bad_type() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
             let mut es = EvalState::new(store, []).unwrap();
             let v = es.eval_from_string("1", "<test>").unwrap();
             es.force(&v).unwrap();
-            let r = es.require_attrs_names(&v);
+            let r = es.require_attrs_names_unsorted(&v);
             assert!(r.is_err());
             assert_eq!(
                 r.unwrap_err().to_string(),
@@ -1153,6 +1237,24 @@ mod tests {
     }
 
     #[test]
+    fn eval_state_call_multi() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("x: y: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let b = es.eval_from_string("3", "<test>").unwrap();
+            let v = es.call_multi(&f, &[a, b]).unwrap();
+            let t = es.value_type_unforced(&v);
+            assert!(t == Some(ValueType::Int));
+            let i = es.require_int(&v).unwrap();
+            assert!(i == -1);
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn eval_state_apply() {
         gc_registering_current_thread(|| {
             let store = Store::open("auto", HashMap::new()).unwrap();
@@ -1183,6 +1285,29 @@ mod tests {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
                     if !e.to_string().contains("cannot coerce") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_multi_fail_body() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("x: y: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("2", "<test>").unwrap();
+            let b = es.eval_from_string("true", "<test>").unwrap();
+            let r = es.call_multi(&f, &[a, b]);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("expected an integer but found") {
                         eprintln!("{}", e);
                         assert!(false);
                     }
@@ -1225,6 +1350,29 @@ mod tests {
             let f = es.eval_from_string("{x}: x + 1", "<test>").unwrap();
             let a = es.eval_from_string("{}", "<test>").unwrap();
             let r = es.call(f, a);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    if !e.to_string().contains("called without required argument") {
+                        eprintln!("{}", e);
+                        assert!(false);
+                    }
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_call_multi_fail_args() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            // This is a function that takes two arguments.
+            let f = es.eval_from_string("{x}: {y}: x - y", "<test>").unwrap();
+            let a = es.eval_from_string("{x = 2;}", "<test>").unwrap();
+            let b = es.eval_from_string("{}", "<test>").unwrap();
+            let r = es.call_multi(&f, &[a, b]);
             match r {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
@@ -1537,6 +1685,74 @@ mod tests {
                     }
                 }
             }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_slice_empty() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = es.new_value_attrs([]).unwrap();
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert!(names.is_empty());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_vec() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = {
+                let a = es.new_value_int(1).unwrap();
+                let b = es.new_value_int(2).unwrap();
+                es.new_value_attrs(vec![("a".to_string(), a), ("b".to_string(), b)])
+                    .unwrap()
+            };
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert_eq!(names.len(), 2);
+            assert_eq!(names[0], "a");
+            assert_eq!(names[1], "b");
+            let a = es.require_attrs_select(&attrs, "a").unwrap();
+            let b = es.require_attrs_select(&attrs, "b").unwrap();
+            let i = es.require_int(&a).unwrap();
+            assert_eq!(i, 1);
+            let i = es.require_int(&b).unwrap();
+            assert_eq!(i, 2);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    pub fn eval_state_new_value_attrs_from_hashmap() {
+        gc_registering_current_thread(|| {
+            let store = Store::open("auto", []).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let attrs = {
+                let a = es.new_value_int(1).unwrap();
+                let b = es.new_value_int(2).unwrap();
+                es.new_value_attrs(HashMap::from([("a".to_string(), a), ("b".to_string(), b)]))
+                    .unwrap()
+            };
+            let t = es.value_type(&attrs).unwrap();
+            assert!(t == ValueType::AttrSet);
+            let names = es.require_attrs_names(&attrs).unwrap();
+            assert_eq!(names.len(), 2);
+            assert_eq!(names[0], "a");
+            assert_eq!(names[1], "b");
+            let a = es.require_attrs_select(&attrs, "a").unwrap();
+            let b = es.require_attrs_select(&attrs, "b").unwrap();
+            let i = es.require_int(&a).unwrap();
+            assert_eq!(i, 1);
+            let i = es.require_int(&b).unwrap();
+            assert_eq!(i, 2);
         })
         .unwrap();
     }
