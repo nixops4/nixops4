@@ -19,23 +19,40 @@
 }:
 
 let
+  /**
+    Evaluate a deployment configuration. This is a building block for [`mkDeployment`](#mkDeployment), which is the usual entry point for defining deployments.
+
+    # Type
+
+    ```
+    EvalModulesArguments -> NixOpsArguments -> Configuration
+    ```
+
+    # Inputs
+
+    1. Arguments for [evalModules](https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules) - i.e. the Module System.
+       These are adjusted to include NixOps-specific arguments.
+
+    2. Arguments provided by NixOps. These provide the context of the deployment, including the resource outputs.
+
+    # Output
+
+    The return value is a [Module System `configuration`](https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules-return-value), including attributes such as `config` and `options`.
+  */
   evalDeployment =
     baseArgs:
-    { resources, resourceProviderSystem ? "x86_64-linux" /* FIXME: remove and pass in, in nixops4-eval */, ... }:
-    let
-      conf =
-        lib.evalModules (baseArgs // {
-          specialArgs = baseArgs.specialArgs // {
-            inherit resources resourceProviderSystem;
-          };
-        });
-    in
-    conf // {
-      resources = conf.config.resources;
-    };
+    { resources, resourceProviderSystem, ... }:
+    lib.evalModules (baseArgs // {
+      specialArgs = baseArgs.specialArgs // {
+        inherit resources resourceProviderSystem;
+      };
+      class = "nixops4Deployment";
+    });
 
 in
 {
+  inherit evalDeployment;
+
   /**
     Turn a list of deployment modules and some other parameters into the format expected by the `nixops4` command, and add a few useful attributes.
 
