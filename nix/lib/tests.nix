@@ -27,6 +27,7 @@ in
       d = self.lib.mkDeployment {
         modules = [
           { _module.args.foo = "bar"; }
+          { _class = "nixops4Deployment"; }
           ({ characteristic, config, foo, options, resources, ... }:
             assert characteristic == "I'm a special snowflake";
 

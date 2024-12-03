@@ -7,6 +7,7 @@
 , nixdoc
 , nixops4
 , nixops4-resource-runner
+, manual-deployment-option-docs-md
 , stdenv
 }:
 let
@@ -52,6 +53,9 @@ stdenv.mkDerivation (finalAttrs: {
     runHook postInstall
   '';
   allowedReferences = [ ];
+  env = {
+    NIXOPS_DEPLOYMENT_OPTION_DOCS_MD = manual-deployment-option-docs-md;
+  };
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
