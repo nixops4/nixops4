@@ -1,5 +1,6 @@
 { json-schema-for-humans
 , cargo
+, fetchpatch2
 , jq
 , lib
 , mdbook
@@ -63,7 +64,14 @@ stdenv.mkDerivation (finalAttrs: {
     externalBuildTools = [
       mdbook
       mdbook-mermaid
-      (nixdoc.overrideAttrs (o: { patches = o.patches ++ [ ./nixdoc-140-minimal.patch ]; }))
+      (nixdoc.overrideAttrs (o: {
+        patches = o.patches ++ [
+          (fetchpatch2 {
+            url = "https://github.com/nix-community/nixdoc/commit/3fa0b18d885b5583c26ebd911f91dfa3d620f89b.diff";
+            hash = "sha256-/C8ubG/ufFE/GWVgLfUBR2IAx2NuWPt/9r+y2mFQpFo=";
+          })
+        ];
+      }))
       json-schema-for-humans
       jq
     ];
