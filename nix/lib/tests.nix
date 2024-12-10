@@ -24,11 +24,32 @@ in
     };
   "elaborate mkDeployment call" =
     let
+      localProvider = {
+        executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
+        args = [ "positively" "an argument" ];
+        type = "stdio";
+        resourceTypes = {
+          exec = {
+            inputs = {
+              options.executable = mkOption {
+                type = types.str;
+              };
+            };
+            outputs = {
+              options.stdout = mkOption {
+                type = types.str;
+              };
+            };
+          };
+          b = { type = "bee"; };
+        };
+      };
+
       d = self.lib.mkDeployment {
         modules = [
           { _module.args.foo = "bar"; }
           { _class = "nixops4Deployment"; }
-          ({ characteristic, config, foo, options, resources, ... }:
+          ({ characteristic, config, foo, options, resources, providers, ... }:
             assert characteristic == "I'm a special snowflake";
 
             {
@@ -74,6 +95,11 @@ in
                 };
                 outputs = { };
               };
+              providers.local = localProvider;
+              resources.install-mgmttool = {
+                type = providers.local.exec;
+                inputs.executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+              };
             })
         ];
         specialArgs = {
@@ -94,6 +120,9 @@ in
         resources = {
           a.aResult = "aye it's a result";
           b = { };
+          install-mgmttool = {
+            stdout = "mgmttool installing\nmgmttool installed";
+          };
         };
       };
 
@@ -127,6 +156,17 @@ in
                 type = "stdio";
               };
               type = "bee";
+            };
+            install-mgmttool = {
+              inputs = {
+                executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+              };
+              provider = {
+                args = [ "positively" "an argument" ];
+                executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
+                type = "stdio";
+              };
+              type = "exec";
             };
           };
         };
