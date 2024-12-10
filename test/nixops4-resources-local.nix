@@ -38,7 +38,7 @@ runCommand
     nixops4-resource-runner create \
       --provider-exe nixops4-resources-local \
       --type exec \
-      --input-str command 'hello' \
+      --input-str executable 'hello' \
       --input-json args '["--greeting", "hi there"]' \
       > out.json
     cat out.json
