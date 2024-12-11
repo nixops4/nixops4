@@ -49,6 +49,19 @@ let
       class = "nixops4Deployment";
     });
 
+  evalDeploymentForProviders =
+    baseArgs:
+    { system }:
+    evalDeployment
+      baseArgs
+      {
+        # Input for the provider definitions
+        resourceProviderSystem = system;
+
+        # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
+        resources = throw "resource information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
+      };
+
 in
 {
   inherit evalDeployment;
@@ -96,6 +109,49 @@ in
         {
           resources = lib.mapAttrs (_: res: res._resourceForNixOps) configuration.config.resources;
         };
+
+      /**
+        Get the providers for this deployment.
+
+        # Input attributes
+
+        - `system`: The system (platform) for which to get the providers.
+          Examples:
+          - `"x86_64-linux"`
+          - `"aarch64-darwin"`
+
+        # Output
+
+        A derivation
+       */
+      getProviders = { system }:
+        let
+          configuration =
+            evalDeploymentForProviders
+              baseArgs
+              { inherit system; };
+
+          serializable =
+            lib.mapAttrs
+              (name: provider:
+                {
+                  executable = provider.executable;
+                  args = provider.args;
+                }
+              )
+              configuration.config.providers;
+
+        in
+        selfWithSystem system ({ pkgs, ... }:
+          (pkgs.writeText
+            "nixops-deployment-providers"
+            ''
+              Store path contents subject to change
+              ${builtins.toJSON serializable}
+            '').overrideAttrs {
+            passthru.config = configuration.config;
+          }
+        );
     };
 
 }

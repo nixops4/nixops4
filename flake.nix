@@ -16,10 +16,11 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake
       { inherit inputs; }
-      ({ lib, withSystem, ... }: {
+      ({ lib, withSystem, flake-parts-lib, ... }: {
         imports = [
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
+          inputs.flake-parts.flakeModules.modules
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
           ./test/nixos/flake-module.nix
@@ -53,6 +54,10 @@
           inherit lib self;
           selfWithSystem = withSystem;
         };
+        flake.modules.flake.default =
+          flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix { inherit self; };
+        flake.modules.nixops4Deployment.default =
+          ./nix/deployment/base-modules.nix;
 
         partitionedAttrs.devShells = "dev";
         partitionedAttrs.checks = "dev";
