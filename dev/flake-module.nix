@@ -6,8 +6,14 @@
   ];
   perSystem = { config, pkgs, inputs', system, ... }: {
 
-    nix-unit.tests = import ../nix/lib/tests.nix {
-      inherit lib self system;
+    nix-unit.tests = {
+      lib = import ../nix/lib/tests.nix {
+        inherit lib self system;
+      };
+      flake-parts = import ../nix/flake-parts/unit-tests.nix {
+        flake-parts = inputs.flake-parts;
+        nixops4 = self;
+      };
     };
     nix-unit.inputs = {
       inherit (inputs) flake-parts nixpkgs nix-cargo-integration;
