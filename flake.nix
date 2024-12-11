@@ -41,6 +41,10 @@
             inherit (config.packages) nixops4-resource-runner;
             nixops4-resources-local = config.packages.nixops4-resources-local-release;
           };
+          checks.itest-nixops4-resources-local = pkgs.callPackage ./test/integration-test-nixops4-with-local/check.nix {
+            inherit (config.packages) nixops4;
+            inherit inputs;
+          };
 
           /** A shell containing the packages of this flake. For development, use the `default` dev shell. */
           devShells.example = pkgs.mkShell {
@@ -58,6 +62,8 @@
           flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix { inherit self; };
         flake.modules.nixops4Deployment.default =
           ./nix/deployment/base-modules.nix;
+        flake.modules.nixops4Provider.local =
+          flake-parts-lib.importApply ./nix/providers/local.nix { inherit withSystem; };
 
         partitionedAttrs.devShells = "dev";
         partitionedAttrs.checks = "dev";
