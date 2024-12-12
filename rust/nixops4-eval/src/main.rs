@@ -119,7 +119,7 @@ async fn async_main() -> Result<()> {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");
         eval_state::init()?;
         let gc_guard = gc_register_my_thread()?;
-        let store = Store::open("auto", [])?;
+        let store = Store::open(None, [])?;
         let eval_state = EvalState::new(store, [])?;
 
         let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));

@@ -59,7 +59,7 @@ impl StoreWeak {
 }
 
 /// Protects against https://github.com/NixOS/nix/issues/11979 (unless different parameters are passed, in which case it's up to luck, but you do get your own parameters as you asked for).
-type StoreCacheMap = HashMap<(String, Vec<(String, String)>), StoreWeak>;
+type StoreCacheMap = HashMap<(Option<String>, Vec<(String, String)>), StoreWeak>;
 
 lazy_static! {
     static ref STORE_CACHE: Arc<Mutex<StoreCacheMap>> = Arc::new(Mutex::new(HashMap::new()));
@@ -71,8 +71,11 @@ pub struct Store {
     context: Context,
 }
 impl Store {
+    /// Open a store.
+    ///
+    /// See [nix_c_raw::store_open] for more information.
     pub fn open<'a, 'b>(
-        url: &str,
+        url: Option<&str>,
         params: impl IntoIterator<Item = (&'a str, &'b str)>,
     ) -> Result<Self> {
         let params = params
@@ -83,7 +86,7 @@ impl Store {
         let mut store_cache = STORE_CACHE
             .lock()
             .map_err(|_| Error::msg("Failed to lock store cache. This should never happen."))?;
-        match store_cache.entry((url.to_string(), params)) {
+        match store_cache.entry((url.map(Into::into), params)) {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 if let Some(store) = e.get().upgrade() {
                     Ok(store)
@@ -107,7 +110,7 @@ impl Store {
         }
     }
     fn open_uncached<'a, 'b>(
-        url: &str,
+        url: Option<&str>,
         params: impl IntoIterator<Item = (&'a str, &'b str)>,
     ) -> Result<Self> {
         let x = INIT.as_ref();
@@ -121,7 +124,14 @@ impl Store {
 
         let mut context: Context = Context::new();
 
-        let uri_ptr = CString::new(url)?;
+        let uri_cstring = match url {
+            Some(url) => Some(CString::new(url)?),
+            None => None,
+        };
+        let uri_ptr = uri_cstring
+            .as_ref()
+            .map(|s| s.as_ptr())
+            .unwrap_or(null_mut());
 
         // this intermediate value must be here and must not be moved
         // because it owns the data the `*const c_char` pointers point to.
@@ -141,13 +151,8 @@ impl Store {
             .chain(std::iter::once(null_mut())) // signal the end of the array
             .collect();
 
-        let store = unsafe {
-            check_call!(raw::store_open(
-                &mut context,
-                uri_ptr.as_ptr(),
-                params.as_mut_ptr()
-            ))
-        }?;
+        let store =
+            unsafe { check_call!(raw::store_open(&mut context, uri_ptr, params.as_mut_ptr())) }?;
         if store.is_null() {
             panic!("nix_c_store_open returned a null pointer without an error");
         }
@@ -233,20 +238,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn none_works() {
+        let res = Store::open(None, HashMap::new());
+        res.unwrap();
+    }
+
+    #[test]
     fn auto_works() {
-        let res = Store::open("auto", HashMap::new());
+        // This is not actually a given.
+        // Maybe whatever is in NIX_REMOTE or nix.conf is really important.
+        let res = Store::open(Some("auto"), HashMap::new());
         res.unwrap();
     }
 
     #[test]
     fn invalid_uri_fails() {
-        let res = Store::open("invalid://uri", HashMap::new());
+        let res = Store::open(Some("invalid://uri"), HashMap::new());
         assert!(res.is_err());
     }
 
     #[test]
     fn get_uri() {
-        let mut store = Store::open("auto", HashMap::new()).unwrap();
+        let mut store = Store::open(None, HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert!(!uri.is_empty());
         // must be ascii
@@ -258,7 +271,7 @@ mod tests {
     #[test]
     #[ignore] // Needs network access
     fn get_uri_nixos_cache() {
-        let mut store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
+        let mut store = Store::open(Some("https://cache.nixos.org/"), HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert_eq!(uri, "https://cache.nixos.org");
     }
@@ -266,7 +279,7 @@ mod tests {
     #[test]
     #[cfg(nix_at_least = "2.26" /* get_storedir */)]
     fn parse_store_path_ok() {
-        let mut store = crate::store::Store::open("dummy://", []).unwrap();
+        let mut store = crate::store::Store::open(Some("dummy://"), []).unwrap();
         let store_dir = store.get_storedir().unwrap();
         let store_path_string =
             format!("{store_dir}/rdd4pnr4x9rqc9wgbibhngv217w2xvxl-bash-interactive-5.2p26");
@@ -276,7 +289,7 @@ mod tests {
 
     #[test]
     fn parse_store_path_fail() {
-        let mut store = crate::store::Store::open("dummy://", []).unwrap();
+        let mut store = crate::store::Store::open(Some("dummy://"), []).unwrap();
         let store_path_string = format!("bash-interactive-5.2p26");
         let r = store.parse_store_path(store_path_string.as_str());
         match r {
@@ -289,7 +302,7 @@ mod tests {
 
     #[test]
     fn weak_ref() {
-        let mut store = Store::open("auto", HashMap::new()).unwrap();
+        let mut store = Store::open(None, HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         let weak = store.weak_ref();
         let mut store2 = weak.upgrade().unwrap();
@@ -300,7 +313,7 @@ mod tests {
         let weak = {
             // Concurrent tests calling Store::open will keep the weak reference to auto alive,
             // so for this test we need to bypass the global cache.
-            let store = Store::open_uncached("auto", HashMap::new()).unwrap();
+            let store = Store::open_uncached(None, HashMap::new()).unwrap();
             store.weak_ref()
         };
         assert!(weak.upgrade().is_none());
