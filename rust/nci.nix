@@ -6,10 +6,18 @@
       drvConfig = {
         mkDerivation = {
           buildInputs = [
-            config.packages.nix
             # stdbool.h
             pkgs.stdenv.cc
-          ];
+          ] ++
+          (if config.packages.nix?libs
+          then
+            let l = config.packages.nix.libs; in [
+              l.nix-expr-c
+              l.nix-store-c
+              l.nix-util-c
+              l.nix-flake-c
+            ]
+          else [ config.packages.nix ]);
           nativeBuildInputs = [
             pkgs.pkg-config
           ];
