@@ -403,6 +403,11 @@ impl EvalState {
             let mut paths = Vec::with_capacity(n as usize);
             for i in 0..n {
                 let path = raw::realised_string_get_store_path(rs, i);
+                let path = NonNull::new(path as *mut raw::StorePath).ok_or_else(|| {
+                    anyhow::format_err!(
+                        "nix_realised_string_get_store_path returned a null pointer"
+                    )
+                })?;
                 paths.push(StorePath::new_raw_clone(path));
             }
             paths
