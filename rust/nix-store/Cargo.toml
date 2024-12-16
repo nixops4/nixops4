@@ -2,6 +2,7 @@
 name = "nix-store"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 path = "src/lib.rs"
@@ -11,3 +12,6 @@ anyhow = "1.0.79"
 nix-util = { path = "../nix-util" }
 nix-c-raw = { path = "../nix-c-raw" }
 lazy_static = "1.4.0"
+
+[build-dependencies]
+pkg-config = "0.3.30"

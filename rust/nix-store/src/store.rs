@@ -172,6 +172,21 @@ impl Store {
         r
     }
 
+    #[cfg(nix_at_least = "2.26")]
+    #[doc(alias = "nix_store_get_storedir")]
+    pub fn get_storedir(&mut self) -> Result<String> {
+        let mut r = result_string_init!();
+        unsafe {
+            check_call!(raw::store_get_storedir(
+                &mut self.context,
+                self.inner.ptr(),
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r)
+            ))
+        }?;
+        r
+    }
+
     pub fn weak_ref(&self) -> StoreWeak {
         StoreWeak {
             inner: Arc::downgrade(&self.inner),
