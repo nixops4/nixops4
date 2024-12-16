@@ -74,6 +74,7 @@ impl Store {
     /// Open a store.
     ///
     /// See [nix_c_raw::store_open] for more information.
+    #[doc(alias = "nix_store_open")]
     pub fn open<'a, 'b>(
         url: Option<&str>,
         params: impl IntoIterator<Item = (&'a str, &'b str)>,
@@ -172,6 +173,7 @@ impl Store {
         self.inner.ptr()
     }
 
+    #[doc(alias = "nix_store_get_uri")]
     pub fn get_uri(&mut self) -> Result<String> {
         let mut r = result_string_init!();
         unsafe {
