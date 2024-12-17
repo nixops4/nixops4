@@ -57,7 +57,11 @@ impl Value {
     /// Take ownership of a new Value.
     ///
     /// This does not call `nix_gc_incref`, but does call `nix_gc_decref` when dropped.
-    pub(crate) fn new(inner: *mut raw::Value) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided `inner` has a positive reference count, and that `inner` is not used after the returned `Value` is dropped.
+    pub(crate) unsafe fn new(inner: *mut raw::Value) -> Self {
         Value {
             inner: NonNull::new(inner).unwrap(),
         }
@@ -66,13 +70,20 @@ impl Value {
     /// Borrow a reference to a Value.
     ///
     /// This calls `nix_gc_incref`, and the returned Value will call `nix_gc_decref` when dropped.
-    pub(crate) fn new_borrowed(inner: *mut raw::Value) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided `inner` has a positive reference count.
+    pub(crate) unsafe fn new_borrowed(inner: *mut raw::Value) -> Self {
         let v = Value::new(inner);
         unsafe { raw::value_incref(null_mut(), inner) };
         v
     }
 
-    pub(crate) fn raw_ptr(&self) -> *mut raw::Value {
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned pointer is not used after the `Value` is dropped.
+    pub(crate) unsafe fn raw_ptr(&self) -> *mut raw::Value {
         self.inner.as_ptr()
     }
 }

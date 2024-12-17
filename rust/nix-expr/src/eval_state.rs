@@ -64,7 +64,10 @@ struct EvalStateRef {
     eval_state: NonNull<raw::EvalState>,
 }
 impl EvalStateRef {
-    fn as_ptr(&self) -> *mut raw::EvalState {
+    /// # Safety
+    ///
+    /// This function is unsafe because it returns a raw pointer. The caller must ensure that the pointer is not used beyond the lifetime of the underlying [raw::EvalState].
+    unsafe fn as_ptr(&self) -> *mut raw::EvalState {
         self.eval_state.as_ptr()
     }
 }
@@ -122,7 +125,11 @@ impl EvalState {
             context,
         })
     }
-    pub fn raw_ptr(&self) -> *mut raw::EvalState {
+
+    /// # Safety
+    ///
+    /// This function is unsafe because it returns a raw pointer. The caller must ensure that the pointer is not used beyond the lifetime of this `EvalState`.
+    pub unsafe fn raw_ptr(&self) -> *mut raw::EvalState {
         self.eval_state.as_ptr()
     }
     pub fn store(&self) -> &Store {
@@ -255,15 +262,15 @@ impl EvalState {
         }
         let attr_name = CString::new(attr_name)
             .with_context(|| "require_attrs_select: attrName contains null byte")?;
-        let v2 = unsafe {
-            check_call!(raw::get_attr_byname(
+        unsafe {
+            let v2 = check_call!(raw::get_attr_byname(
                 &mut self.context,
                 v.raw_ptr(),
                 self.eval_state.as_ptr(),
                 attr_name.as_ptr()
-            ))
-        }?;
-        Ok(Value::new(v2))
+            ))?;
+            Ok(Value::new(v2))
+        }
     }
 
     /// Evaluate, require that the value is an attrset, and select an attribute by name.
@@ -292,7 +299,7 @@ impl EvalState {
                 attr_name.as_ptr()
             ))
         }?;
-        Ok(v2.map(Value::new))
+        Ok(v2.map(|x| unsafe { Value::new(x) }))
     }
 
     /// Create a new value containing the passed string.
@@ -442,8 +449,8 @@ impl EvalState {
     #[doc(alias = "nix_value_call_multi")]
     pub fn call_multi(&mut self, f: &Value, args: &[Value]) -> Result<Value> {
         let value = self.new_value_uninitialized()?;
-        let mut args_ptrs = args.iter().map(|a| a.raw_ptr()).collect::<Vec<_>>();
         unsafe {
+            let mut args_ptrs = args.iter().map(|a| a.raw_ptr()).collect::<Vec<_>>();
             check_call!(raw::value_call_multi(
                 &mut self.context,
                 self.eval_state.as_ptr(),
@@ -473,13 +480,13 @@ impl EvalState {
     }
 
     fn new_value_uninitialized(&mut self) -> Result<Value> {
-        let value = unsafe {
-            check_call!(raw::alloc_value(
+        unsafe {
+            let value = check_call!(raw::alloc_value(
                 &mut self.context,
                 self.eval_state.as_ptr()
-            ))
-        }?;
-        Ok(Value::new(value))
+            ))?;
+            Ok(Value::new(value))
+        }
     }
 
     /// Create a new Nix function that is implemented by a Rust function.
