@@ -1,11 +1,14 @@
 { json-schema-for-humans
 , cargo
+, fetchpatch2
 , jq
 , lib
 , mdbook
 , mdbook-mermaid
+, nixdoc
 , nixops4
 , nixops4-resource-runner
+, manual-deployment-option-docs-md
 , stdenv
 }:
 let
@@ -16,6 +19,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = fileset.toSource {
     fileset = fileset.unions [
+      ../../nix/lib/lib.nix
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
@@ -50,6 +54,9 @@ stdenv.mkDerivation (finalAttrs: {
     runHook postInstall
   '';
   allowedReferences = [ ];
+  env = {
+    NIXOPS_DEPLOYMENT_OPTION_DOCS_MD = manual-deployment-option-docs-md;
+  };
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
@@ -57,6 +64,14 @@ stdenv.mkDerivation (finalAttrs: {
     externalBuildTools = [
       mdbook
       mdbook-mermaid
+      (nixdoc.overrideAttrs (o: {
+        patches = o.patches ++ [
+          (fetchpatch2 {
+            url = "https://github.com/nix-community/nixdoc/commit/3fa0b18d885b5583c26ebd911f91dfa3d620f89b.diff";
+            hash = "sha256-/C8ubG/ufFE/GWVgLfUBR2IAx2NuWPt/9r+y2mFQpFo=";
+          })
+        ];
+      }))
       json-schema-for-humans
       jq
     ];

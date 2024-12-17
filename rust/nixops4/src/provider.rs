@@ -6,7 +6,7 @@ use serde_json::Value;
 /// This type implements the parsing of `type: "stdio"` providers.
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub(crate) struct ProviderStdio {
-    pub(crate) command: String,
+    pub(crate) executable: String,
     pub(crate) args: Vec<String>,
 }
 

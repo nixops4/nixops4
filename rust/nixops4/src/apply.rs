@@ -195,7 +195,7 @@ pub(crate) fn apply(
                                             // Run the provider
                                             let provider = ResourceProviderClient::new(
                                                 ResourceProviderConfig {
-                                                    provider_executable: provider_argv.command,
+                                                    provider_executable: provider_argv.executable,
                                                     provider_args: provider_argv.args,
                                                 },
                                             );
