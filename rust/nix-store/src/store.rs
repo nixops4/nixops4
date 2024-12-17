@@ -24,7 +24,10 @@ struct StoreRef {
     inner: NonNull<raw::Store>,
 }
 impl StoreRef {
-    pub fn ptr(&self) -> *mut raw::Store {
+    /// # Safety
+    ///
+    /// The returned pointer is only valid as long as the `StoreRef` is alive.
+    pub unsafe fn ptr(&self) -> *mut raw::Store {
         self.inner.as_ptr()
     }
 }
@@ -157,7 +160,10 @@ impl Store {
         Ok(store)
     }
 
-    pub fn raw_ptr(&self) -> *mut raw::Store {
+    /// # Safety
+    ///
+    /// The returned pointer is only valid as long as the `Store` is alive.
+    pub unsafe fn raw_ptr(&self) -> *mut raw::Store {
         self.inner.ptr()
     }
 
