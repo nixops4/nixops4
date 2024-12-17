@@ -11,6 +11,21 @@ pub struct StorePath {
     raw: NonNull<raw::StorePath>,
 }
 impl StorePath {
+    /// Get the name of the store path.
+    ///
+    /// For a store path like `/nix/store/abc1234...-foo-1.2`, this function will return `foo-1.2`.
+    pub fn name(&self) -> Result<String> {
+        unsafe {
+            let mut r = result_string_init!();
+            raw::store_path_name(
+                self.as_ptr(),
+                Some(callback_get_result_string),
+                callback_get_result_string_data(&mut r),
+            );
+            r
+        }
+    }
+
     /// This is a low level function that you shouldn't have to call unless you are developing the Nix bindings.
     ///
     /// Construct a new `StorePath` by first cloning the C store path.
@@ -36,17 +51,6 @@ impl StorePath {
     /// semantics are correctly followed. The `raw` pointer must not be used after being passed to this function.
     pub unsafe fn new_raw(raw: NonNull<raw::StorePath>) -> Self {
         StorePath { raw }
-    }
-    pub fn name(&self) -> Result<String> {
-        unsafe {
-            let mut r = result_string_init!();
-            raw::store_path_name(
-                self.as_ptr(),
-                Some(callback_get_result_string),
-                callback_get_result_string_data(&mut r),
-            );
-            r
-        }
     }
 
     /// This is a low level function that you shouldn't have to call unless you are developing the Nix bindings.
