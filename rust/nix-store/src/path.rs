@@ -71,3 +71,17 @@ impl Drop for StorePath {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(nix_at_least = "2.26" /* get_storedir */)]
+    fn store_path_name() {
+        let mut store = crate::store::Store::open("dummy://", []).unwrap();
+        let store_dir = store.get_storedir().unwrap();
+        let store_path_string =
+            format!("{store_dir}/rdd4pnr4x9rqc9wgbibhngv217w2xvxl-bash-interactive-5.2p26");
+        let store_path = store.parse_store_path(store_path_string.as_str()).unwrap();
+        assert_eq!(store_path.name().unwrap(), "bash-interactive-5.2p26");
+    }
+}
