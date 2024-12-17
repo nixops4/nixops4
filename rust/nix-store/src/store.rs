@@ -10,6 +10,8 @@ use std::ptr::null_mut;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, Weak};
 
+use crate::path::StorePath;
+
 /* TODO make Nix itself thread safe */
 lazy_static! {
     static ref INIT: Result<()> = unsafe {
@@ -187,6 +189,21 @@ impl Store {
         r
     }
 
+    #[doc(alias = "nix_store_parse_path")]
+    pub fn parse_store_path(&mut self, path: &str) -> Result<StorePath> {
+        let path = CString::new(path)?;
+        unsafe {
+            let store_path = check_call!(raw::store_parse_path(
+                &mut self.context,
+                self.inner.ptr(),
+                path.as_ptr()
+            ))?;
+            let store_path =
+                NonNull::new(store_path).expect("nix_store_parse_path returned a null pointer");
+            Ok(StorePath::new_raw(store_path))
+        }
+    }
+
     pub fn weak_ref(&self) -> StoreWeak {
         StoreWeak {
             inner: Arc::downgrade(&self.inner),
@@ -238,6 +255,30 @@ mod tests {
         let mut store = Store::open("https://cache.nixos.org/", HashMap::new()).unwrap();
         let uri = store.get_uri().unwrap();
         assert_eq!(uri, "https://cache.nixos.org");
+    }
+
+    #[test]
+    #[cfg(nix_at_least = "2.26" /* get_storedir */)]
+    fn parse_store_path_ok() {
+        let mut store = crate::store::Store::open("dummy://", []).unwrap();
+        let store_dir = store.get_storedir().unwrap();
+        let store_path_string =
+            format!("{store_dir}/rdd4pnr4x9rqc9wgbibhngv217w2xvxl-bash-interactive-5.2p26");
+        let store_path = store.parse_store_path(store_path_string.as_str()).unwrap();
+        assert_eq!(store_path.name().unwrap(), "bash-interactive-5.2p26");
+    }
+
+    #[test]
+    fn parse_store_path_fail() {
+        let mut store = crate::store::Store::open("dummy://", []).unwrap();
+        let store_path_string = format!("bash-interactive-5.2p26");
+        let r = store.parse_store_path(store_path_string.as_str());
+        match r {
+            Err(e) => {
+                assert!(e.to_string().contains("bash-interactive-5.2p26"));
+            }
+            _ => panic!("Expected error"),
+        }
     }
 
     #[test]
