@@ -5,6 +5,7 @@
   - [`nixops4-resource-runner`](./cli/nixops4-resource-runner.md)
 - [Resource Provider](./resource-provider/index.md)
   - [Resource Provider Interface](./resource-provider/interface.md)
+  - [Testing](./resource-provider/testing.md)
 - [Library](./lib/index.md)
 - [Module Options](./modules/index.md)
 - [Protocols]()
