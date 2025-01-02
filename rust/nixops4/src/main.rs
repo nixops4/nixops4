@@ -138,7 +138,7 @@ fn handle_result(r: Result<()>) {
     match r {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("nixops4 error: {}, {}", e.root_cause(), e);
+            eprintln!("nixops4 error: {:?}", e);
             exit(1);
         }
     }
