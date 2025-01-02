@@ -632,7 +632,10 @@ pub fn test_init() {
 
     // When testing in the sandbox, the default build dir would be a parent of the storeDir,
     // which causes an error. So we set a custom build dir here.
-    nix_util::settings::set("sandbox-build-dir", "/custom-build-dir-for-test").unwrap();
+    // Only available on linux
+    if cfg!(target_os = "linux") {
+        nix_util::settings::set("sandbox-build-dir", "/custom-build-dir-for-test").unwrap();
+    }
     std::env::set_var("_NIX_TEST_NO_SANDBOX", "1");
 
     // The tests run offline
