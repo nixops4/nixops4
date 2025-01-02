@@ -75,7 +75,7 @@ runCommand
 
       nix eval .#nixops4Deployments.myDeployment._type --show-trace
 
-      nixops4 apply -v myDeployment
+      nixops4 apply -v myDeployment --show-trace
 
       test -f file.txt
       [[ "Hallo wereld" == "$(cat file.txt)" ]]

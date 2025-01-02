@@ -13,6 +13,7 @@ use nixops4_core::eval_api::{
 #[derive(Clone)]
 pub(crate) struct Options {
     pub(crate) verbose: bool,
+    pub(crate) show_trace: bool,
 }
 
 pub struct EvalClient<'a> {
@@ -31,10 +32,15 @@ pub struct EvalClient<'a> {
 impl<'a> EvalClient<'a> {
     pub fn with<T>(options: &Options, f: impl FnOnce(EvalClient) -> Result<T>) -> Result<T> {
         let exe = std::env::var("_NIXOPS4_EVAL").unwrap_or("nixops4-eval".to_string());
+        let mut nix_config = std::env::var("NIX_CONFIG").unwrap_or("".to_string());
+        if options.show_trace {
+            nix_config.push_str("\nshow-trace = true\n");
+        }
         let mut process = std::process::Command::new(exe)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .arg("<subprocess>")
+            .env("NIX_CONFIG", nix_config)
             .spawn()
             .context("while starting the nixops4 evaluator process")?;
 
