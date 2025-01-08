@@ -13,6 +13,11 @@
           nativeBuildInputs = [
             pkgs.pkg-config
           ];
+          # bindgen uses clang to generate bindings, but it doesn't know where to
+          # find our stdenv cc's headers, so when it's gcc, we need to tell it.
+          postConfigure = lib.optionalString pkgs.stdenv.cc.isGNU ''
+            source ${./bindgen-gcc.sh}
+          '';
           # Prepare the environment for Nix to work.
           # Nix does not provide a suitable environment for running itself in
           # the sandbox - not by default. We configure it to use a relocated store.
@@ -46,13 +51,9 @@
               null # don't set the variable
             else
               lib.makeLibraryPath [ pkgs.buildPackages.llvmPackages.clang-unwrapped ];
-          BINDGEN_EXTRA_CLANG_ARGS =
-            if pkgs.stdenv.cc.isClang then
-              null # don't set the variable
-            else
-              "-I${pkgs.stdenv.cc.libc.dev}/include"
-              + " -I${lib.getDev pkgs.stdenv.cc.cc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${pkgs.stdenv.cc.cc.version}/include"
-          ;
+        } // lib.optionalAttrs pkgs.stdenv.cc.isGNU {
+          # Avoid cc wrapper, because we only need to add the compiler/"system" dirs
+          NIX_CC_UNWRAPPED = "${pkgs.stdenv.cc.cc}/bin/gcc";
         };
       };
     };
