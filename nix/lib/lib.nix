@@ -22,20 +22,20 @@ let
   /**
     Evaluate a deployment configuration. This is a building block for [`mkDeployment`](#mkDeployment), which is the usual entry point for defining deployments.
 
-    # Type
+    # Type {#evalDeployment-type}
 
     ```
     EvalModulesArguments -> NixOpsArguments -> Configuration
     ```
 
-    # Inputs
+    # Inputs {#evalDeployment-input}
 
     1. Arguments for [evalModules](https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules) - i.e. the Module System.
        These are adjusted to include NixOps-specific arguments.
 
     2. Arguments provided by NixOps. These provide the context of the deployment, including the resource outputs.
 
-    # Output
+    # Output {#evalDeployment-output}
 
     The return value is a [Module System `configuration`](https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules-return-value), including attributes such as `config` and `options`.
   */
@@ -69,21 +69,39 @@ in
   /**
     Turn a list of deployment modules and some other parameters into the format expected by the `nixops4` command, and add a few useful attributes.
 
-    # Input attributes
+    # Type {#mkDeployment-type}
 
-    - `modules`: A list of modules to evaluate.
+    ```
+    { modules, ... } -> nixops4Deployment
+    ```
 
-    - `specialArgs`: A set of arguments to pass to the modules these are available while `imports` are evaluated, but are not overridable or extensible, unlike the `_module.args` option.
+    # Input attributes {#mkDeployment-input}
 
-    - `prefix`: A list of strings representing the location of the deployment.
+    - [`modules`]{#mkDeployment-input-modules}: A list of modules to evaluate.
+
+    - [`specialArgs`]{#mkDeployment-input-specialArgs}: A set of arguments to pass to the modules these are available while `imports` are evaluated, but are not overridable or extensible, unlike the `_module.args` option.
+
+    - [`prefix`]{#mkDeployment-input-prefix}: A list of strings representing the location of the deployment.
       Typical value: `[ "nixops4Deployments" name ]`
 
-    # Output attributes
+    # Output attributes {#mkDeployment-output}
 
-    - `_type`: `"nixops4Deployment"`
+    - [`_type`]{#mkDeployment-output-_type}: `"nixops4Deployment"`
 
-    - `deploymentFunction`: Internal value for `nixops4` to use.
+    - [`deploymentFunction`]{#mkDeployment-output-deploymentFunction}: Internal value for `nixops4` to use.
 
+    - [`getProviders`]{#mkDeployment-output-getProviders}: A function that returns a derivation for the providers of the deployment.
+
+      [**Input attributes**]{#mkDeployment-output-getProviders-input}
+
+      - [`system`]{#mkDeployment-output-getProviders-input-system}: The system<!-- TODO: link to docs in https://github.com/NixOS/nixpkgs/pull/324614 when merged --> for which to get the providers.
+        Examples:
+        - `"x86_64-linux"`
+        - `"aarch64-darwin"`
+
+      [**Output**]{#mkDeployment-output-getProviders-output}
+
+      A derivation whose output references the providers for the deployment.
    */
   mkDeployment = { modules, specialArgs ? { }, prefix ? [ ] }:
     let
@@ -110,6 +128,7 @@ in
           resources = lib.mapAttrs (_: res: res._resourceForNixOps) configuration.config.resources;
         };
 
+      # NOTE: not rendered! Update the `mkDeployment` docstring above!
       /**
         Get the providers for this deployment.
 
@@ -122,7 +141,7 @@ in
 
         # Output
 
-        A derivation
+        A derivation whose output references the providers for the deployment.
        */
       getProviders = { system }:
         let

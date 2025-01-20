@@ -71,7 +71,10 @@ src/cli/nixops4.md: $(NIXOPS4_EXE)
 
 src/lib/lib.gen.md: ../../nix/lib/lib.nix Makefile
 	@echo "      NIXDOC" $@
-	@nixdoc --file $< --category "" --description "" --prefix "" --anchor-prefix "" >src/lib/lib.gen.md
+	@# Run nixdoc and then convert the markdown anchors ([foo]{#bar}) to HTML anchors
+	@nixdoc --file $< --category "" --description "" --prefix "" --anchor-prefix "" \
+		| sed -e 's!\[\([^]]*\)]{#\([^}]*\)}!<a id="\2" href="#\2">\1</a>!g' \
+		>src/lib/lib.gen.md
 
 src/modules/option-docs.gen.md: $(shell if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD" ]]; then \
 			echo deployment-option-docs-md.nix; \
