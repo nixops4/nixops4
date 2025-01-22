@@ -2,151 +2,9 @@
 let
   inherit (lib) mkIf mkOption types;
 
-  resourceProvider = provider@{ ... }: {
-    options = {
-      executable = mkOption {
-        description = ''
-          The path to the executable that implements the resource operations.
-        '';
-        type = types.str;
-      };
-
-      args = mkOption {
-        description = ''
-          Any command line arguments to pass to the executable.
-        '';
-        type = types.listOf types.str;
-        default = [ ];
-      };
-
-      type = mkOption {
-        description = ''
-          The type of communication to use with the resource provider executable.
-        '';
-        type = types.str;
-        default = "stdio";
-      };
-
-      resourceTypes = mkOption {
-        description = ''
-          The types of resources that this provider can create.
-
-          The purpose of the `resourceTypes` option is to provide the information necessary to create the `providers` module argument.
-
-          The attribute name under `resourceTypes` is the resource type, and gives rise to `providers.<provider>.<resourceType>`.
-        '';
-        type = types.lazyAttrsOf (types.submoduleWith {
-          specialArgs.provider = provider.config;
-          modules = [
-            resourceType
-            ({ name, ... }: { type = name; })
-          ];
-        });
-      };
-    };
-  };
-
-  /**
-    This type has a lot in common with the `resource.nix` module, but it only
-    contains static "metadata", which is a significant difference
-  */
-  resourceType = { config, provider, ... }: {
-    options = {
-      provider.executable = mkOption {
-        type = types.str;
-        default = provider.executable;
-        defaultText = lib.literalMD ''
-          inherited from provider
-        '';
-        description = ''
-          Value to be used for [`resources.<name>.provider.executable`](#resourcesnameproviderexecutable).
-        '';
-      };
-
-      provider.args = mkOption {
-        type = types.listOf types.str;
-        default = provider.args;
-        defaultText = lib.literalMD ''
-          inherited from provider
-        '';
-        description = ''
-          Value to be used for [`resources.<name>.provider.args`](#resourcesnameproviderargs).
-        '';
-      };
-
-      provider.type = mkOption {
-        type = types.str;
-        default = provider.type;
-        defaultText = lib.literalMD ''
-          inherited from provider
-        '';
-        description = ''
-          Value to be used for [`resources.<name>.provider.type`](#resourcesnameprovidertype).
-        '';
-      };
-
-      provider.types = mkOption {
-        type = types.raw;
-        defaultText = lib.literalMD ''
-          derived from `outputs`
-        '';
-        internal = true;
-        description = ''
-          The output attribute names in a form that nixops4 likes to consume.
-          This is a very internal interface, which plays a role in `nixops4` knowing what the output attributes will be before running the provider. This improves laziness and therefore performance and robustness.
-        '';
-      };
-
-      inputs = mkOption {
-        type = types.deferredModule;
-        description = ''
-          A module that declares the inputs to the resource using its options.
-        '';
-      };
-
-      outputs = mkOption {
-        type = types.deferredModule;
-        description = ''
-          A module that declares the outputs of the resource using its options.
-        '';
-      };
-
-      outputsSkeleton = mkOption {
-        type = types.attrsOf (types.submodule { });
-        internal = true;
-        description = ''
-          The skeleton of the outputs of the resource - just attribute names.
-        '';
-      };
-
-      type = mkOption {
-        type = types.str;
-        description = ''
-          The type of resource to create. Most resource providers will have some fixed set of resource types.
-          This selects one of them.
-
-          We suggest to set (override) this only if absolutely necessary for compatibility with earlier versions of a resource.
-        '';
-        defaultText = lib.literalMD ''
-          inherited attribute name
-        '';
-      };
-    };
-    config = {
-      outputsSkeleton =
-        lib.mapAttrs
-          (name: opt: { })
-          (lib.removeAttrs
-            (lib.evalModules {
-              modules = [ config.outputs ];
-            }).options
-            [ "_module" ]
-          );
-    };
-  };
-
   /** providers-specific behavior in `resources` */
   resourceModuleExtension = { config, options, ... }: {
+    _class = "nixops4Resource";
     options.type = mkOption {
       description = ''
         A resource type from the `providers` module argument.
@@ -172,6 +30,7 @@ in
     # this option merges with the one in `resources.nix`
     resources = mkOption {
       type = types.lazyAttrsOf (types.submoduleWith {
+        class = "nixops4Resource";
         modules = [ resourceModuleExtension ];
       });
     };
@@ -188,7 +47,7 @@ in
       type =
         types.lazyAttrsOf
           (types.submoduleWith {
-            modules = [ resourceProvider ];
+            modules = [ ../provider/provider.nix ];
             class = "nixops4Provider";
             specialArgs = {
               inherit resourceProviderSystem;
