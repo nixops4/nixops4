@@ -275,7 +275,9 @@ fn perform_load_deployment(
                               (name: value:
                                 builtins.mapAttrs
                                   (loadResourceAttr name)
-                                  value.provider.types.${value.type}.outputs
+                                  (value.outputsSkeleton
+                                    or value.provider.types.${value.type}.outputs
+                                    or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
                               )
                               (builtins.trace (builtins.attrNames fixpoint)
                               fixpoint.resources);
@@ -473,7 +475,7 @@ mod tests {
     fn test_eval_driver_invalid_flakeref() {
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open("auto", [])?;
+            let store = Store::open(None, [])?;
             let eval_state = EvalState::new(store, [])?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
@@ -546,7 +548,7 @@ mod tests {
 
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open("auto", [])?;
+            let store = Store::open(None, [])?;
             let eval_state = EvalState::new(store, [])?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
@@ -625,7 +627,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open("auto", []).unwrap();
+            let store = Store::open(None, []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
@@ -689,7 +691,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open("auto", []).unwrap();
+            let store = Store::open(None, []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
@@ -784,7 +786,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open("auto", []).unwrap();
+            let store = Store::open(None, []).unwrap();
             let eval_state = EvalState::new(store, []).unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {

@@ -117,31 +117,39 @@ async fn async_main() -> Result<()> {
 
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");
-        eval_state::init()?;
-        let gc_guard = gc_register_my_thread()?;
-        let store = Store::open("auto", [])?;
-        let eval_state = EvalState::new(store, [])?;
-
-        let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
-        loop {
-            while let Ok(request) = high_prio_rx.try_recv() {
+        let process_queue = || async {
+            eval_state::init()?;
+            let gc_guard = gc_register_my_thread()?;
+            let store = Store::open(None, [])?;
+            let eval_state = EvalState::new(store, [])?;
+            let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
+            loop {
+                while let Ok(request) = high_prio_rx.try_recv() {
+                    let ed = span.enter();
+                    driver.perform_request(&request).await?;
+                    drop(ed)
+                }
+                // Await both queues simultaneously
+                let request = tokio::select! {
+                    Some(request) = high_prio_rx.recv() => request,
+                    Some(request) = low_prio_rx.recv() => request,
+                    else => break,
+                };
                 let ed = span.enter();
                 driver.perform_request(&request).await?;
                 drop(ed)
             }
-            // Await both queues simultaneously
-            let request = tokio::select! {
-                Some(request) = high_prio_rx.recv() => request,
-                Some(request) = low_prio_rx.recv() => request,
-                else => break,
-            };
-            let ed = span.enter();
-            driver.perform_request(&request).await?;
-            drop(ed)
+            drop(gc_guard);
+            drop(span);
+            Ok(())
+        };
+        match process_queue().await {
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                Err(e)
+            }
+            Ok(()) => Ok(()),
         }
-        drop(gc_guard);
-        drop(span);
-        Ok(())
     });
     local.await;
 

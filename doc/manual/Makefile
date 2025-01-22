@@ -11,9 +11,11 @@ open: book
 GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
 	src/cli/nixops4.md \
+	src/modules/option-docs.gen.md \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
-	src/architecture/cargo-deps.gen.md
+	src/architecture/cargo-deps.gen.md \
+	src/lib/lib.gen.md
 
 clean:
 	rm -rf book $(GENERATED)
@@ -66,3 +68,32 @@ src/cli/nixops4.md: $(NIXOPS4_EXE)
 	@echo "  GENERATING" $@
 	@mkdir -p $(dir $@)
 	@$(NIXOPS4_CMD) generate-markdown > $@
+
+src/lib/lib.gen.md: ../../nix/lib/lib.nix Makefile
+	@echo "      NIXDOC" $@
+	@# Run nixdoc and then convert the markdown anchors ([foo]{#bar}) to HTML anchors
+	@nixdoc --file $< --category "" --description "" --prefix "" --anchor-prefix "" \
+		| sed -e 's!\[\([^]]*\)]{#\([^}]*\)}!<a id="\2" href="#\2">\1</a>!g' \
+		>src/lib/lib.gen.md
+
+src/modules/option-docs.gen.md: $(shell if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD" ]]; then \
+			echo deployment-option-docs-md.nix; \
+			echo ../../flake.lock; \
+			find ../../nix -name '*.nix'; \
+		fi)
+	@if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD" ]]; then \
+	    if type -p nix >/dev/null; then \
+				rm -f $@; \
+				echo "         NIX" $@; \
+				nix build --extra-experimental-features 'nix-command flakes' \
+				  .#manual-deployment-option-docs-md --out-link $@.tmp; \
+				cat $@.tmp > $@; \
+				rm $@.tmp; \
+			else \
+				echo "Nix not found and NIXOPS_DEPLOYMENT_OPTION_DOCS_MD not set. Can't build option docs."; \
+				exit 1; \
+			fi; \
+		else \
+			echo "        COPY" $@; \
+			cp $$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD $@; \
+		fi

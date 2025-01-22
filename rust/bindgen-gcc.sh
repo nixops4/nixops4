@@ -4,7 +4,7 @@
 # This script tells it where to find them.
 
 echo "Extending BINDGEN_EXTRA_CLANG_ARGS with system include paths..." 2>&1
-BINDGEN_EXTRA_CLANG_ARGS="''${BINDGEN_EXTRA_CLANG_ARGS:-}"
+BINDGEN_EXTRA_CLANG_ARGS="${BINDGEN_EXTRA_CLANG_ARGS:-}"
 export BINDGEN_EXTRA_CLANG_ARGS
 include_paths=$(
   echo | $NIX_CC_UNWRAPPED -v -E -x c - 2>&1 \

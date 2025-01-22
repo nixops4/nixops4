@@ -19,7 +19,7 @@ struct FileOutProperties {}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 struct ExecInProperties {
-    command: String,
+    executable: String,
     args: Vec<String>,
     stdin: Option<String>,
     // TODO parseJSON: bool  (for convenience and presentation purposes)
@@ -38,7 +38,7 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                 Ok(FileOutProperties {})
             }),
             "exec" => do_create(request, |p: ExecInProperties| {
-                let mut command = std::process::Command::new(&p.command);
+                let mut command = std::process::Command::new(&p.executable);
                 command.args(&p.args);
 
                 let in_stdio = if p.stdin.is_some() {
@@ -51,7 +51,12 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     .stdin(in_stdio)
                     .stdout(std::process::Stdio::piped())
                     .spawn()
-                    .with_context(|| format!("Could not spawn command: {}", p.command))?;
+                    .with_context(|| {
+                        format!(
+                            "Could not spawn resource provider process: {}",
+                            p.executable
+                        )
+                    })?;
 
                 match p.stdin {
                     Some(stdinstr) => {

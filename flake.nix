@@ -16,10 +16,11 @@
   outputs = inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake
       { inherit inputs; }
-      ({ lib, ... }: {
+      ({ lib, withSystem, flake-parts-lib, ... }: {
         imports = [
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
+          inputs.flake-parts.flakeModules.modules
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
           ./test/nixos/flake-module.nix
@@ -40,6 +41,10 @@
             inherit (config.packages) nixops4-resource-runner;
             nixops4-resources-local = config.packages.nixops4-resources-local-release;
           };
+          checks.itest-nixops4-resources-local = pkgs.callPackage ./test/integration-test-nixops4-with-local/check.nix {
+            inherit (config.packages) nixops4;
+            inherit inputs;
+          };
 
           /** A shell containing the packages of this flake. For development, use the `default` dev shell. */
           devShells.example = pkgs.mkShell {
@@ -49,9 +54,20 @@
             ];
           };
         };
+        flake.lib = import ./nix/lib/lib.nix {
+          inherit lib self;
+          selfWithSystem = withSystem;
+        };
+        flake.modules.flake.default =
+          flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix { inherit self; };
+        flake.modules.nixops4Deployment.default =
+          ./nix/deployment/base-modules.nix;
+        flake.modules.nixops4Provider.local =
+          flake-parts-lib.importApply ./nix/providers/local.nix { inherit withSystem; };
 
         partitionedAttrs.devShells = "dev";
         partitionedAttrs.checks = "dev";
+        partitionedAttrs.tests = "dev"; # nix-unit
         partitionedAttrs.herculesCI = "dev";
         partitions.dev.extraInputsFlake = ./dev;
         partitions.dev.module = {

@@ -6,10 +6,18 @@
       drvConfig = {
         mkDerivation = {
           buildInputs = [
-            config.packages.nix
             # stdbool.h
             pkgs.stdenv.cc
-          ];
+          ] ++
+          (if config.packages.nix?libs
+          then
+            let l = config.packages.nix.libs; in [
+              l.nix-expr-c
+              l.nix-store-c
+              l.nix-util-c
+              l.nix-flake-c
+            ]
+          else [ config.packages.nix ]);
           nativeBuildInputs = [
             pkgs.pkg-config
           ];
@@ -47,10 +55,10 @@
         # NOTE: duplicated in flake.nix devShell
         env = {
           LIBCLANG_PATH =
-            if pkgs.stdenv.cc.isClang then
-              null # don't set the variable
-            else
-              lib.makeLibraryPath [ pkgs.buildPackages.llvmPackages.clang-unwrapped ];
+            lib.makeLibraryPath [ pkgs.buildPackages.llvmPackages.clang-unwrapped ];
+          BINDGEN_EXTRA_CLANG_ARGS =
+            # Work around missing [[deprecated]] in clang
+            "-x c++ -std=c++2a";
         } // lib.optionalAttrs pkgs.stdenv.cc.isGNU {
           # Avoid cc wrapper, because we only need to add the compiler/"system" dirs
           NIX_CC_UNWRAPPED = "${pkgs.stdenv.cc.cc}/bin/gcc";

@@ -98,6 +98,7 @@ fn set_up_logging(
 fn to_eval_options(options: &Options) -> eval_client::Options {
     eval_client::Options {
         verbose: options.verbose,
+        show_trace: options.show_trace,
     }
 }
 
@@ -138,7 +139,7 @@ fn handle_result(r: Result<()>) {
     match r {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("nixops4 error: {}, {}", e.root_cause(), e);
+            eprintln!("nixops4 error: {:?}", e);
             exit(1);
         }
     }
@@ -173,6 +174,9 @@ struct Options {
         conflicts_with = "interactive"
     )]
     no_interactive: bool,
+
+    #[arg(long, global = true, default_value_t = false)]
+    show_trace: bool,
 }
 
 #[derive(Subcommand, Debug)]
