@@ -12,13 +12,9 @@ The NixOps4 modules use a patterns you may not be familiar with as a NixOS user 
 
 These enable the "building with bricks" experience instead of a "filling in a form" experience.
 
-Crucially, this means that using the option paths below as a template may lead you down the wrong path. By looking at the parent options first, you will find concise examples what use other modules to define the values of whole groups of suboptions.
-
-<!-- FIXME: This is most likely a significant problem. Just generate separate pages. -->
+This means that the options below only outline the low level interface, whereas often you'll use `imports` and then support other options.
 
 </div>
-
-<!-- TODO: some of these options you might not use directly. Link tutorial. -->
 
 ## Options
 
