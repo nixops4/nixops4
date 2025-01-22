@@ -16,7 +16,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.executable`](#resourcesnameproviderexecutable).
+        Value to be used for [`resources.<name>.provider.executable`](#opt-nixops4Deployments._name_.providers._name_.executable).
       '';
     };
 
@@ -27,7 +27,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.args`](#resourcesnameproviderargs).
+        Value to be used for [`resources.<name>.provider.args`](#opt-nixops4Deployments._name_.providers._name_.args).
       '';
     };
 
@@ -38,7 +38,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.type`](#resourcesnameprovidertype).
+        Value to be used for [`resources.<name>.provider.type`](#opt-nixops4Deployments._name_.providers._name_.type).
       '';
     };
 
