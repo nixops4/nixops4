@@ -165,7 +165,7 @@
 <p>This means that the options below only outline the low level interface, whereas often you'll use <code>imports</code> and then support other options.</p>
 </div>
 <h2 id="options"><a class="header" href="#options">Options</a></h2>
-<h2 id="providers"><a class="header" href="#providers">providers</a></h2>
+<h2 id="opt-providers"><a class="header" href="#opt-providers">providers</a></h2>
 <p>The resource providers to use.</p>
 <p>Resource providers are the executables that implement the operations on resources.</p>
 <p>While provider information can be provided directly in the resource, this indirection allows for the same provider to be used for multiple resources conveniently.</p>
@@ -185,7 +185,7 @@ lazy attribute set of (submodule)</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/providers.nix">nixops4/nix/deployment/providers.nix</a></li>
 </ul>
-<h2 id="providersnameargs"><a class="header" href="#providersnameargs">providers.&lt;name&gt;.args</a></h2>
+<h2 id="opt-providers._name_.args"><a class="header" href="#opt-providers._name_.args">providers.&lt;name&gt;.args</a></h2>
 <p>Any command line arguments to pass to the executable.</p>
 <p><em>Type:</em>
 list of string</p>
@@ -195,7 +195,7 @@ list of string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
-<h2 id="providersnameexecutable"><a class="header" href="#providersnameexecutable">providers.&lt;name&gt;.executable</a></h2>
+<h2 id="opt-providers._name_.executable"><a class="header" href="#opt-providers._name_.executable">providers.&lt;name&gt;.executable</a></h2>
 <p>The path to the executable that implements the resource operations.</p>
 <p><em>Type:</em>
 string</p>
@@ -203,7 +203,7 @@ string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypes"><a class="header" href="#providersnameresourcetypes">providers.&lt;name&gt;.resourceTypes</a></h2>
+<h2 id="opt-providers._name_.resourceTypes"><a class="header" href="#opt-providers._name_.resourceTypes">providers.&lt;name&gt;.resourceTypes</a></h2>
 <p>The types of resources that this provider can create.</p>
 <p>The purpose of the <code>resourceTypes</code> option is to provide the information necessary to create the <code>providers</code> module argument.</p>
 <p>The attribute name under <code>resourceTypes</code> is the resource type, and gives rise to <code>providers.&lt;provider&gt;.&lt;resourceType&gt;</code>.</p>
@@ -213,7 +213,7 @@ lazy attribute set of (submodule)</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnameinputs"><a class="header" href="#providersnameresourcetypesnameinputs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.inputs</a></h2>
+<h2 id="opt-providers._name_.resourceTypes._name_.inputs"><a class="header" href="#opt-providers._name_.resourceTypes._name_.inputs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.inputs</a></h2>
 <p>A module that declares the inputs to the resource using its options.</p>
 <p><em>Type:</em>
 module</p>
@@ -221,7 +221,7 @@ module</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnameoutputs"><a class="header" href="#providersnameresourcetypesnameoutputs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.outputs</a></h2>
+<h2 id="opt-providers._name_.resourceTypes._name_.outputs"><a class="header" href="#opt-providers._name_.resourceTypes._name_.outputs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.outputs</a></h2>
 <p>A module that declares the outputs of the resource using its options.</p>
 <p><em>Type:</em>
 module</p>
@@ -229,8 +229,8 @@ module</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnameproviderargs"><a class="header" href="#providersnameresourcetypesnameproviderargs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.args</a></h2>
-<p>Value to be used for <a href="#resourcesnameproviderargs"><code>resources.&lt;name&gt;.provider.args</code></a>.</p>
+<h2 id="opt-providers._name_.resourceTypes._name_.provider.args"><a class="header" href="#opt-providers._name_.resourceTypes._name_.provider.args">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.args</a></h2>
+<p>Value to be used for <a href="#opt-resources._name_.provider.args"><code>resources.&lt;name&gt;.provider.args</code></a>.</p>
 <p><em>Type:</em>
 list of string</p>
 <p><em>Default:</em>
@@ -239,8 +239,8 @@ inherited from provider</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnameproviderexecutable"><a class="header" href="#providersnameresourcetypesnameproviderexecutable">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.executable</a></h2>
-<p>Value to be used for <a href="#resourcesnameproviderexecutable"><code>resources.&lt;name&gt;.provider.executable</code></a>.</p>
+<h2 id="opt-providers._name_.resourceTypes._name_.provider.executable"><a class="header" href="#opt-providers._name_.resourceTypes._name_.provider.executable">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.executable</a></h2>
+<p>Value to be used for <a href="#opt-resources._name_.provider.executable"><code>resources.&lt;name&gt;.provider.executable</code></a>.</p>
 <p><em>Type:</em>
 string</p>
 <p><em>Default:</em>
@@ -249,8 +249,8 @@ inherited from provider</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnameprovidertype"><a class="header" href="#providersnameresourcetypesnameprovidertype">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.type</a></h2>
-<p>Value to be used for <a href="#resourcesnameprovidertype"><code>resources.&lt;name&gt;.provider.type</code></a>.</p>
+<h2 id="opt-providers._name_.resourceTypes._name_.provider.type"><a class="header" href="#opt-providers._name_.resourceTypes._name_.provider.type">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.provider.type</a></h2>
+<p>Value to be used for <a href="#opt-resources._name_.provider.type"><code>resources.&lt;name&gt;.provider.type</code></a>.</p>
 <p><em>Type:</em>
 string</p>
 <p><em>Default:</em>
@@ -259,7 +259,7 @@ inherited from provider</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnameresourcetypesnametype"><a class="header" href="#providersnameresourcetypesnametype">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.type</a></h2>
+<h2 id="opt-providers._name_.resourceTypes._name_.type"><a class="header" href="#opt-providers._name_.resourceTypes._name_.type">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.type</a></h2>
 <p>The type of resource to create. Most resource providers will have some fixed set of resource types.
 This selects one of them.</p>
 <p>We suggest to set (override) this only if absolutely necessary for compatibility with earlier versions of a resource.</p>
@@ -271,7 +271,7 @@ inherited attribute name</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
-<h2 id="providersnametype"><a class="header" href="#providersnametype">providers.&lt;name&gt;.type</a></h2>
+<h2 id="opt-providers._name_.type"><a class="header" href="#opt-providers._name_.type">providers.&lt;name&gt;.type</a></h2>
 <p>The type of communication to use with the resource provider executable.</p>
 <p><em>Type:</em>
 string</p>
@@ -281,7 +281,7 @@ string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
-<h2 id="resources"><a class="header" href="#resources">resources</a></h2>
+<h2 id="opt-resources"><a class="header" href="#opt-resources">resources</a></h2>
 <p>The resources to deploy.</p>
 <p><em>Type:</em>
 lazy attribute set of (submodule)</p>
@@ -292,7 +292,7 @@ lazy attribute set of (submodule)</p>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/providers.nix">nixops4/nix/deployment/providers.nix</a></li>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resources.nix">nixops4/nix/deployment/resources.nix</a></li>
 </ul>
-<h2 id="resourcesnameinputs"><a class="header" href="#resourcesnameinputs">resources.&lt;name&gt;.inputs</a></h2>
+<h2 id="opt-resources._name_.inputs"><a class="header" href="#opt-resources._name_.inputs">resources.&lt;name&gt;.inputs</a></h2>
 <p>The inputs to the resource.</p>
 <p>These parameters primarily control the configuration of the resource.
 They are set by you (a module author or configuration author) and are passed to the resource provider executable.</p>
@@ -302,7 +302,7 @@ submodule</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnameoutputs"><a class="header" href="#resourcesnameoutputs">resources.&lt;name&gt;.outputs</a></h2>
+<h2 id="opt-resources._name_.outputs"><a class="header" href="#opt-resources._name_.outputs">resources.&lt;name&gt;.outputs</a></h2>
 <p>The outputs of the resource.</p>
 <p>These follow from the real world existence of the resource.
 They are set by NixOps, which in turn gets this information from resource providers.</p>
@@ -312,7 +312,7 @@ submodule</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnameproviderargs"><a class="header" href="#resourcesnameproviderargs">resources.&lt;name&gt;.provider.args</a></h2>
+<h2 id="opt-resources._name_.provider.args"><a class="header" href="#opt-resources._name_.provider.args">resources.&lt;name&gt;.provider.args</a></h2>
 <p>Any command line arguments to pass to the executable.</p>
 <p><em>Type:</em>
 list of (string or (string or path or signed integer) convertible to it)</p>
@@ -322,7 +322,7 @@ list of (string or (string or path or signed integer) convertible to it)</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnameproviderexecutable"><a class="header" href="#resourcesnameproviderexecutable">resources.&lt;name&gt;.provider.executable</a></h2>
+<h2 id="opt-resources._name_.provider.executable"><a class="header" href="#opt-resources._name_.provider.executable">resources.&lt;name&gt;.provider.executable</a></h2>
 <p>The path to the executable that implements the resource operations.</p>
 <p><em>Type:</em>
 string</p>
@@ -330,7 +330,7 @@ string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnameprovidertype"><a class="header" href="#resourcesnameprovidertype">resources.&lt;name&gt;.provider.type</a></h2>
+<h2 id="opt-resources._name_.provider.type"><a class="header" href="#opt-resources._name_.provider.type">resources.&lt;name&gt;.provider.type</a></h2>
 <p>The type of communication to use with the resource provider executable.</p>
 <p><em>Type:</em>
 value “stdio” (singular enum)</p>
@@ -340,7 +340,7 @@ value “stdio” (singular enum)</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnameresourcetype"><a class="header" href="#resourcesnameresourcetype">resources.&lt;name&gt;.resourceType</a></h2>
+<h2 id="opt-resources._name_.resourceType"><a class="header" href="#opt-resources._name_.resourceType">resources.&lt;name&gt;.resourceType</a></h2>
 <p>The type of resource to create. Most resource providers will have some fixed set of resource types.</p>
 <p><em>Type:</em>
 string</p>
@@ -348,7 +348,7 @@ string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
-<h2 id="resourcesnametype"><a class="header" href="#resourcesnametype">resources.&lt;name&gt;.type</a></h2>
+<h2 id="opt-resources._name_.type"><a class="header" href="#opt-resources._name_.type">resources.&lt;name&gt;.type</a></h2>
 <p>A resource type from the <code>providers</code> module argument.</p>
 <p><em>Type:</em>
 raw value</p>
