@@ -6,3 +6,24 @@ pre svg {
   border: 3px solid rgba(255, 255, 255, 0.7);
   border-radius: 3px;
 }
+
+/* Highlight target-ed links (i.e. URL fragment) */
+a:target {
+  border: 2px solid;
+  border-radius: 8px;
+  margin: -4px;
+  padding: 2px;
+}
+html.coal a:target,
+html.navy a:target,
+html.ayu a:target { border-color: rgb(192, 255, 0); }
+html.light a:target { border-color: rgb(128, 192, 0); }
+html.rust a:target {
+  border-color: rgb(0, 128, 0);
+  background-color: rgba(255, 255, 255, 0.7);
+}
+
+/* The default 0.87 is too small and looks ugly when highlighted with :target. */
+:root {
+  --code-font-size: 0.9em;
+}
