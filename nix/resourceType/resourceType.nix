@@ -2,9 +2,33 @@
   This type has a lot in common with the `resource.nix` module, but it only
   contains static "metadata", which is a significant difference
 */
-{ config, lib, provider, ... }:
+{ config, lib, provider, options, ... }:
 let
-  inherit (lib) mkOption types;
+  inherit (lib) mkOption replaceStrings showOption types;
+
+  # Polyfill https://github.com/NixOS/nixpkgs/pull/370558
+  dropEnd = lib.dropEnd or
+    (n: xs:
+      lib.lists.take
+        (lib.max 0 (lib.lists.length xs - n))
+        xs);
+
+  moduleLoc = dropEnd 2 options.provider.executable.loc;
+
+  docResources =
+    dropEnd
+      # usually mounted on providers.<name>.resourceTypes.<name>
+      4
+      moduleLoc
+    ++ [ "resources" ];
+
+  # Incomplete, but good enough for now
+  renderFragment = loc:
+    replaceStrings [ "<" ">" ] [ "_" "_" ]
+      (showOption loc);
+
+  linkOptionLoc = loc:
+    "[`" + showOption loc + "`](#opt-" + renderFragment loc + ")";
 in
 {
   _class = "nixops4ResourceType";
@@ -16,7 +40,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.executable`](#resourcesnameproviderexecutable).
+        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "executable"])}.
       '';
     };
 
@@ -27,7 +51,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.args`](#resourcesnameproviderargs).
+        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "args"])}.
       '';
     };
 
@@ -38,7 +62,7 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for [`resources.<name>.provider.type`](#resourcesnameprovidertype).
+        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "type"])}.
       '';
     };
 

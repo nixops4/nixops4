@@ -39,4 +39,12 @@ let
       opt.declarations;
   };
 in
-docs.optionsCommonMark
+docs.optionsCommonMark.overrideAttrs {
+  extraArgs = [
+    # Align with NixOS HTML manual and flake-parts
+    "--anchor-prefix"
+    "opt-"
+    "--anchor-style"
+    "legacy"
+  ];
+}
