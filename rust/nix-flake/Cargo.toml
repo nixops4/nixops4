@@ -2,6 +2,7 @@
 name = "nix-flake"
 version = "0.1.0"
 edition = "2021"
+license = "LGPL-2.1"
 
 [lib]
 path = "src/lib.rs"
