@@ -6,6 +6,7 @@ edition = "2021"
 #       Cargo does not want markdown in the description field, so if we were to
 #       release to crates.io, we would need to remove this.
 description = "Internal interfaces for nixops4, notably the interface between the CLI and the `nixops4-eval` evaluator"
+license = "LGPL-2.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

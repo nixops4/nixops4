@@ -3,6 +3,7 @@ name = "nix-c-raw"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
+license = "LGPL-2.1"
 
 [lib]
 path = "src/lib.rs"
