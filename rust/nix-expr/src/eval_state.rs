@@ -268,8 +268,21 @@ impl EvalState {
                 v.raw_ptr(),
                 self.eval_state.as_ptr(),
                 attr_name.as_ptr()
-            ))?;
-            Ok(Value::new(v2))
+            ));
+            match v2 {
+                Ok(v2) => Ok(Value::new(v2)),
+                Err(e) => {
+                    // As of Nix 2.26, the error message is not helpful when it
+                    // is simply missing, so we provide a better one. (Note that
+                    // missing attributes requested by Nix expressions OTOH is a
+                    // different error message which works fine.)
+                    if e.to_string() == "missing attribute" {
+                        bail!("attribute `{}` not found", attr_name.to_string_lossy());
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
         }
     }
 
@@ -896,8 +909,7 @@ mod tests {
                 Ok(_) => panic!("expected an error"),
                 Err(e) => {
                     let s = format!("{e:#}");
-                    // TODO: bad error message from Nix
-                    if !s.contains("missing attribute") {
+                    if !s.contains("attribute `c` not found") {
                         eprintln!("unexpected error message: {}", s);
                         assert!(false);
                     }
