@@ -1,4 +1,4 @@
-{ lib, resources, ... }:
+{ lib, resources, resourceProviderSystem, ... }:
 let
   inherit (lib) mkOption types;
 
@@ -18,6 +18,12 @@ in
             modules = [
               ./resource.nix
               injectOutputs
+              {
+                # Forward the resource provider system, so that individual
+                # resource modules can use it to build things for the local
+                # platform.
+                _module.args.resourceProviderSystem = resourceProviderSystem;
+              }
             ];
           });
       default = { };
