@@ -279,8 +279,7 @@ fn perform_load_deployment(
                                     or value.provider.types.${value.type}.outputs
                                     or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
                               )
-                              (builtins.trace (builtins.attrNames fixpoint)
-                              fixpoint.resources);
+                              fixpoint.resources;
                           fixpoint = deploymentFunction arg;
                         in
                           fixpoint

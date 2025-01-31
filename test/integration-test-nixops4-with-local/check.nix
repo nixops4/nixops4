@@ -6,6 +6,7 @@
 , stdenv
 , nix
 , formats
+, flake-in-a-bottle
 }:
 
 let
@@ -54,11 +55,10 @@ runCommand
     cd work
     substituteInPlace flake.nix \
       --replace-fail '@nixpkgs@' ${inputs.nixpkgs} \
-      --replace-fail '@nixops4@' ${inputs.self} \
+      --replace-fail '@nixops4@' ${flake-in-a-bottle} \
       --replace-fail '@flake-parts@' ${inputs.flake-parts} \
       --replace-fail '@system@' ${stdenv.hostPlatform.system} \
-      --replace-fail '@prebuilt-nix-cargo-integration@' ${../prebuilt-nix-cargo-integration} \
-      --replace-fail '@null@' ${../null}
+      ;
 
     (
       set -x;
@@ -67,9 +67,6 @@ runCommand
       cp ${(formats.json {}).generate "binaries.json" {
         inherit (inputs.self.packages.${stdenv.hostPlatform.system}) nixops4-resources-local-release;
       }} binaries.json
-
-      # workaround for https://github.com/NixOS/nix/issues/12040
-      nix store add --name source --hash-algo sha256 --mode nar ${../prebuilt-nix-cargo-integration}
 
       nix flake lock -vv
 
