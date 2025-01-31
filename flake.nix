@@ -36,13 +36,18 @@
 
           packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix { nixops4-resource-runner = config.packages.nixops4-resource-runner-release; };
           packages.nix = inputs'.nix.packages.nix;
+
+          packages.flake-in-a-bottle = pkgs.callPackage ./nix/flake-in-a-bottle/package.nix {
+            nixops4Flake = self;
+          };
+
           checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
           checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {
             inherit (config.packages) nixops4-resource-runner;
             nixops4-resources-local = config.packages.nixops4-resources-local-release;
           };
           checks.itest-nixops4-resources-local = pkgs.callPackage ./test/integration-test-nixops4-with-local/check.nix {
-            inherit (config.packages) nixops4;
+            inherit (config.packages) nixops4 flake-in-a-bottle;
             inherit inputs;
           };
 
