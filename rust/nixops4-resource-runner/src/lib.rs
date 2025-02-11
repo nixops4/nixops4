@@ -71,7 +71,11 @@ impl ResourceProviderClient {
         };
 
         // Wait for the process to finish
-        process.wait()?;
+        let r = process.wait()?;
+
+        if !r.success() {
+            anyhow::bail!("Provider process failed with exit code: {}", r);
+        }
 
         Ok(response
             .output_properties

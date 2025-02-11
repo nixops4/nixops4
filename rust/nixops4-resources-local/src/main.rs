@@ -73,7 +73,14 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                 let output = child.wait_with_output()?;
                 let stdout = String::from_utf8(output.stdout)?;
 
-                Ok(ExecOutProperties { stdout })
+                if output.status.success() {
+                    Ok(ExecOutProperties { stdout })
+                } else {
+                    bail!(
+                        "Local resource process failed with exit code: {}",
+                        output.status
+                    )
+                }
             }),
             t => bail!(
                 "LocalResourceProvider::create: unknown resource type: {}",

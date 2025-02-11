@@ -7,6 +7,7 @@
 , nix
 , formats
 , flake-in-a-bottle
+, die
 }:
 
 let
@@ -33,6 +34,7 @@ runCommand
     jq
     hello
     nix
+    die
   ];
 }
   ''
@@ -76,6 +78,14 @@ runCommand
 
       test -f file.txt
       [[ "Hallo wereld" == "$(cat file.txt)" ]]
+      rm file.txt
+
+      (
+        set +e;
+        nixops4 apply -v failingDeployment --show-trace
+        [[ $? == 1 ]]
+      )
+      [[ ! -e file.txt ]]
 
       touch $out
     )
