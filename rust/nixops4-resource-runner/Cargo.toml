@@ -20,6 +20,7 @@ clap-markdown = "0.1.4"
 nixops4-resource = { path = "../nixops4-resource" }
 serde = "1.0.209"
 serde_json = "1.0.127"
+tracing = "0.1.41"
 
 [lib]
 path = "src/lib.rs"

@@ -5,7 +5,7 @@ use std::{
 
 use crate::{interrupt::InterruptState, provider};
 use crate::{with_flake, Options};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use nixops4_core::eval_api::{
     AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, Id, NamedProperty, Property,
     QueryRequest, QueryResponseValue, ResourceInputState, ResourceRequest, ResourceType,
@@ -199,10 +199,17 @@ pub(crate) fn apply(
                                                     provider_args: provider_argv.args,
                                                 },
                                             );
-                                            let outputs = provider.create(
-                                                provider_info.resource_type.as_str(),
-                                                &inputs,
-                                            )?;
+                                            let outputs = provider
+                                                .create(
+                                                    provider_info.resource_type.as_str(),
+                                                    &inputs,
+                                                )
+                                                .with_context(|| {
+                                                    format!(
+                                                        "Failed to create resource {}",
+                                                        resource_name
+                                                    )
+                                                })?;
 
                                             drop(span);
 

@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 use nixops4_resource::schema::v0::{CreateResourceRequest, CreateResourceResponse};
 use serde_json::Value;
+use tracing::warn;
 
 pub struct ResourceProviderConfig {
     pub provider_executable: String,
@@ -63,8 +64,27 @@ impl ResourceProviderClient {
             // Read the response
             let response: CreateResourceResponse = {
                 let mut response = String::new();
-                child_reader.read_line(&mut response).unwrap();
-                serde_json::from_str(&response)?
+                let n = child_reader.read_line(&mut response);
+                match n {
+                    Err(e) => {
+                        anyhow::bail!("Error reading from provider process: {}", e);
+                    }
+                    // EOF
+                    Ok(0) => {
+                        // Log it
+                        warn!("Provider process did not return any output");
+
+                        // Wait for the process to finish
+                        let r = process.wait()?;
+
+                        if r.success() {
+                            anyhow::bail!("Provider process did not return any output");
+                        } else {
+                            anyhow::bail!("Provider process failed with exit code: {}", r);
+                        }
+                    }
+                    Ok(_) => serde_json::from_str(&response)?,
+                }
             };
             (response, process)
             // This closes stdin

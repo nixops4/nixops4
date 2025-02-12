@@ -82,10 +82,14 @@ runCommand
 
       (
         set +e;
-        nixops4 apply -v failingDeployment --show-trace
+        # 3>&1 etc: swap stderr and stdout
+        nixops4 apply -v failingDeployment --show-trace 3>&1 1>&2 2>&3 | tee err.log
         [[ $? == 1 ]]
       )
       [[ ! -e file.txt ]]
+
+      grep -F 'oh no, this and that failed' err.log
+      grep -F 'Failed to create resource hello' err.log
 
       touch $out
     )
