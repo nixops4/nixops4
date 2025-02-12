@@ -80,7 +80,7 @@ impl ResourceProviderClient {
                         if r.success() {
                             anyhow::bail!("Provider process did not return any output");
                         } else {
-                            anyhow::bail!("Provider process failed with exit code: {}", r);
+                            bail_provider_exit_code(r)?
                         }
                     }
                     Ok(_) => serde_json::from_str(&response)?,
@@ -94,7 +94,7 @@ impl ResourceProviderClient {
         let r = process.wait()?;
 
         if !r.success() {
-            anyhow::bail!("Provider process failed with exit code: {}", r);
+            bail_provider_exit_code(r)?
         }
 
         Ok(response
@@ -103,4 +103,8 @@ impl ResourceProviderClient {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect())
     }
+}
+
+fn bail_provider_exit_code<Absurd>(r: std::process::ExitStatus) -> Result<Absurd> {
+    anyhow::bail!("Provider process failed with exit code: {}", r);
 }
