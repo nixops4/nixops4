@@ -36,6 +36,24 @@
             };
           };
         };
+
+        failingDeployment = { providers, withResourceProviderSystem, resources, ... }: {
+          providers.local = inputs.nixops4.modules.nixops4Provider.local;
+          resources.hello = {
+            type = providers.local.exec;
+            inputs = {
+              executable = "die";
+              args = [ "oh no, this and that failed" ];
+            };
+          };
+          resources."file.txt" = {
+            type = providers.local.file;
+            inputs = {
+              name = "file.txt";
+              contents = resources.hello.stdout;
+            };
+          };
+        };
       };
     }
   );

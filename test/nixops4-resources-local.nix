@@ -1,9 +1,13 @@
+# Run:
+#   nix build .#checks.<system>.nixops4-resources-local
 { hello
 , jq
 , nixops4-resource-runner
 , nixops4-resources-local
 , runCommand
-,
+, runtimeShell
+, writeScriptBin
+, die
 }:
 
 runCommand
@@ -14,6 +18,7 @@ runCommand
     nixops4-resources-local
     jq
     hello
+    die
   ];
 }
   ''
@@ -44,6 +49,21 @@ runCommand
     cat out.json
 
     (set -x; jq -e '. == { "stdout": "hi there\n" }' out.json)
+
+    # Exit code
+
+    (
+      set +e
+      nixops4-resource-runner create \
+        --provider-exe nixops4-resources-local \
+        --type exec \
+        --input-str executable 'die' \
+        --input-json args '["oh no, this and that failed"]' \
+        > out.json
+      [[ $? == 1 ]]
+    )
+    cat out.json
+    [[ "" == "$(cat out.json)" ]]
 
     touch $out
   ''

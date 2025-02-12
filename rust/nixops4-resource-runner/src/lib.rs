@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 use nixops4_resource::schema::v0::{CreateResourceRequest, CreateResourceResponse};
 use serde_json::Value;
+use tracing::warn;
 
 pub struct ResourceProviderConfig {
     pub provider_executable: String,
@@ -63,15 +64,38 @@ impl ResourceProviderClient {
             // Read the response
             let response: CreateResourceResponse = {
                 let mut response = String::new();
-                child_reader.read_line(&mut response).unwrap();
-                serde_json::from_str(&response)?
+                let n = child_reader.read_line(&mut response);
+                match n {
+                    Err(e) => {
+                        anyhow::bail!("Error reading from provider process: {}", e);
+                    }
+                    // EOF
+                    Ok(0) => {
+                        // Log it
+                        warn!("Provider process did not return any output");
+
+                        // Wait for the process to finish
+                        let r = process.wait()?;
+
+                        if r.success() {
+                            anyhow::bail!("Provider process did not return any output");
+                        } else {
+                            bail_provider_exit_code(r)?
+                        }
+                    }
+                    Ok(_) => serde_json::from_str(&response)?,
+                }
             };
             (response, process)
             // This closes stdin
         };
 
         // Wait for the process to finish
-        process.wait()?;
+        let r = process.wait()?;
+
+        if !r.success() {
+            bail_provider_exit_code(r)?
+        }
 
         Ok(response
             .output_properties
@@ -79,4 +103,8 @@ impl ResourceProviderClient {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect())
     }
+}
+
+fn bail_provider_exit_code<Absurd>(r: std::process::ExitStatus) -> Result<Absurd> {
+    anyhow::bail!("Provider process failed with exit code: {}", r);
 }

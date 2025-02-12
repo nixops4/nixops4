@@ -73,11 +73,19 @@ fn main() -> Result<()> {
                 provider_args: vec![],
             });
 
-            let response = provider
+            let result = provider
                 .create(resource_type, &inputs)
-                .with_context(|| "failed to create resource")?;
-
-            println!("{}", serde_json::to_string_pretty(&response)?);
+                .with_context(|| "failed to create resource");
+            match result {
+                Ok(response) => {
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                    Ok(())
+                }
+                Err(err) => {
+                    eprintln!("error: {}", err);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::GenerateMan => {
             let cmd = Args::command();
@@ -85,11 +93,13 @@ fn main() -> Result<()> {
             let mut buffer: Vec<u8> = Default::default();
             man.render(&mut buffer)?;
             println!("{}", String::from_utf8(buffer)?);
+            Ok(())
         }
         Commands::GenerateMarkdown => {
             let opts = clap_markdown::MarkdownOptions::new().show_footer(false);
             let markdown: String = clap_markdown::help_markdown_custom::<Args>(&opts);
             println!("{}", markdown);
+            Ok(())
         }
         Commands::GenerateCompletion { shell } => {
             // TODO: remove the generate-* commands from the completion
@@ -101,10 +111,9 @@ fn main() -> Result<()> {
                 "nixops4-resource-runner",
                 &mut std::io::stdout(),
             );
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 /// Simple program to run NixOps resources

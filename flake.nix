@@ -41,13 +41,19 @@
             nixops4Flake = self;
           };
 
+          packages.die = pkgs.writeScriptBin "die" ''
+            #!${pkgs.runtimeShell}
+            printf "%s" "$*" >&2
+            exit 1
+          '';
+
           checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
           checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {
-            inherit (config.packages) nixops4-resource-runner;
+            inherit (config.packages) nixops4-resource-runner die;
             nixops4-resources-local = config.packages.nixops4-resources-local-release;
           };
           checks.itest-nixops4-resources-local = pkgs.callPackage ./test/integration-test-nixops4-with-local/check.nix {
-            inherit (config.packages) nixops4 flake-in-a-bottle;
+            inherit (config.packages) nixops4 flake-in-a-bottle die;
             inherit inputs;
           };
 
