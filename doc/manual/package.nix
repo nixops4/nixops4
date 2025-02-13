@@ -32,6 +32,7 @@ stdenv.mkDerivation (finalAttrs: {
       ./mermaid-init.js
       ./mermaid.min.js
       ./src
+      ./theme
     ];
     root = ../..;
   };
