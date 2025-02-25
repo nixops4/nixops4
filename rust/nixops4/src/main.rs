@@ -3,6 +3,7 @@ mod eval_client;
 mod interrupt;
 mod logging;
 mod provider;
+mod state;
 
 use anyhow::Result;
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};

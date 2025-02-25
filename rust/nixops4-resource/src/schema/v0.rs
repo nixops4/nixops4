@@ -22,6 +22,7 @@ mod tests {
                         Value::String("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD".to_string())
                     ),
                 ]),
+                is_stateful: false,
             }
         );
     }
