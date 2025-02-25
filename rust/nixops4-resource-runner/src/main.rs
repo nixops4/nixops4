@@ -64,10 +64,10 @@ fn main() -> Result<()> {
                 inputs.insert(k.clone(), serde_json::Value::String(v.clone()));
             }
 
-            let provider = ResourceProviderClient::new(ResourceProviderConfig {
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
                 provider_args: vec![],
-            });
+            })?;
 
             let result = provider
                 .create(resource_type, &inputs)

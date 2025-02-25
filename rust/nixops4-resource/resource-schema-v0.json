@@ -3,24 +3,79 @@
   "title": "NixOps4 Resource Protocol Schema",
   "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
   "definitions": {
-    "CreateResourceRequest": {
+    "resourceType": {
+      "type": "string",
+      "title": "Provider-defined resource type",
+      "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+    },
+    "inputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Input properties",
+      "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+    },
+    "outputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Output properties",
+      "description": "Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions."
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Arbitrary metadata to store with a state update event",
+      "properties": {
+        "nixopsVersion": {
+          "type": "string",
+          "title": "NixOps version",
+          "description": "The version of NixOps that is running, for posterity and forward compatibility."
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Timestamp",
+          "description": "The time at which the event was registered."
+        }
+      }
+    },
+    "ExtantResource": {
       "type": "object",
       "properties": {
         "type": {
-          "type": "string",
-          "title": "Provider-defined resource type",
-          "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+          "$ref": "#/definitions/resourceType"
         },
         "inputProperties": {
-          "type": "object",
-          "additionalProperties": true,
-          "title": "Input properties",
-          "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+          "$ref": "#/definitions/inputProperties"
+        },
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
         }
       },
       "required": [
         "type",
         "inputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "CreateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/resourceType"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        },
+        "isStateful": {
+          "type": "boolean",
+          "title": "Stateful resource",
+          "description": "Whether the resource is declared to be stateful. If false, the response will not be persisted."
+        }
+      },
+      "required": [
+        "type",
+        "inputProperties",
+        "isStateful"
       ],
       "additionalProperties": false
     },
@@ -38,11 +93,345 @@
         "outputProperties"
       ],
       "additionalProperties": false
+    },
+    "ReadResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "ReadResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        }
+      },
+      "required": [
+        "resource",
+        "inputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyResourceResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "StateResourceEvent": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "event": {
+          "type": "string",
+          "title": "NixOps version",
+          "description": "The version of NixOps that is running, for posterity and forward compatibility."
+        },
+        "patch": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Patch",
+          "description": "A JSON Patch <https://datatracker.ietf.org/doc/html/rfc6902> that describes the changes to the combined state of all managed resources. This method is only implemented by resources that function as a state storage. NixOps4 takes great care to make sure that the patch can be applied, but if it does not, the patch must be saved."
+        }
+      },
+      "required": [
+        "resource",
+        "event",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceEventResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "StateResourceReadRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceReadResponse": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "State",
+          "description": "The state of all the managed resources. This method is only implemented by resources that function as a state storage."
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceRequest",
+          "properties": {
+            "type": {
+              "const": "CreateResourceRequest"
+            },
+            "data": {
+              "$ref": "#/definitions/CreateResourceRequest"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "ReadResourceRequest",
+          "properties": {
+            "type": {
+              "const": "ReadResourceRequest"
+            },
+            "data": {
+              "$ref": "#/definitions/ReadResourceRequest"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceRequest",
+          "properties": {
+            "type": {
+              "const": "UpdateResourceRequest"
+            },
+            "data": {
+              "$ref": "#/definitions/UpdateResourceRequest"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "DestroyResourceRequest",
+          "properties": {
+            "type": {
+              "const": "DestroyResourceRequest"
+            },
+            "data": {
+              "$ref": "#/definitions/DestroyResourceRequest"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEvent",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "type": {
+              "const": "StateResourceEvent"
+            },
+            "data": {
+              "$ref": "#/definitions/StateResourceEvent"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadRequest",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "type": {
+              "const": "StateResourceReadRequest"
+            },
+            "data": {
+              "$ref": "#/definitions/StateResourceReadRequest"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        }
+      ]
+    },
+    "Response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceResponse",
+          "properties": {
+            "type": {
+              "const": "CreateResourceResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/CreateResourceResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "ReadResourceResponse",
+          "properties": {
+            "type": {
+              "const": "ReadResourceResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/ReadResourceResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceResponse",
+          "properties": {
+            "type": {
+              "const": "UpdateResourceResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/UpdateResourceResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "DestroyResourceResponse",
+          "properties": {
+            "type": {
+              "const": "DestroyResourceResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/DestroyResourceResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEventResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "type": {
+              "const": "StateResourceEventResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/StateResourceEventResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "type": {
+              "const": "StateResourceReadResponse"
+            },
+            "data": {
+              "$ref": "#/definitions/StateResourceReadResponse"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
-    { "$ref": "#/definitions/CreateResourceRequest" },
-    { "$ref": "#/definitions/CreateResourceResponse" }
+    {
+      "$ref": "#/definitions/Request"
+    },
+    {
+      "$ref": "#/definitions/Response"
+    }
   ],
   "additionalProperties": false
 }

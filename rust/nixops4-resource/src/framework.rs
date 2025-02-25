@@ -5,8 +5,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use nix::unistd::{dup, dup2};
+use serde_json::json;
 
-use crate::schema::v0::{CreateResourceRequest, CreateResourceResponse};
+use crate::schema::v0::{self, CreateResourceRequest, CreateResourceResponse};
 
 pub trait ResourceProvider {
     fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse>;
@@ -26,7 +27,7 @@ pub fn run_main(provider: impl ResourceProvider) {
 
     let mut in_ = BufReader::new(pipe.in_);
 
-    let request = {
+    let request: v0::Request = {
         let mut line = String::new();
         in_.read_line(&mut line)
             .with_context(|| "Could not read line for request message")
@@ -36,14 +37,22 @@ pub fn run_main(provider: impl ResourceProvider) {
             .unwrap_or_exit()
     };
 
-    // Call the provider
-    let resp = provider
-        .create(request)
-        .with_context(|| "Could not create resource")
-        .unwrap_or_exit();
+    match request {
+        v0::Request::CreateResourceRequest(r) => {
+            let resp = provider
+                .create(r)
+                .with_context(|| "Could not create resource")
+                .unwrap_or_exit();
+            serde_json::to_writer(pipe.out, &v0::Response::CreateResourceResponse(resp)).unwrap();
+        }
+        v0::Request::ReadResourceRequest(r) => todo!(),
+        v0::Request::UpdateResourceRequest(r) => todo!(),
+        v0::Request::DestroyResourceRequest(r) => todo!(),
+        v0::Request::StateResourceEvent(r) => todo!(),
+        v0::Request::StateResourceReadRequest(r) => todo!(),
+    }
 
     // Write the response to the output
-    serde_json::to_writer(pipe.out, &resp).unwrap();
 }
 
 /// A pair of `T` values: one for input and one for output.

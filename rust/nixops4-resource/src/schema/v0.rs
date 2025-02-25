@@ -12,14 +12,15 @@ mod tests {
         assert_eq!(
             _value,
             CreateResourceRequest {
-                type_: "file".to_string(),
-                input_properties: serde_json::Map::from_iter(vec![
+                type_: ResourceType("file".to_string()),
+                input_properties: InputProperties(serde_json::Map::from_iter(vec![
                     ("path".to_string(), Value::String("pubkey.txt".to_string())),
                     (
                         "content".to_string(),
                         Value::String("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD".to_string())
                     ),
-                ]),
+                ])),
+                is_stateful: false,
             }
         );
     }

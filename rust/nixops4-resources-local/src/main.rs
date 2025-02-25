@@ -1,10 +1,16 @@
-use std::io::Write;
+mod state;
+
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 
 use anyhow::{bail, Context, Result};
 use nixops4_resource::framework::run_main;
 use nixops4_resource::{schema::v0::CreateResourceRequest, schema::v0::CreateResourceResponse};
 use serde::Deserialize;
 use serde_json::Value;
+use state::StateHandle;
+
+use crate::state::StateEventStream;
 
 struct LocalResourceProvider {}
 
@@ -29,6 +35,26 @@ struct ExecInProperties {
 struct ExecOutProperties {
     stdout: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct MemoInProperties {
+    initialize_with: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct MemoOutProperties {
+    value: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct StateFileInProperties {
+    name: String,
+}
+
+/// A state provider resource generally doesn't have outputs. Any access of the
+/// stored state would be out of sync with the current evaluation of the deployment.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct StateFileOutProperties {}
 
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse> {
@@ -82,6 +108,39 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     )
                 }
             }),
+            "state_file" => do_create(request, |p: StateFileInProperties| {
+                // Validate the first entry
+                let r = OpenOptions::new()
+                    .read(true)
+                    .write(false)
+                    .create(false)
+                    .open(&p.name);
+
+                match r {
+                    Ok(file) => {
+                        // Check the first event
+                        StateEventStream::open_from_reader(io::BufReader::new(file))?;
+                    }
+                    Err(e) => {
+                        // If the file doesn't exist, we can create it
+                        if e.kind() == io::ErrorKind::NotFound {
+                            StateHandle::open(&p.name, true)?;
+                        } else {
+                            bail!("Could not open state file: {}", e);
+                        }
+                    }
+                }
+
+                Ok(StateFileOutProperties {})
+            }),
+            "memo" => do_create(request, |p: MemoInProperties| {
+                // A stateful resource that is initialized upon creation and
+                // not modified afterwards, except perhaps through a manual
+                // operation or a migration of sorts
+                Ok(MemoOutProperties {
+                    value: p.initialize_with,
+                })
+            }),
             t => bail!(
                 "LocalResourceProvider::create: unknown resource type: {}",
                 t
@@ -95,7 +154,7 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     f: impl Fn(In) -> Result<Out>,
 ) -> std::prelude::v1::Result<CreateResourceResponse, anyhow::Error> {
     let parsed_properties: In = serde_json::from_value(Value::Object(
-        request.input_properties.into_iter().collect(),
+        request.input_properties.0.into_iter().collect(),
     ))
     .with_context(|| {
         format!(

@@ -193,12 +193,12 @@ pub(crate) fn apply(
                                             let provider_argv =
                                                 provider::parse_provider(&provider_info.provider)?;
                                             // Run the provider
-                                            let provider = ResourceProviderClient::new(
+                                            let mut provider = ResourceProviderClient::new(
                                                 ResourceProviderConfig {
                                                     provider_executable: provider_argv.executable,
                                                     provider_args: provider_argv.args,
                                                 },
-                                            );
+                                            )?;
                                             let outputs = provider
                                                 .create(
                                                     provider_info.resource_type.as_str(),
