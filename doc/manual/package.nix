@@ -61,6 +61,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
+    index = finalAttrs.passthru.html + "/index.html";
     /** To add to the project-wide dev shell */
     externalBuildTools = [
       mdbook
