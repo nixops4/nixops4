@@ -1,0 +1,21 @@
+- **create**: (resource provider interface) Realise a declared resource in the real world. This is an active operation that changes the real world.
+- **delete**: Ambiguous, avoid. Use **destroy** or **forget** instead.
+- **destroy**: Remove a real-world object from existence. For example, deleting a file from disk, or deleting a DNS entry.
+- **export**: Not defined. (The opposite of **import** is **forget**.)
+- **extract**: The process of taking application data out of a system or deployment. See the opposite, **ingest**, for details.
+- **forget**: Remove a reference to an object from a data structure, without affecting the object itself. Example: remove a resource from a state file, in order for it to be managed manually or by an application or another tool.
+- **import**: The process of adding an existing resource to a state file, without creating the resource in the real world. This is useful for managing resources that are created by other tools or by hand.
+- **ingest**: The process of bringing application data into a system or deployment, such as importing database dumps. The opposite of **extract**. Unlike a backup, the data is expected to be portable.
+- **migration**:
+  - *(NixOps)* The management of change that affects the structure of a deployment, such as renaming or moving a resource, or switching to a different resource provider.
+  - *(data)* See **ingest**, **extract**.
+  - *(infrastructure)* Examples:
+    - A *data* migration to a different deployment (possibly by a different party). See **extract**, **create**, **ingest**, **delete**.
+    - A partial *data* migration within a single deployment, which temporarily (**update**, twice) contains duplicate infrastructure
+- **read**:
+  - *(resource provider interface)* Retrieve the current state of a resource from the real world. This is a passive operation that does not change the real world. Unlike Terraform, NixOps assumes an IaC-first approach, and by default assumes that the state of a resource is always up-to-date, and does not need to be read. Reading is done as part of provider updates, monitoring, and manually as part of troubleshooting.
+- **run**:
+  - *(NixOps)* Execute a command on a deployment. This is a passive operation as far as NixOps is concerned, but the command definition may reference arbitrary resource information and perform operations on those resources.
+- **update**:
+  - *(resource provider interface)* Change the state of a resource in the real world to match the desired state. This is an active operation that changes the real world.
+  - *(software)* Change the deployment expression. Maybe or may not include a NixOps **migration**.
