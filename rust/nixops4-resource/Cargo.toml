@@ -3,6 +3,7 @@ name = "nixops4-resource"
 version = "0.1.0"
 description = "A library for the NixOps resource provider interface"
 edition = "2021"
+build = "build.rs"
 license = "LGPL-2.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
