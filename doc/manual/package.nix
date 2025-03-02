@@ -65,14 +65,7 @@ stdenv.mkDerivation (finalAttrs: {
     externalBuildTools = [
       mdbook
       mdbook-mermaid
-      (nixdoc.overrideAttrs (o: {
-        patches = o.patches ++ [
-          (fetchpatch2 {
-            url = "https://github.com/nix-community/nixdoc/commit/3fa0b18d885b5583c26ebd911f91dfa3d620f89b.diff";
-            hash = "sha256-/C8ubG/ufFE/GWVgLfUBR2IAx2NuWPt/9r+y2mFQpFo=";
-          })
-        ];
-      }))
+      nixdoc
       json-schema-for-humans
       jq
     ];
