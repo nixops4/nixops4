@@ -901,6 +901,7 @@ dependencies = [
  "schemafy",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

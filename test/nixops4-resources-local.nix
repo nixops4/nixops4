@@ -5,8 +5,6 @@
 , nixops4-resource-runner
 , nixops4-resources-local
 , runCommand
-, runtimeShell
-, writeScriptBin
 , die
 }:
 
@@ -64,6 +62,43 @@ runCommand
     )
     cat out.json
     [[ "" == "$(cat out.json)" ]]
+
+    # Test "memo" resource
+
+    (
+      set -x
+      # Create
+      in='{ "initialize_with": "123" }'
+      nixops4-resource-runner create --provider-exe nixops4-resources-local --type memo --inputs-json "$in" > out.json
+      cat out.json
+      jq -e '. == { value: "123" }' < out.json
+      prev_in="$in"
+      prev_out="$(cat out.json)"
+
+      # Update (no-op)
+      nixops4-resource-runner update --provider-exe nixops4-resources-local --type memo --inputs-json "$in" --previous-inputs-json "$prev_in" --previous-outputs-json "$prev_out" > out.json
+      cat out.json
+      jq -e '. == { value: "123" }' < out.json
+      prev_in="$in"
+      prev_out="$(cat out.json)"
+
+      # Update (ignored)
+      in='{ "initialize_with": "456" }'
+      nixops4-resource-runner update --provider-exe nixops4-resources-local --type memo --inputs-json "$in" --previous-inputs-json "$prev_in" --previous-outputs-json "$prev_out" > out.json
+      cat out.json
+      jq -e '. == { value: "123" }' < out.json
+      prev_in="$in"
+      prev_out="$(cat out.json)"
+
+      # Update (again, ignored)
+      # (this time the original *input* is completely lost)
+      in='{ "initialize_with": "789" }'
+      nixops4-resource-runner update --provider-exe nixops4-resources-local --type memo --inputs-json "$in" --previous-inputs-json "$prev_in" --previous-outputs-json "$prev_out" > out.json
+      cat out.json
+      jq -e '. == { value: "123" }' < out.json
+      prev_in="$in"
+      prev_out="$(cat out.json)"
+    )
 
     touch $out
   ''
