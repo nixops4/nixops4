@@ -5,8 +5,9 @@ use std::io::{self, Write};
 
 use anyhow::{bail, Context, Result};
 use nixops4_resource::framework::run_main;
+use nixops4_resource::schema::v0;
 use nixops4_resource::{schema::v0::CreateResourceRequest, schema::v0::CreateResourceResponse};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use state::StateHandle;
 
@@ -41,7 +42,7 @@ struct MemoInProperties {
     initialize_with: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct MemoOutProperties {
     value: Value,
 }
@@ -147,10 +148,149 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
             ),
         }
     }
+
+    fn read(&self, request: v0::ReadResourceRequest) -> Result<v0::ReadResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                // Note that it's not a terraform-style data source
+                todo!();
+            }
+            "exec" => {
+                // ??
+                todo!();
+            }
+            "state_file" => do_read(&request, |_p: StateFileInProperties| {
+                Ok(StateFileOutProperties {})
+            }),
+            "memo" => {
+                // TODO test
+                do_read(&request, |_p: MemoInProperties| {
+                    // let previous_input_properties = serde_json::from_value(Value::Object(
+                    //     request.resource.input_properties.into_iter().collect(),
+                    // ))
+                    let previous_output_properties = request.resource.output_properties.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("The read operation on a memo resource requires that the output properties are set")
+                    })?;
+                    let previous_output_properties: MemoOutProperties =
+                        serde_json::from_value(Value::Object(
+                            previous_output_properties
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
+                        ))
+                        .with_context(|| {
+                            format!(
+                                "Could not deserialize output properties for {} resource",
+                                request.resource.type_
+                            )
+                        })?;
+                    Ok(MemoOutProperties {
+                        value: previous_output_properties.value,
+                    })
+                })
+            }
+            t => bail!("LocalResourceProvider::read: unknown resource type: {}", t),
+        }
+    }
+
+    fn destroy(&self, request: v0::DestroyResourceRequest) -> Result<v0::DestroyResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                todo!();
+            }
+            "exec" => {
+                todo!();
+            }
+            "state_file" => {
+                todo!();
+            }
+            "memo" => {
+                todo!();
+            }
+            t => bail!(
+                "LocalResourceProvider::destroy: unknown resource type: {}",
+                t
+            ),
+        }
+    }
+
+    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                todo!();
+            }
+            "exec" => {
+                todo!();
+            }
+            "state_file" => {
+                todo!();
+            }
+            "memo" => {
+                do_update(&request, |_p: MemoInProperties| {
+                    // let previous_input_properties = serde_json::from_value(Value::Object(
+                    //     request.resource.input_properties.into_iter().collect(),
+                    // ))
+                    let previous_output_properties = request.resource.output_properties.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("The read operation on a memo resource requires that the output properties are set")
+                    })?;
+                    let previous_output_properties: MemoOutProperties =
+                        serde_json::from_value(Value::Object(
+                            previous_output_properties
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
+                        ))
+                        .with_context(|| {
+                            format!(
+                                "Could not deserialize output properties for {} resource",
+                                request.resource.type_
+                            )
+                        })?;
+                    Ok(MemoOutProperties {
+                        value: previous_output_properties.value,
+                    })
+                })
+            }
+            t => bail!(
+                "LocalResourceProvider::update: unknown resource type: {}",
+                t
+            ),
+        }
+    }
+
+    fn state_read(
+        &self,
+        request: v0::StateResourceReadRequest,
+    ) -> Result<v0::StateResourceReadResponse> {
+        match request.resource.type_.as_str() {
+            "state_file" => {
+                todo!();
+            },
+            t => bail!(
+                "LocalResourceProvider::state_read: not a state resource, or unknown resource type: {}",
+                t
+            ),
+        }
+    }
+
+    fn state_event(
+        &self,
+        request: v0::StateResourceEvent,
+    ) -> Result<v0::StateResourceEventResponse> {
+        match request.resource.type_.as_str() {
+            "state_file" => {
+                todo!();
+            },
+            t => bail!(
+                "LocalResourceProvider::state_read: not a state resource, or unknown resource type: {}",
+                t
+            ),
+        }
+    }
 }
 
 fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
-    request: CreateResourceRequest,
+    request: v0::CreateResourceRequest,
     f: impl Fn(In) -> Result<Out>,
 ) -> std::prelude::v1::Result<CreateResourceResponse, anyhow::Error> {
     let parsed_properties: In = serde_json::from_value(Value::Object(
@@ -177,6 +317,92 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     Ok(CreateResourceResponse {
         output_properties: out_properties,
     })
+}
+
+fn do_read<In: for<'de> Deserialize<'de>, Out: Serialize>(
+    request: &v0::ReadResourceRequest,
+    f: impl Fn(In) -> Result<Out>,
+) -> std::prelude::v1::Result<v0::ReadResourceResponse, anyhow::Error> {
+    let parsed_properties: In = serde_json::from_value(Value::Object(
+        (&request.resource.input_properties)
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
+    .with_context(|| {
+        format!(
+            "Could not deserialize input properties for {} resource",
+            request.resource.type_
+        )
+    })?;
+
+    let out = f(parsed_properties)?;
+
+    let out_value = serde_json::to_value(out)?;
+
+    let out_object = match out_value {
+        Value::Object(o) => o,
+        _ => bail!("Expected object as output"),
+    };
+
+    Ok(v0::ReadResourceResponse {
+        output_properties: v0::OutputProperties(out_object),
+    })
+}
+
+fn do_update<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
+    request: &v0::UpdateResourceRequest,
+    f: impl Fn(In) -> Result<Out>,
+) -> std::prelude::v1::Result<v0::UpdateResourceResponse, anyhow::Error> {
+    let parsed_properties: In = serde_json::from_value(Value::Object(
+        (&request.input_properties)
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
+    .with_context(|| {
+        format!(
+            "Could not deserialize input properties for {} resource",
+            request.resource.type_
+        )
+    })?;
+
+    let out = f(parsed_properties)?;
+
+    let out_value = serde_json::to_value(out)?;
+
+    let out_object = match out_value {
+        Value::Object(o) => o,
+        _ => bail!("Expected object as output"),
+    };
+
+    Ok(v0::UpdateResourceResponse {
+        output_properties: v0::OutputProperties(out_object),
+    })
+}
+
+fn do_destroy<In: for<'de> Deserialize<'de>>(
+    request: &v0::DestroyResourceRequest,
+    f: impl Fn(In) -> Result<()>,
+) -> std::prelude::v1::Result<v0::DestroyResourceResponse, anyhow::Error> {
+    let parsed_properties: In = serde_json::from_value(Value::Object(
+        request
+            .resource
+            .input_properties
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
+    .with_context(|| {
+        format!(
+            "Could not deserialize input properties for {} resource",
+            request.resource.type_
+        )
+    })?;
+
+    f(parsed_properties)?;
+
+    Ok(v0::DestroyResourceResponse {})
 }
 
 fn main() {

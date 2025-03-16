@@ -5,11 +5,8 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use nixops4_resource::schema::v0;
-use nixops4_resource::schema::v0::{
-    CreateResourceRequest, Request, Response,
-};
-use serde_json::{json, Value};
+use nixops4_resource::schema::v0::{self, CreateResourceRequest, Request, Response};
+use serde_json::Value;
 use tracing::warn;
 
 pub struct ResourceProviderConfig {
@@ -103,14 +100,60 @@ impl ResourceProviderClient {
         };
 
         // Write the request
-        self.write_request(v0::Request::CreateResourceRequest(
-            req,
-        ))?;
+        self.write_request(v0::Request::CreateResourceRequest(req))?;
 
         let response = self.read_response()?;
         match response {
             v0::Response::CreateResourceResponse(r) => Ok(r.output_properties),
-            _ => anyhow::bail!("Unexpected response from provider: {:?}", response),
+            _ => anyhow::bail!(
+                "Expected CreateResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        type_: &str,
+        inputs: &BTreeMap<String, Value>,
+        previous_inputs: &BTreeMap<String, Value>,
+        previous_outputs: &BTreeMap<String, Value>,
+    ) -> Result<BTreeMap<String, Value>> {
+        let res = v0::ExtantResource {
+            input_properties: v0::InputProperties(
+                previous_inputs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            ),
+            output_properties: Some(v0::OutputProperties(
+                previous_outputs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            )),
+            type_: v0::ResourceType(type_.to_string()),
+        };
+        let req = v0::UpdateResourceRequest {
+            input_properties: v0::InputProperties(
+                inputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            ),
+            resource: res,
+        };
+        // Write the request
+        self.write_request(v0::Request::UpdateResourceRequest(req))?;
+
+        let response = self.read_response()?;
+        match response {
+            v0::Response::UpdateResourceResponse(r) => Ok(r
+                .output_properties
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()),
+            _ => anyhow::bail!(
+                "Expected UpdateResourceResponse from provider but got: {:?}",
+                response
+            ),
         }
     }
 }

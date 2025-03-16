@@ -902,6 +902,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn",
+ "tracing",
  "typify",
 ]
 

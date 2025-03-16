@@ -226,64 +226,48 @@
           "type": "object",
           "title": "CreateResourceRequest",
           "properties": {
-            "type": {
-              "const": "CreateResourceRequest"
-            },
-            "data": {
+            "createResourceRequest": {
               "$ref": "#/definitions/CreateResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "createResourceRequest"
           ]
         },
         {
           "type": "object",
           "title": "ReadResourceRequest",
           "properties": {
-            "type": {
-              "const": "ReadResourceRequest"
-            },
-            "data": {
+            "readResourceRequest": {
               "$ref": "#/definitions/ReadResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "readResourceRequest"
           ]
         },
         {
           "type": "object",
           "title": "UpdateResourceRequest",
           "properties": {
-            "type": {
-              "const": "UpdateResourceRequest"
-            },
-            "data": {
+            "updateResourceRequest": {
               "$ref": "#/definitions/UpdateResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "updateResourceRequest"
           ]
         },
         {
           "type": "object",
           "title": "DestroyResourceRequest",
           "properties": {
-            "type": {
-              "const": "DestroyResourceRequest"
-            },
-            "data": {
+            "destroyResourceRequest": {
               "$ref": "#/definitions/DestroyResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "destroyResourceRequest"
           ]
         },
         {
@@ -291,16 +275,12 @@
           "title": "StateResourceEvent",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceEvent"
-            },
-            "data": {
+            "stateResourceEvent": {
               "$ref": "#/definitions/StateResourceEvent"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceEvent"
           ]
         },
         {
@@ -308,16 +288,12 @@
           "title": "StateResourceReadRequest",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceReadRequest"
-            },
-            "data": {
+            "stateResourceReadRequest": {
               "$ref": "#/definitions/StateResourceReadRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceReadRequest"
           ]
         }
       ]
@@ -328,64 +304,48 @@
           "type": "object",
           "title": "CreateResourceResponse",
           "properties": {
-            "type": {
-              "const": "CreateResourceResponse"
-            },
-            "data": {
+            "createResourceResponse": {
               "$ref": "#/definitions/CreateResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "createResourceResponse"
           ]
         },
         {
           "type": "object",
           "title": "ReadResourceResponse",
           "properties": {
-            "type": {
-              "const": "ReadResourceResponse"
-            },
-            "data": {
+            "readResourceResponse": {
               "$ref": "#/definitions/ReadResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "readResourceResponse"
           ]
         },
         {
           "type": "object",
           "title": "UpdateResourceResponse",
           "properties": {
-            "type": {
-              "const": "UpdateResourceResponse"
-            },
-            "data": {
+            "updateResourceResponse": {
               "$ref": "#/definitions/UpdateResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "updateResourceResponse"
           ]
         },
         {
           "type": "object",
           "title": "DestroyResourceResponse",
           "properties": {
-            "type": {
-              "const": "DestroyResourceResponse"
-            },
-            "data": {
+            "destroyResourceResponse": {
               "$ref": "#/definitions/DestroyResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "destroyResourceResponse"
           ]
         },
         {
@@ -393,16 +353,12 @@
           "title": "StateResourceEventResponse",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceEventResponse"
-            },
-            "data": {
+            "stateResourceEventResponse": {
               "$ref": "#/definitions/StateResourceEventResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceEventResponse"
           ]
         },
         {
@@ -410,16 +366,12 @@
           "title": "StateResourceReadResponse",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceReadResponse"
-            },
-            "data": {
+            "stateResourceReadResponse": {
               "$ref": "#/definitions/StateResourceReadResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceReadResponse"
           ]
         }
       ]
