@@ -227,16 +227,12 @@
           "title": "CreateResourceRequest",
           "id": "CreateResourceRequestEnvelope",
           "properties": {
-            "type": {
-              "const": "CreateResourceRequest"
-            },
-            "data": {
+            "createResourceRequest": {
               "$ref": "#/definitions/CreateResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "createResourceRequest"
           ]
         },
         {
@@ -244,16 +240,12 @@
           "title": "ReadResourceRequest",
           "id": "ReadResourceRequestEnvelope",
           "properties": {
-            "type": {
-              "const": "ReadResourceRequest"
-            },
-            "data": {
+            "readResourceRequest": {
               "$ref": "#/definitions/ReadResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "readResourceRequest"
           ]
         },
         {
@@ -261,16 +253,12 @@
           "title": "UpdateResourceRequest",
           "id": "UpdateResourceRequestEnvelope",
           "properties": {
-            "type": {
-              "const": "UpdateResourceRequest"
-            },
-            "data": {
+            "updateResourceRequest": {
               "$ref": "#/definitions/UpdateResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "updateResourceRequest"
           ]
         },
         {
@@ -278,16 +266,12 @@
           "title": "DestroyResourceRequest",
           "id": "DestroyResourceRequestEnvelope",
           "properties": {
-            "type": {
-              "const": "DestroyResourceRequest"
-            },
-            "data": {
+            "destroyResourceRequest": {
               "$ref": "#/definitions/DestroyResourceRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "destroyResourceRequest"
           ]
         },
         {
@@ -296,16 +280,12 @@
           "id": "StateResourceEventEnvelope",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceEvent"
-            },
-            "data": {
+            "stateResourceEvent": {
               "$ref": "#/definitions/StateResourceEvent"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceEvent"
           ]
         },
         {
@@ -314,16 +294,12 @@
           "id": "StateResourceReadRequestEnvelope",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceReadRequest"
-            },
-            "data": {
+            "stateResourceReadRequest": {
               "$ref": "#/definitions/StateResourceReadRequest"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceReadRequest"
           ]
         }
       ]
@@ -335,16 +311,12 @@
           "title": "CreateResourceResponse",
           "id": "CreateResourceResponseEnvelope",
           "properties": {
-            "type": {
-              "const": "CreateResourceResponse"
-            },
-            "data": {
+            "createResourceResponse": {
               "$ref": "#/definitions/CreateResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "createResourceResponse"
           ]
         },
         {
@@ -352,16 +324,12 @@
           "title": "ReadResourceResponse",
           "id": "ReadResourceResponseEnvelope",
           "properties": {
-            "type": {
-              "const": "ReadResourceResponse"
-            },
-            "data": {
+            "readResourceResponse": {
               "$ref": "#/definitions/ReadResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "readResourceResponse"
           ]
         },
         {
@@ -369,16 +337,12 @@
           "title": "UpdateResourceResponse",
           "id": "UpdateResourceResponseEnvelope",
           "properties": {
-            "type": {
-              "const": "UpdateResourceResponse"
-            },
-            "data": {
+            "updateResourceResponse": {
               "$ref": "#/definitions/UpdateResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "updateResourceResponse"
           ]
         },
         {
@@ -386,16 +350,12 @@
           "title": "DestroyResourceResponse",
           "id": "DestroyResourceResponseEnvelope",
           "properties": {
-            "type": {
-              "const": "DestroyResourceResponse"
-            },
-            "data": {
+            "destroyResourceResponse": {
               "$ref": "#/definitions/DestroyResourceResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "destroyResourceResponse"
           ]
         },
         {
@@ -404,16 +364,12 @@
           "id": "StateResourceEventResponseEnvelope",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceEventResponse"
-            },
-            "data": {
+            "stateResourceEventResponse": {
               "$ref": "#/definitions/StateResourceEventResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceEventResponse"
           ]
         },
         {
@@ -422,16 +378,12 @@
           "id": "StateResourceReadResponseEnvelope",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
-            "type": {
-              "const": "StateResourceReadResponse"
-            },
-            "data": {
+            "stateResourceReadResponse": {
               "$ref": "#/definitions/StateResourceReadResponse"
             }
           },
           "required": [
-            "type",
-            "data"
+            "stateResourceReadResponse"
           ]
         }
       ]
