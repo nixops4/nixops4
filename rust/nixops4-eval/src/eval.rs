@@ -60,7 +60,6 @@ impl EvaluationDriver {
         Box::pin(async { Ok(()) })
     }
 
-    // https://github.com/NixOS/nix/issues/10435
     fn get_flake(&mut self, flakeref_str: &str) -> Result<Value> {
         let get_flake = self
             .eval_state
