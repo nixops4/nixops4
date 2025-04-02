@@ -147,6 +147,9 @@ impl EvalStateBuilder {
             context,
         })
     }
+    pub fn raw_ptr(&self) -> *mut raw::eval_state_builder {
+        self.eval_state_builder
+    }
 }
 
 pub struct EvalState {

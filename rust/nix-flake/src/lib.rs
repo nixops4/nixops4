@@ -18,9 +18,31 @@ impl FlakeSettings {
         let s = unsafe { context::check_call!(raw::flake_settings_new(&mut ctx)) }?;
         Ok(FlakeSettings { ptr: s })
     }
-    pub fn init_globally(&mut self) -> Result<()> {
+    fn add_to_eval_state_builder(
+        &self,
+        builder: &mut nix_expr::eval_state::EvalStateBuilder,
+    ) -> Result<()> {
         let mut ctx = Context::new();
-        unsafe { context::check_call!(raw::flake_init_global(&mut ctx, self.ptr)) }?;
+        unsafe {
+            context::check_call!(raw::flake_settings_add_to_eval_state_builder(
+                &mut ctx,
+                self.ptr,
+                builder.raw_ptr()
+            ))
+        }?;
         Ok(())
+    }
+}
+
+pub trait EvalStateBuilderExt {
+    fn flakes(self, settings: &FlakeSettings) -> Result<nix_expr::eval_state::EvalStateBuilder>;
+}
+impl EvalStateBuilderExt for nix_expr::eval_state::EvalStateBuilder {
+    fn flakes(
+        mut self,
+        settings: &FlakeSettings,
+    ) -> Result<nix_expr::eval_state::EvalStateBuilder> {
+        settings.add_to_eval_state_builder(&mut self)?;
+        Ok(self)
     }
 }
