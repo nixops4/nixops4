@@ -716,7 +716,6 @@ dependencies = [
  "ctrlc",
  "nix",
  "nixops4-core",
- "nixops4-eval",
  "nixops4-resource",
  "nixops4-resource-runner",
  "ratatui",
