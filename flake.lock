@@ -170,16 +170,16 @@
         "nixpkgs-regression": "nixpkgs-regression"
       },
       "locked": {
-        "lastModified": 1743546210,
-        "narHash": "sha256-/YsfAN3uBmP29krurNlLxs3fIdwDSG21kqeKWzQlm9Q=",
-        "owner": "NixOS",
+        "lastModified": 1743611382,
+        "narHash": "sha256-Q/6yj/2AdyGhiecmaS7Tz2+HV81Pty+ifolnf2NC06U=",
+        "owner": "roberth",
         "repo": "nix",
-        "rev": "cf409fd250db6e8e07d80b9871bceb5defdaf6e1",
+        "rev": "8c903e0402f24f1bf1c215f2650979c369f51847",
         "type": "github"
       },
       "original": {
-        "owner": "NixOS",
-        "ref": "master",
+        "owner": "roberth",
+        "ref": "c-api-libflake-override-input",
         "repo": "nix",
         "type": "github"
       }
