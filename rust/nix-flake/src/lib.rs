@@ -46,3 +46,38 @@ impl EvalStateBuilderExt for nix_expr::eval_state::EvalStateBuilder {
         Ok(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use nix_expr::eval_state::{gc_register_my_thread, EvalStateBuilder};
+    use nix_store::store::Store;
+
+    use super::*;
+
+    fn init() {
+        nix_util::settings::set("experimental-features", "flakes").unwrap();
+    }
+
+    #[test]
+    fn flake_settings_getflake_exists() {
+        init();
+        let gc_registration = gc_register_my_thread();
+        let store = Store::open(None, []).unwrap();
+        let mut eval_state = EvalStateBuilder::new(store)
+            .unwrap()
+            .flakes(&FlakeSettings::new().unwrap())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let v = eval_state
+            .eval_from_string("builtins?getFlake", "<test>")
+            .unwrap();
+
+        let b = eval_state.require_bool(&v).unwrap();
+
+        assert_eq!(b, true);
+
+        drop(gc_registration);
+    }
+}
