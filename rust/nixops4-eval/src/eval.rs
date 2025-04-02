@@ -433,7 +433,9 @@ mod tests {
 
     use super::*;
     use ctor::ctor;
-    use nix_expr::eval_state::{gc_register_my_thread, EvalState};
+    use nix_expr::eval_state::{gc_register_my_thread, EvalState, EvalStateBuilder};
+    use nix_flake::EvalStateBuilderExt as _;
+    use nix_flake::FlakeSettings;
     use nix_store::store::Store;
     use nixops4_core::eval_api::{
         AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
@@ -463,19 +465,21 @@ mod tests {
     #[ctor]
     fn setup() {
         nix_util::settings::set("experimental-features", "flakes").unwrap();
-        nix_flake::FlakeSettings::new()
-            .unwrap()
-            .init_globally()
-            .unwrap();
         nix_expr::eval_state::test_init();
+    }
+
+    fn new_eval_state() -> Result<EvalState> {
+        let store = Store::open(None, [])?;
+        EvalStateBuilder::new(store)?
+            .flakes(&FlakeSettings::new()?)?
+            .build()
     }
 
     #[test]
     fn test_eval_driver_invalid_flakeref() {
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open(None, [])?;
-            let eval_state = EvalState::new(store, [])?;
+            let eval_state = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
@@ -547,8 +551,7 @@ mod tests {
 
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open(None, [])?;
-            let eval_state = EvalState::new(store, [])?;
+            let eval_state = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
@@ -626,8 +629,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open(None, []).unwrap();
-            let eval_state = EvalState::new(store, []).unwrap();
+            let eval_state = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
@@ -690,8 +692,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open(None, []).unwrap();
-            let eval_state = EvalState::new(store, []).unwrap();
+            let eval_state = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
@@ -785,8 +786,7 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let store = Store::open(None, []).unwrap();
-            let eval_state = EvalState::new(store, []).unwrap();
+            let eval_state = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),

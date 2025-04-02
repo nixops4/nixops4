@@ -1,5 +1,6 @@
 use anyhow::Result;
-use nix_expr::eval_state::{self, gc_register_my_thread, EvalState};
+use nix_expr::eval_state::{self, gc_register_my_thread, EvalStateBuilder};
+use nix_flake::EvalStateBuilderExt as _;
 use nix_store::store::Store;
 use std::process::exit;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -113,7 +114,7 @@ async fn async_main() -> Result<()> {
 
     let local: tokio::task::LocalSet = tokio::task::LocalSet::new();
 
-    nix_flake::FlakeSettings::new()?.init_globally()?;
+    let flake_settings = nix_flake::FlakeSettings::new()?;
 
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");
@@ -121,7 +122,9 @@ async fn async_main() -> Result<()> {
             eval_state::init()?;
             let gc_guard = gc_register_my_thread()?;
             let store = Store::open(None, [])?;
-            let eval_state = EvalState::new(store, [])?;
+            let eval_state = EvalStateBuilder::new(store)?
+                .flakes(&flake_settings)?
+                .build()?;
             let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
             loop {
                 while let Ok(request) = high_prio_rx.try_recv() {

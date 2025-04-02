@@ -14,7 +14,7 @@ license = "LGPL-2.1"
 anyhow = "1.0.79"
 nixops4-core = { path = "../nixops4-core" }
 # runtime dependency
-nixops4-eval = { path = "../nixops4-eval" }
+# nixops4-eval = { path = "../nixops4-eval" }
 nixops4-resource = { path = "../nixops4-resource" }
 nixops4-resource-runner = { path = "../nixops4-resource-runner" }
 clap = "4.5.4"
