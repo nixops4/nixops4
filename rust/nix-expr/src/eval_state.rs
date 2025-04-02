@@ -78,6 +78,76 @@ impl Drop for EvalStateRef {
         }
     }
 }
+pub struct EvalStateBuilder {
+    eval_state_builder: *mut raw::eval_state_builder,
+    lookup_path: Vec<CString>,
+    store: Store,
+}
+impl Drop for EvalStateBuilder {
+    fn drop(&mut self) {
+        unsafe {
+            raw::eval_state_builder_free(self.eval_state_builder);
+        }
+    }
+}
+impl EvalStateBuilder {
+    pub fn new(store: Store) -> Result<EvalStateBuilder> {
+        let mut context = Context::new();
+        let eval_state_builder =
+            unsafe { check_call!(raw::eval_state_builder_new(&mut context, store.raw_ptr())) }?;
+        Ok(EvalStateBuilder {
+            store,
+            eval_state_builder,
+            lookup_path: Vec::new(),
+        })
+    }
+    pub fn lookup_path<'a>(mut self, path: impl IntoIterator<Item = &'a str>) -> Result<Self> {
+        let lookup_path: Vec<CString> = path
+            .into_iter()
+            .map(|path| {
+                CString::new(path).with_context(|| {
+                    format!("EvalStateBuilder::lookup_path: path `{path}` contains null byte")
+                })
+            })
+            .collect::<Result<_>>()?;
+        self.lookup_path = lookup_path;
+        Ok(self)
+    }
+    pub fn build(&self) -> Result<EvalState> {
+        // Make sure the library is initialized
+        init()?;
+
+        let mut context = Context::new();
+
+        // Note: these raw C string pointers borrow from self.lookup_path
+        let mut lookup_path: Vec<*const c_char> = self
+            .lookup_path
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(std::iter::once(null())) // signal the end of the array
+            .collect();
+
+        unsafe {
+            check_call!(raw::eval_state_builder_set_lookup_path(
+                &mut context,
+                self.eval_state_builder,
+                lookup_path.as_mut_ptr()
+            ))?;
+        }
+
+        let eval_state =
+            unsafe { check_call!(raw::eval_state_build(&mut context, self.eval_state_builder)) }?;
+        Ok(EvalState {
+            eval_state: Arc::new(EvalStateRef {
+                eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
+                    panic!("nix_state_create returned a null pointer without an error")
+                }),
+            }),
+            store: self.store.clone(),
+            context,
+        })
+    }
+}
 
 pub struct EvalState {
     eval_state: Arc<EvalStateRef>,
@@ -85,45 +155,11 @@ pub struct EvalState {
     pub(crate) context: Context,
 }
 impl EvalState {
+    /// For more options, use [EvalStateBuilder].
     pub fn new<'a>(store: Store, lookup_path: impl IntoIterator<Item = &'a str>) -> Result<Self> {
-        let mut context = Context::new();
-
-        // this intermediate value must be here and must not be moved
-        // because it owns the data the `*const c_char` pointers point to.
-        let lookup_path: Vec<CString> = lookup_path
-            .into_iter()
-            .map(|path| {
-                CString::new(path).with_context(|| {
-                    format!("EvalState::new: lookup_path `{path}` contains null byte")
-                })
-            })
-            .collect::<Result<_>>()?;
-
-        // this intermediate value owns the data the `*mut *const c_char` pointer points to.
-        let mut lookup_path: Vec<*const c_char> = lookup_path
-            .iter()
-            .map(|s| s.as_ptr())
-            .chain(std::iter::once(null())) // signal the end of the array
-            .collect();
-
-        init()?;
-
-        let eval_state = unsafe {
-            check_call!(raw::state_create(
-                &mut context,
-                lookup_path.as_mut_ptr(),
-                store.raw_ptr()
-            ))
-        }?;
-        Ok(EvalState {
-            eval_state: Arc::new(EvalStateRef {
-                eval_state: NonNull::new(eval_state).unwrap_or_else(|| {
-                    panic!("nix_state_create returned a null pointer without an error")
-                }),
-            }),
-            store,
-            context,
-        })
+        EvalStateBuilder::new(store)?
+            .lookup_path(lookup_path)?
+            .build()
     }
 
     /// # Safety
