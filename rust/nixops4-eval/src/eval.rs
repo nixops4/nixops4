@@ -25,16 +25,25 @@ pub trait Respond {
 
 pub struct EvaluationDriver {
     eval_state: EvalState,
+    fetch_settings: nix_fetchers::FetchersSettings,
+    flake_settings: nix_flake::FlakeSettings,
     values: HashMap<IdNum, Value>,
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
     resource_names: HashMap<Id<ResourceType>, String>,
 }
 impl EvaluationDriver {
-    pub fn new(eval_state: EvalState, respond: Box<dyn Respond>) -> EvaluationDriver {
+    pub fn new(
+        eval_state: EvalState,
+        fetch_settings: nix_fetchers::FetchersSettings,
+        flake_settings: nix_flake::FlakeSettings,
+        respond: Box<dyn Respond>,
+    ) -> EvaluationDriver {
         EvaluationDriver {
             values: HashMap::new(),
             eval_state,
+            fetch_settings,
+            flake_settings,
             respond,
             known_outputs: Arc::new(Mutex::new(HashMap::new())),
             resource_names: HashMap::new(),
@@ -60,22 +69,64 @@ impl EvaluationDriver {
         Box::pin(async { Ok(()) })
     }
 
-    fn get_flake(&mut self, flakeref_str: &str) -> Result<Value> {
-        let get_flake = self
-            .eval_state
-            .eval_from_string("builtins.getFlake", "<nixops4-eval setup>")?;
-        // TODO: replace with native functionality through C API, see issue #10435, linked above
+    fn get_flake(
+        &mut self,
+        flakeref_str: &str,
+        input_overrides: &Vec<(String, String)>,
+    ) -> Result<Value> {
+        let mut parse_flags = nix_flake::FlakeReferenceParseFlags::new(&self.flake_settings)?;
 
-        // Avoid copying everything, including target/ and .git/ directories.
-        // Check for a .git directory in the path.
-        let flakeref_str = if std::path::Path::new(flakeref_str).join(".git").exists() {
-            format!("git+file://{}", flakeref_str)
-        } else {
-            flakeref_str.to_string()
-        };
+        let cwd = std::env::current_dir()
+            .map_err(|e| anyhow::anyhow!("failed to get current directory: {}", e))?;
+        let cwd = cwd
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("failed to convert current directory to string"))?;
+        parse_flags.set_base_directory(cwd)?;
 
-        let flakeref = self.eval_state.new_value_str(flakeref_str.as_str())?;
-        self.eval_state.call(get_flake, flakeref)
+        let parse_flags = parse_flags;
+
+        let mut lock_flags = nix_flake::FlakeLockFlags::new(&self.flake_settings)?;
+        lock_flags.set_mode_write_as_needed()?;
+        for (override_path, override_ref_str) in input_overrides {
+            let (override_ref, fragment) = nix_flake::FlakeReference::parse_with_fragment(
+                &self.fetch_settings,
+                &self.flake_settings,
+                &parse_flags,
+                override_ref_str,
+            )?;
+            if fragment != "" {
+                bail!(
+                    "input override {} has unexpected fragment: {}",
+                    override_path,
+                    fragment
+                );
+            }
+            lock_flags.add_input_override(override_path, &override_ref)?;
+        }
+        let lock_flags = lock_flags;
+
+        let (flakeref, fragment) = nix_flake::FlakeReference::parse_with_fragment(
+            &self.fetch_settings,
+            &self.flake_settings,
+            &parse_flags,
+            flakeref_str,
+        )?;
+        if fragment != "" {
+            bail!(
+                "flake reference {} has unexpected fragment: {}",
+                flakeref_str,
+                fragment
+            );
+        }
+        let flake = nix_flake::LockedFlake::lock(
+            &self.fetch_settings,
+            &self.flake_settings,
+            &self.eval_state,
+            &lock_flags,
+            &flakeref,
+        )?;
+
+        flake.outputs(&self.flake_settings, &mut self.eval_state)
     }
 
     /// Helper function that helps with error handling and saving the result.
@@ -144,7 +195,7 @@ impl EvaluationDriver {
             EvalRequest::LoadFlake(req) => {
                 self.handle_assign_request(
                     req,
-                    |this, req| this.get_flake(req.abspath.as_str()),
+                    |this, req| this.get_flake(req.abspath.as_str(), &req.input_overrides),
                     EvaluationDriver::assign_value,
                 )
                 .await
@@ -433,6 +484,7 @@ mod tests {
     use super::*;
     use ctor::ctor;
     use nix_expr::eval_state::{gc_register_my_thread, EvalState, EvalStateBuilder};
+    use nix_fetchers::FetchersSettings;
     use nix_flake::EvalStateBuilderExt as _;
     use nix_flake::FlakeSettings;
     use nix_store::store::Store;
@@ -467,26 +519,31 @@ mod tests {
         nix_expr::eval_state::test_init();
     }
 
-    fn new_eval_state() -> Result<EvalState> {
+    fn new_eval_state() -> Result<(EvalState, FetchersSettings, FlakeSettings)> {
+        let fetch_settings = FetchersSettings::new()?;
+        let flake_settings = FlakeSettings::new()?;
         let store = Store::open(None, [])?;
-        EvalStateBuilder::new(store)?
-            .flakes(&FlakeSettings::new()?)?
-            .build()
+        let eval_state = EvalStateBuilder::new(store)?
+            .flakes(&flake_settings)?
+            .build()?;
+        Ok((eval_state, fetch_settings, flake_settings))
     }
 
     #[test]
     fn test_eval_driver_invalid_flakeref() {
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let eval_state = new_eval_state()?;
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
             });
-            let mut driver = EvaluationDriver::new(eval_state, respond);
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
             let flake_request = FlakeRequest {
                 abspath: "/non-existent/path/to/flake".to_string(),
+                input_overrides: Vec::new(),
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
@@ -550,15 +607,17 @@ mod tests {
 
         (|| -> Result<()> {
             let guard = gc_register_my_thread().unwrap();
-            let eval_state = new_eval_state()?;
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
             });
-            let mut driver = EvaluationDriver::new(eval_state, respond);
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
             let flake_request = FlakeRequest {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
@@ -628,15 +687,17 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let eval_state = new_eval_state().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
             });
-            let mut driver = EvaluationDriver::new(eval_state, respond);
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
             let flake_request = FlakeRequest {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
@@ -691,15 +752,17 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let eval_state = new_eval_state().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
             });
-            let mut driver = EvaluationDriver::new(eval_state, respond);
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
             let flake_request = FlakeRequest {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();
@@ -785,15 +848,17 @@ mod tests {
 
         {
             let guard = gc_register_my_thread().unwrap();
-            let eval_state = new_eval_state().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
             let respond = Box::new(TestRespond {
                 responses: responses.clone(),
             });
-            let mut driver = EvaluationDriver::new(eval_state, respond);
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
             let flake_request = FlakeRequest {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
             };
             let mut ids = Ids::new();
             let flake_id = ids.next();

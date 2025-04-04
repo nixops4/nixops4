@@ -14,6 +14,7 @@ use nixops4_core::eval_api::{
 pub(crate) struct Options {
     pub(crate) verbose: bool,
     pub(crate) show_trace: bool,
+    pub(crate) flake_input_overrides: Vec<(String, String)>,
 }
 
 pub struct EvalClient<'a> {

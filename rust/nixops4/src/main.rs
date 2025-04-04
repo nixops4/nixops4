@@ -99,6 +99,11 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
     eval_client::Options {
         verbose: options.verbose,
         show_trace: options.show_trace,
+        flake_input_overrides: options
+            .override_input
+            .chunks(2)
+            .map(|pair| (pair[0].to_string(), pair[1].to_string()))
+            .collect(),
     }
 }
 
@@ -107,7 +112,8 @@ fn with_flake<T>(
     options: &Options,
     f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>,
 ) -> Result<T> {
-    EvalClient::with(&to_eval_options(options), |mut c| {
+    let options = to_eval_options(options);
+    EvalClient::with(&options, |mut c| {
         let flake_id = c.next_id();
         // TODO: use better file path string type more
         let cwd = std::env::current_dir()
@@ -116,7 +122,10 @@ fn with_flake<T>(
             .to_string();
         c.send(&EvalRequest::LoadFlake(AssignRequest {
             assign_to: flake_id,
-            payload: FlakeRequest { abspath: cwd },
+            payload: FlakeRequest {
+                abspath: cwd,
+                input_overrides: options.flake_input_overrides.clone(),
+            },
         }))?;
         f(&mut c, flake_id)
     })
@@ -177,6 +186,11 @@ struct Options {
 
     #[arg(long, global = true, default_value_t = false)]
     show_trace: bool,
+
+    /// Temporarily change a flake input
+    // will be post-processed to pair them up
+    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
+    override_input: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]

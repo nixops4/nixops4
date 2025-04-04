@@ -115,6 +115,7 @@ async fn async_main() -> Result<()> {
     let local: tokio::task::LocalSet = tokio::task::LocalSet::new();
 
     let flake_settings = nix_flake::FlakeSettings::new()?;
+    let fetch_settings = nix_fetchers::FetchersSettings::new()?;
 
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");
@@ -125,7 +126,12 @@ async fn async_main() -> Result<()> {
             let eval_state = EvalStateBuilder::new(store)?
                 .flakes(&flake_settings)?
                 .build()?;
-            let mut driver = eval::EvaluationDriver::new(eval_state, Box::new(session));
+            let mut driver = eval::EvaluationDriver::new(
+                eval_state,
+                fetch_settings,
+                flake_settings,
+                Box::new(session),
+            );
             loop {
                 while let Ok(request) = high_prio_rx.try_recv() {
                     let ed = span.enter();
