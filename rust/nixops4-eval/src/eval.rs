@@ -658,7 +658,7 @@ mod tests {
                         _id,
                         QueryResponseValue::ListDeployments((id, names)),
                     ) => {
-                        eprintln!("id: {:?}, names: {:?}", id, names);
+                        // eprintln!("id: {:?}, names: {:?}", id, names);
                         assert_eq!(id, &flake_id);
                         assert_eq!(names.len(), 0);
                     }
@@ -796,7 +796,7 @@ mod tests {
                         _id,
                         QueryResponseValue::ListDeployments((id, names)),
                     ) => {
-                        eprintln!("id: {:?}, names: {:?}", id, names);
+                        // eprintln!("id: {:?}, names: {:?}", id, names);
                         assert_eq!(id, &flake_id);
                         assert_eq!(names.len(), 2);
                         assert_eq!(names[0], "a");
