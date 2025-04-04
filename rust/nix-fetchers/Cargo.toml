@@ -1,5 +1,5 @@
 [package]
-name = "nix-flake"
+name = "nix-fetchers"
 version = "0.1.0"
 edition = "2021"
 license = "LGPL-2.1"
@@ -9,12 +9,9 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0.79"
-nix-expr = { path = "../nix-expr" }
-nix-fetchers = { path = "../nix-fetchers" }
 nix-store = { path = "../nix-store" }
 nix-util = { path = "../nix-util" }
 nix-c-raw = { path = "../nix-c-raw" }
-lazy_static = "1.4.0"
 ctor = "0.2.7"
 tempfile = "3.10.1"
 cstr = "0.2.12"

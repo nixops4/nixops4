@@ -668,6 +668,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix-fetchers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cstr",
+ "ctor",
+ "nix-c-raw",
+ "nix-store",
+ "nix-util",
+ "tempfile",
+]
+
+[[package]]
 name = "nix-flake"
 version = "0.1.0"
 dependencies = [
@@ -677,6 +690,7 @@ dependencies = [
  "lazy_static",
  "nix-c-raw",
  "nix-expr",
+ "nix-fetchers",
  "nix-store",
  "nix-util",
  "tempfile",
@@ -746,6 +760,7 @@ dependencies = [
  "ctor",
  "ctrlc",
  "nix-expr",
+ "nix-fetchers",
  "nix-flake",
  "nix-store",
  "nix-util",
