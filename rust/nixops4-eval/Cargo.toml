@@ -13,6 +13,7 @@ license = "LGPL-2.1"
 [dependencies]
 nixops4-core = { path = "../nixops4-core" }
 nix-expr = { path = "../nix-expr" }
+nix-fetchers = { path = "../nix-fetchers" }
 nix-flake = { path = "../nix-flake" }
 nix-store = { path = "../nix-store" }
 nix-util = { path = "../nix-util" }
