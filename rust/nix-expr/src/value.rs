@@ -1,3 +1,5 @@
+pub mod __private;
+
 use nix_c_raw as raw;
 use nix_util::{check_call, context::Context};
 use std::ptr::{null_mut, NonNull};

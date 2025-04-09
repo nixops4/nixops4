@@ -255,6 +255,14 @@ impl EvalState {
         unsafe { check_call!(raw::get_int(&mut self.context, v.raw_ptr())) }
     }
 
+    pub fn require_bool(&mut self, v: &Value) -> Result<bool> {
+        let t = self.value_type(v)?;
+        if t != ValueType::Bool {
+            bail!("expected a bool, but got a {:?}", t);
+        }
+        unsafe { check_call!(raw::get_bool(&mut self.context, v.raw_ptr())) }
+    }
+
     /// Evaluate, and require that the value is an attrset.
     /// Returns a list of the keys in the attrset.
     ///
@@ -813,6 +821,13 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type_unforced(&v);
             assert!(t == Some(ValueType::Bool));
+            let b = es.require_bool(&v).unwrap();
+            assert!(b);
+
+            let v = es.eval_from_string("false", "<test>").unwrap();
+            es.require_bool(&v).unwrap();
+            let b = es.require_bool(&v).unwrap();
+            assert!(!b);
         })
         .unwrap();
     }
@@ -844,6 +859,22 @@ mod tests {
             assert!(t == None);
             let i = es.require_int(&v).unwrap();
             assert!(i == 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_bool_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let f = es.eval_from_string("x: !x", "<test>").unwrap();
+            let a = es.eval_from_string("true", "<test>").unwrap();
+            let v = es.new_value_apply(&f, &a).unwrap();
+            let t = es.value_type_unforced(&v);
+            assert!(t == None);
+            let i = es.require_bool(&v).unwrap();
+            assert!(i == false);
         })
         .unwrap();
     }

@@ -195,6 +195,7 @@ pub struct Property {
 pub struct FlakeRequest {
     /// The path to the flake to load.
     pub abspath: String,
+    pub input_overrides: Vec<(String, String)>,
 }
 impl RequestIdType for FlakeRequest {
     type IdType = FlakeType;
@@ -286,6 +287,7 @@ mod tests {
             assign_to: Id::new(1),
             payload: FlakeRequest {
                 abspath: "/path/to/flake".to_string(),
+                input_overrides: Vec::new(),
             },
         });
         let s = eval_request_to_json(&req).unwrap();
