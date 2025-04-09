@@ -10,6 +10,7 @@ use nix_util::{
     string_return::{callback_get_result_string, callback_get_result_string_data},
 };
 
+/// Store settings for the flakes feature.
 pub struct FlakeSettings {
     pub(crate) ptr: *mut raw::flake_settings,
 }
@@ -43,9 +44,11 @@ impl FlakeSettings {
 }
 
 pub trait EvalStateBuilderExt {
+    /// Configures the eval state to provide flakes features such as `builtins.getFlake`.
     fn flakes(self, settings: &FlakeSettings) -> Result<nix_expr::eval_state::EvalStateBuilder>;
 }
 impl EvalStateBuilderExt for nix_expr::eval_state::EvalStateBuilder {
+    /// Configures the eval state to provide flakes features such as `builtins.getFlake`.
     fn flakes(
         mut self,
         settings: &FlakeSettings,
@@ -55,6 +58,7 @@ impl EvalStateBuilderExt for nix_expr::eval_state::EvalStateBuilder {
     }
 }
 
+/// Parameters for parsing a flake reference.
 pub struct FlakeReferenceParseFlags {
     pub(crate) ptr: NonNull<raw::flake_reference_parse_flags>,
 }
@@ -75,6 +79,8 @@ impl FlakeReferenceParseFlags {
             .context("flake_reference_parse_flags_new unexpectedly returned null")?;
         Ok(FlakeReferenceParseFlags { ptr })
     }
+    /// Sets the [base directory](https://nix.dev/manual/nix/latest/glossary#gloss-base-directory)
+    /// for resolving local flake references.
     pub fn set_base_directory(&mut self, base_directory: &str) -> Result<()> {
         let mut ctx = Context::new();
         unsafe {
@@ -100,6 +106,10 @@ impl Drop for FlakeReference {
     }
 }
 impl FlakeReference {
+    /// Parse a flake reference from a string.
+    /// The string must be a valid flake reference, such as `github:owner/repo`.
+    /// It may also be suffixed with a `#` and a fragment, such as `github:owner/repo#something`,
+    /// in which case, the returned string will contain the fragment.
     pub fn parse_with_fragment(
         fetch_settings: &FetchersSettings,
         flake_settings: &FlakeSettings,
@@ -129,6 +139,7 @@ impl FlakeReference {
     }
 }
 
+/// Parameters that affect the locking of a flake.
 pub struct FlakeLockFlags {
     pub(crate) ptr: *mut raw::flake_lock_flags,
 }
@@ -145,6 +156,7 @@ impl FlakeLockFlags {
         let s = unsafe { context::check_call!(raw::flake_lock_flags_new(&mut ctx, settings.ptr)) }?;
         Ok(FlakeLockFlags { ptr: s })
     }
+    /// Configures [LockedFlake::lock] to make incremental changes to the lock file as needed. Changes are written to file.
     pub fn set_mode_write_as_needed(&mut self) -> Result<()> {
         let mut ctx = Context::new();
         unsafe {
@@ -154,11 +166,13 @@ impl FlakeLockFlags {
         }?;
         Ok(())
     }
+    /// Make [LockedFlake::lock] check if the lock file is up to date. If not, an error is returned.
     pub fn set_mode_check(&mut self) -> Result<()> {
         let mut ctx = Context::new();
         unsafe { context::check_call!(raw::flake_lock_flags_set_mode_check(&mut ctx, self.ptr)) }?;
         Ok(())
     }
+    /// Like `set_mode_write_as_needed`, but does not write to the lock file.
     pub fn set_mode_virtual(&mut self) -> Result<()> {
         let mut ctx = Context::new();
         unsafe {
@@ -166,6 +180,7 @@ impl FlakeLockFlags {
         }?;
         Ok(())
     }
+    /// Adds an input override to the lock file that will be produced. The [LockedFlake::lock] operation will not write to the lock file.
     pub fn add_input_override(
         &mut self,
         override_path: &str,
@@ -219,6 +234,7 @@ impl LockedFlake {
         Ok(LockedFlake { ptr })
     }
 
+    /// Returns the outputs of the flake - the result of calling the `outputs` attribute.
     pub fn outputs(
         &self,
         flake_settings: &FlakeSettings,
