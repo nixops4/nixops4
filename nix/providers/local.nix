@@ -52,5 +52,30 @@ in
         };
       };
     };
+    memo = {
+      requireState = true;
+      inputs = {
+        options = {
+          initialize_with = mkOption {
+            # TODO: types.json?
+            type = types.anything;
+            description = ''
+              The initial value of the memo.
+              The memo is _not_ updated if this value changes in later versions of your deployment expression.
+            '';
+          };
+        };
+      };
+      outputs = {
+        options = {
+          value = mkOption {
+            type = types.anything;
+            description = ''
+              The value of the memo, which is the value of the `initialize_with` input *when the memo was created*.
+            '';
+          };
+        };
+      };
+    };
   };
 }
