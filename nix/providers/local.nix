@@ -11,6 +11,7 @@ in
       "${config.packages.nixops4-resources-local-release}/bin/nixops4-resources-local"
     );
   resourceTypes = {
+    requireState = false;
     file = {
       inputs = {
         options = {
@@ -27,6 +28,7 @@ in
       };
     };
     exec = {
+      requireState = false;
       inputs = {
         options = {
           executable = mkOption {
