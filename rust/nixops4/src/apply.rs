@@ -7,8 +7,9 @@ use crate::{interrupt::InterruptState, provider};
 use crate::{with_flake, Options};
 use anyhow::{bail, Context, Result};
 use nixops4_core::eval_api::{
-    AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, Id, NamedProperty, Property,
-    QueryRequest, QueryResponseValue, ResourceInputState, ResourceRequest, ResourceType,
+    AssignRequest, Dependency, DependencyById, DeploymentRequest, EvalRequest, EvalResponse, Id,
+    NamedProperty, Property, QueryRequest, QueryResponseValue, ResourceInputState, ResourceRequest,
+    ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
@@ -71,7 +72,7 @@ pub(crate) fn apply(
             resource_ids.iter().map(|(k, v)| (*v, k.clone())).collect();
         let resource_ids_clone = resource_ids.clone();
         // key: blocking property, value: blocked properties
-        let resources_blocked: Mutex<BTreeMap<Property, BTreeSet<Property>>> =
+        let resources_blocked: Mutex<BTreeMap<DependencyById, BTreeSet<Property>>> =
             Mutex::new(BTreeMap::new());
         let resources_outputs: Mutex<BTreeMap<Id<ResourceType>, serde_json::Map<String, Value>>> =
             Mutex::new(BTreeMap::new());
@@ -254,7 +255,7 @@ pub(crate) fn apply(
                                                                 name: k.clone(),
                                                             };
                                                             resources_blocked
-                                                                .get(&blocker_property)
+                                                                .get(&DependencyById::ResourceOutput { property: blocker_property })
                                                                 .unwrap_or(&BTreeSet::new())
                                                                 .clone()
                                                         })
@@ -280,7 +281,7 @@ pub(crate) fn apply(
                                 let resource_output_opt = {
                                     let resources_outputs = resources_outputs.lock().unwrap();
                                     let resource_id =
-                                        resource_ids.get(&dep.dependency.resource).unwrap();
+                                        resource_ids.get(dep.dependency.resource_name()).unwrap();
                                     resources_outputs.get(resource_id).cloned()
                                 };
                                 match resource_output_opt {
@@ -301,13 +302,26 @@ pub(crate) fn apply(
                                     None => {
                                         let mut resources_blocked =
                                             resources_blocked.lock().unwrap();
-                                        let dependency =
-                                            resource_ids.get(&dep.dependency.resource).unwrap();
+                                        let dependency_resource = resource_ids
+                                            .get(dep.dependency.resource_name())
+                                            .unwrap();
+                                        let dependency = match &dep.dependency {
+                                            Dependency::ResourceOutput { property } => {
+                                                DependencyById::ResourceOutput {
+                                                    property: Property {
+                                                        resource: *dependency_resource,
+                                                        name: property.name.clone(),
+                                                    }
+                                                }
+                                            },
+                                            Dependency::State{ resource: _ } => {
+                                                DependencyById::State {
+                                                    resource: *dependency_resource,
+                                                }
+                                            },
+                                        };
                                         resources_blocked
-                                            .entry(Property {
-                                                resource: *dependency,
-                                                name: dep.dependency.name.clone(),
-                                            })
+                                            .entry(dependency)
                                             .or_default()
                                             .insert(dep.dependent.clone());
                                     }

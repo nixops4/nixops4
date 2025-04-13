@@ -10,8 +10,8 @@ use nix_expr::{
     value::Value,
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
-    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    AssignRequest, Dependency, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty,
+    QueryRequest, QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
     ResourceProviderInfo, ResourceType,
 };
 use std::sync::{Arc, Mutex};
@@ -447,7 +447,9 @@ fn perform_get_resource_input(
                 Ok(ResourceInputState::ResourceInputDependency(
                     ResourceInputDependency {
                         dependent: req.to_owned(),
-                        dependency: named_property,
+                        dependency: Dependency::ResourceOutput {
+                            property: named_property,
+                        },
                     },
                 ))
             } else {
