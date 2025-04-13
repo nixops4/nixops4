@@ -41,6 +41,12 @@ in
         The type of resource to create. Most resource providers will have some fixed set of resource types.
       '';
     };
+    requireState = mkOption {
+      type = types.bool;
+      description = ''
+        Whether the resource requires state to be stored.
+      '';
+    };
     inputs = mkOption {
       type = types.submodule { };
       description = ''
