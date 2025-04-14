@@ -10,7 +10,20 @@ use tokio::task::JoinHandle;
 
 mod eval;
 
+/// A stack size that should be large enough for Nix evaluation.
+const THREADSTACKSIZE: usize = 64 * 1024 * 1024;
+
 fn main() {
+    // Create a new thread with known good stack size, to be used for Nix evaluation.
+    let handle = std::thread::Builder::new()
+        .name("evaluator".to_string())
+        .stack_size(THREADSTACKSIZE)
+        .spawn(main2)
+        .expect("failed to spawn main evaluator thread with new stack size");
+    handle.join().expect("failed to join evaluator thread");
+}
+
+fn main2() {
     // Be friendly to the user if they try to run this.
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 || args[1] != "<subprocess>" {
@@ -27,7 +40,11 @@ fn main() {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("no4-e-tokio")
+            .thread_stack_size(THREADSTACKSIZE)
             .build()?;
+        // MultiThread.block_on:
+        // > The future will execute on the current thread, but all spawned tasks
+        // > will be executed on the thread pool.
         runtime.block_on(async_main())?;
         Ok(())
     })())
