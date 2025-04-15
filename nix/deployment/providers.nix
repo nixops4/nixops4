@@ -65,7 +65,15 @@ in
   config = {
     _module.args.providers = lib.mapAttrs
       (name: provider:
-        provider.resourceTypes
+        lib.mapAttrs
+          (k: v:
+            # Set the _type, so that an accidental use in `imports` gets caught
+            # and reported in a comprehensible way.
+            v // {
+              /** A NixOps4 Resource Type can be used in the resource `type` option. */
+              _type = "nixops4ResourceType";
+            })
+          provider.resourceTypes
       )
       config.providers;
   };
