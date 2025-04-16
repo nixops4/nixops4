@@ -17,12 +17,11 @@ pub(crate) struct Options {
     pub(crate) flake_input_overrides: Vec<(String, String)>,
 }
 
-pub struct EvalClient<'a> {
+pub struct EvalClient {
     options: Options,
 
-    response_bufreader: &'a mut std::io::BufReader<&'a mut ChildStdout>,
-    // Reference with the liftime of the process
-    command_handle: &'a mut std::process::ChildStdin,
+    response_bufreader: std::io::BufReader<ChildStdout>,
+    command_handle: std::process::ChildStdin,
     tracing_event_receiver: tracing_tunnel::TracingEventReceiver,
 
     ids: Ids,
@@ -30,7 +29,7 @@ pub struct EvalClient<'a> {
     resources: HashMap<Id<DeploymentType>, Vec<String>>,
     errors: HashMap<IdNum, String>,
 }
-impl<'a> EvalClient<'a> {
+impl EvalClient {
     pub fn with<T>(options: &Options, f: impl FnOnce(EvalClient) -> Result<T>) -> Result<T> {
         let exe = std::env::var("_NIXOPS4_EVAL").unwrap_or("nixops4-eval".to_string());
         let mut nix_config = std::env::var("NIX_CONFIG").unwrap_or("".to_string());
@@ -49,21 +48,12 @@ impl<'a> EvalClient<'a> {
             eprintln!("started nixops4-eval process: {}", process.id());
         }
 
-        let mut response_bufreader;
-        let command_handle;
-
-        {
-            let process_mut = &mut process;
-            response_bufreader = std::io::BufReader::new(process_mut.stdout.as_mut().unwrap());
-            command_handle = process_mut.stdin.as_mut().unwrap();
-        }
-
         let r;
         {
-            let c: EvalClient<'_> = EvalClient {
+            let c: EvalClient = EvalClient {
                 options: options.clone(),
-                response_bufreader: &mut response_bufreader,
-                command_handle,
+                response_bufreader: std::io::BufReader::new(process.stdout.take().unwrap()),
+                command_handle: process.stdin.take().unwrap(),
                 tracing_event_receiver: tracing_tunnel::TracingEventReceiver::default(),
                 ids: Ids::new(),
                 deployments: HashMap::new(),
@@ -118,7 +108,7 @@ impl<'a> EvalClient<'a> {
     }
     pub fn receive_until<T>(
         &mut self,
-        cond: impl Fn(&mut EvalClient<'a>, &EvalResponse) -> Result<Option<T>>,
+        cond: impl Fn(&mut EvalClient, &EvalResponse) -> Result<Option<T>>,
     ) -> Result<T> {
         loop {
             let response = self.receive()?;

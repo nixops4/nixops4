@@ -26,7 +26,7 @@ pub(crate) fn apply(
     options: &Options, /* global options; apply options tbd, extra param */
     args: &Args,
 ) -> Result<()> {
-    with_flake(options, |c, flake_id| {
+    with_flake(options, |mut c, flake_id| {
         let deployment_id = c.next_id();
         c.send(&EvalRequest::LoadDeployment(AssignRequest {
             assign_to: deployment_id,
