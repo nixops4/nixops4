@@ -110,7 +110,7 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
 /// Convenience function that sets up an evaluator with a flake, asynchronously with regard to evaluation.
 fn with_flake<T>(
     options: &Options,
-    f: impl FnOnce(&mut EvalClient, Id<FlakeType>) -> Result<T>,
+    f: impl FnOnce(EvalClient, Id<FlakeType>) -> Result<T>,
 ) -> Result<T> {
     let options = to_eval_options(options);
     EvalClient::with(&options, |mut c| {
@@ -127,12 +127,12 @@ fn with_flake<T>(
                 input_overrides: options.flake_input_overrides.clone(),
             },
         }))?;
-        f(&mut c, flake_id)
+        f(c, flake_id)
     })
 }
 
 fn deployments_list(options: &Options) -> Result<Vec<String>> {
-    with_flake(options, |c, flake_id| {
+    with_flake(options, |mut c, flake_id| {
         let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
         let deployments = c.receive_until(|client, _resp| {
             client.check_error(flake_id)?;
