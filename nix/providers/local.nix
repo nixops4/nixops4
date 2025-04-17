@@ -27,6 +27,19 @@ in
         options = { };
       };
     };
+    state_file = {
+      requireState = false;
+      inputs = {
+        options = {
+          name = mkOption {
+            type = types.str;
+          };
+        };
+      };
+      outputs = {
+        options = { };
+      };
+    };
     exec = {
       requireState = false;
       inputs = {
