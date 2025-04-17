@@ -19,6 +19,7 @@ let
       provider.args = config.type.provider.args;
       resourceType = config.type.type;
       outputsSkeleton = config.type.outputsSkeleton;
+      requireState = config.type.requireState;
       inputs = { ... }: { imports = [ config.type.inputs ]; };
       outputs = { ... }: { imports = [ config.type.outputs ]; };
     };
