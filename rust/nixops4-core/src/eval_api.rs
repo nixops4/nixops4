@@ -177,6 +177,7 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
