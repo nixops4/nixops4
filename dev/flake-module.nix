@@ -84,6 +84,7 @@
       shellHook = ''
         ${config.pre-commit.installationScript}
         source ${../rust/bindgen-gcc.sh}
+        source ${../rust/artifact-shell.sh}
         echo 1>&2 "Welcome to the development shell!"
       '';
       # rust-analyzer needs a NIX_PATH for some reason
