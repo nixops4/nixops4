@@ -545,7 +545,7 @@ mod tests {
                 abspath: "/non-existent/path/to/flake".to_string(),
                 input_overrides: Vec::new(),
             };
-            let mut ids = Ids::new();
+            let ids = Ids::new();
             let flake_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
@@ -619,7 +619,7 @@ mod tests {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
                 input_overrides: Vec::new(),
             };
-            let mut ids = Ids::new();
+            let ids = Ids::new();
             let flake_id = ids.next();
             let deployments_id = ids.next();
             let assign_request = AssignRequest {
@@ -699,7 +699,7 @@ mod tests {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
                 input_overrides: Vec::new(),
             };
-            let mut ids = Ids::new();
+            let ids = Ids::new();
             let flake_id = ids.next();
             let deployments_id = ids.next();
             let assign_request = AssignRequest {
@@ -764,7 +764,7 @@ mod tests {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
                 input_overrides: Vec::new(),
             };
-            let mut ids = Ids::new();
+            let ids = Ids::new();
             let flake_id = ids.next();
             let deployments_id = ids.next();
             let assign_request = AssignRequest {
@@ -860,7 +860,7 @@ mod tests {
                 abspath: tmpdir.path().to_str().unwrap().to_string(),
                 input_overrides: Vec::new(),
             };
-            let mut ids = Ids::new();
+            let ids = Ids::new();
             let flake_id = ids.next();
             let deployment_id = ids.next();
             let assign_request = AssignRequest {
