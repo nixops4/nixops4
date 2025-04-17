@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use nix::unistd::{dup, dup2};
-use serde_json::json;
 use tracing;
 
 use crate::schema::v0::{self};
