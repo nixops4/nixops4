@@ -186,7 +186,7 @@ pub struct ResourceInputDependency {
     pub dependency: Dependency,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Dependency {
     ResourceOutput { property: NamedProperty },
     State { resource: String },
@@ -206,7 +206,7 @@ impl Dependency {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
     pub resource: String,
     pub name: String,
