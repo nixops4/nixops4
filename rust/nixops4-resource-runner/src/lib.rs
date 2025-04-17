@@ -1,13 +1,15 @@
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, BufWriter, Write},
-    process,
-};
-
 use anyhow::{Context, Result};
-use nixops4_resource::schema::v0::{self, CreateResourceRequest, Request, Response};
+
+use nixops4_resource::schema::v0;
 use serde_json::Value;
 use tracing::warn;
+
+use std::{collections::BTreeMap, process::ExitStatus};
+
+use tokio::{
+    io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, BufWriter},
+    process,
+};
 
 pub struct ResourceProviderConfig {
     pub provider_executable: String,
@@ -15,16 +17,14 @@ pub struct ResourceProviderConfig {
 }
 
 pub struct ResourceProviderClient {
-    provider_config: ResourceProviderConfig,
     process: process::Child,
     child_reader: BufReader<process::ChildStdout>,
     /// None: close stdin to let the provider shut down
     child_writer: Option<BufWriter<process::ChildStdin>>,
 }
-
 impl ResourceProviderClient {
-    pub fn new(provider_config: ResourceProviderConfig) -> Result<Self> {
-        let mut process = std::process::Command::new(provider_config.provider_executable.clone())
+    pub async fn new(provider_config: ResourceProviderConfig) -> Result<Self> {
+        let mut process = process::Command::new(provider_config.provider_executable.clone())
             .args(provider_config.provider_args.clone())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -36,34 +36,39 @@ impl ResourceProviderClient {
                     provider_config.provider_executable
                 )
             })?;
-        let child_reader = std::io::BufReader::new(process.stdout.take().unwrap());
-        let child_writer = std::io::BufWriter::new(process.stdin.take().unwrap());
+        let child_reader = BufReader::new(process.stdout.take().unwrap());
+        let child_writer = BufWriter::new(process.stdin.take().unwrap());
         Ok(ResourceProviderClient {
-            provider_config,
             process,
             child_reader,
             child_writer: Some(child_writer),
         })
     }
-
+    pub async fn close_wait(&mut self) -> Result<ExitStatus> {
+        // Close stdin to let the provider shut down
+        let _ = self.child_writer.take();
+        // Wait for the process to finish
+        self.process
+            .wait()
+            .await
+            .context("waiting for provider process to finish")
+    }
     fn get_writer(&mut self) -> Result<&mut BufWriter<process::ChildStdin>> {
         self.child_writer.as_mut().ok_or_else(|| {
             anyhow::anyhow!("Can not write to provider while provider is shutting down.")
         })
     }
-
-    fn write_request(&mut self, req: Request) -> Result<()> {
+    async fn write_request(&mut self, req: v0::Request) -> Result<()> {
         let stdin_str = serde_json::to_string(&req).unwrap();
         let writer = self.get_writer()?;
-        writer.write_all(stdin_str.as_bytes()).unwrap();
-        writer.write_all(b"\n").unwrap();
-        writer.flush().unwrap();
+        writer.write_all(stdin_str.as_bytes()).await.unwrap();
+        writer.write_all(b"\n").await.unwrap();
+        writer.flush().await.unwrap();
         Ok(())
     }
-
-    fn read_response(&mut self) -> Result<Response> {
+    async fn read_response(&mut self) -> Result<v0::Response> {
         let mut response = String::new();
-        let n = self.child_reader.read_line(&mut response);
+        let n = self.child_reader.read_line(&mut response).await;
         match n {
             Err(e) => {
                 anyhow::bail!("Error reading from provider process: {}", e);
@@ -74,7 +79,7 @@ impl ResourceProviderClient {
                 warn!("Provider process did not return any output");
 
                 // Wait for the process to finish
-                let r = self.process.wait()?;
+                let r = self.process.wait().await?;
 
                 if r.success() {
                     anyhow::bail!("Provider process did not return any output");
@@ -85,13 +90,12 @@ impl ResourceProviderClient {
             Ok(_) => Ok(serde_json::from_str(&response)?),
         }
     }
-
-    pub fn create(
+    pub async fn create(
         &mut self,
         type_: &str,
         inputs: &serde_json::Map<String, Value>,
     ) -> Result<serde_json::Map<String, Value>> {
-        let req = CreateResourceRequest {
+        let req = v0::CreateResourceRequest {
             input_properties: v0::InputProperties(
                 inputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             ),
@@ -100,9 +104,10 @@ impl ResourceProviderClient {
         };
 
         // Write the request
-        self.write_request(v0::Request::CreateResourceRequest(req))?;
+        self.write_request(v0::Request::CreateResourceRequest(req))
+            .await?;
 
-        let response = self.read_response()?;
+        let response = self.read_response().await?;
         match response {
             v0::Response::CreateResourceResponse(r) => Ok(r.output_properties),
             _ => anyhow::bail!(
@@ -112,7 +117,7 @@ impl ResourceProviderClient {
         }
     }
 
-    pub fn update(
+    pub async fn update(
         &mut self,
         type_: &str,
         inputs: &BTreeMap<String, Value>,
@@ -141,9 +146,10 @@ impl ResourceProviderClient {
             resource: res,
         };
         // Write the request
-        self.write_request(v0::Request::UpdateResourceRequest(req))?;
+        self.write_request(v0::Request::UpdateResourceRequest(req))
+            .await?;
 
-        let response = self.read_response()?;
+        let response = self.read_response().await?;
         match response {
             v0::Response::UpdateResourceResponse(r) => Ok(r
                 .output_properties
@@ -154,17 +160,6 @@ impl ResourceProviderClient {
                 "Expected UpdateResourceResponse from provider but got: {:?}",
                 response
             ),
-        }
-    }
-}
-impl Drop for ResourceProviderClient {
-    fn drop(&mut self) {
-        // Close stdin to let the provider shut down
-        drop(self.child_writer.take());
-        // Wait for the process to finish
-        let r = self.process.wait().unwrap();
-        if !r.success() {
-            warn!("Provider process failed with exit code: {}", r);
         }
     }
 }

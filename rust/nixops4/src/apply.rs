@@ -1,19 +1,27 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Mutex,
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    sync::{Arc, Mutex},
 };
 
-use crate::{interrupt::InterruptState, provider};
-use crate::{with_flake, Options};
+use crate::Options;
+use crate::{
+    bob::{self, Thunk},
+    eval_client::EvalSender,
+    interrupt::InterruptState,
+    provider, to_eval_options,
+};
 use anyhow::{bail, Context, Result};
+use async_trait::async_trait;
 use nixops4_core::eval_api::{
-    AssignRequest, Dependency, DependencyById, DeploymentRequest, EvalRequest, EvalResponse, Id,
-    NamedProperty, Property, QueryRequest, QueryResponseValue, ResourceInputState, ResourceRequest,
-    ResourceType,
+    self, AssignRequest, DeploymentRequest, DeploymentType, EvalRequest, EvalResponse,
+    FlakeRequest, Id, IdNum, NamedProperty, Property, QueryResponseValue, ResourceInputState,
+    ResourceRequest, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
+use pubsub_rs::Pubsub;
 use serde_json::Value;
-use tracing::info_span;
+use tracing::{info_span, Instrument as _};
 
 #[derive(clap::Parser, Debug)]
 pub(crate) struct Args {
@@ -21,366 +29,612 @@ pub(crate) struct Args {
     deployment: String,
 }
 
-/// Run the `apply` command.
-pub(crate) fn apply(
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Goal {
+    Apply(),
+    ListResources(),
+    GetResourceProviderInfo(Id<ResourceType>, String),
+    ListResourceInputs(Id<ResourceType>, String),
+    GetResourceInputValue(Id<ResourceType>, String, String),
+    // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
+    GetResourceOutputValue(Id<ResourceType>, String, String),
+    ApplyResource(Id<ResourceType>, String),
+}
+impl Display for Goal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: use a proper display
+        // write!(f, "[{:?}]", self)
+        match self {
+            Goal::Apply() => write!(f, "Apply deployment"),
+            Goal::ListResources() => write!(f, "List resources"),
+            Goal::GetResourceProviderInfo(_, name) => {
+                write!(f, "Get resource provider info for {}", name)
+            }
+            Goal::ListResourceInputs(_, name) => {
+                write!(f, "List resource inputs for {}", name)
+            }
+            Goal::GetResourceInputValue(_, name, input) => {
+                write!(
+                    f,
+                    "Get resource input value for resource {} input {}",
+                    name, input
+                )
+            }
+            Goal::GetResourceOutputValue(_, name, property) => {
+                write!(
+                    f,
+                    "Get resource output value from resource {} property {}",
+                    name, property
+                )
+            }
+            Goal::ApplyResource(_, name) => {
+                write!(f, "Apply resource {}", name)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Outcome {
+    Done(),
+    ResourcesListed(Vec<String>),
+    ResourceProviderInfo(eval_api::ResourceProviderInfo),
+    ResourceInputsListed(Vec<String>),
+    ResourceInputValue(Value),
+    ResourceOutputValue, /*Value ignored because passed eagerly before ResourceOutputs, a dependency of this.*/
+    ResourceOutputs(serde_json::Map<String, Value>),
+}
+struct ApplyState {
+    resource_ids: BTreeMap<String, Id<ResourceType>>,
+}
+struct ApplyContext {
+    options: crate::Options,
+    eval_sender: EvalSender,
+    deployment_id: Id<DeploymentType>,
+    interrupt_state: InterruptState,
+    state: Mutex<ApplyState>,
+    pub id_subscriptions: Pubsub<IdNum, EvalResponse>,
+}
+impl ApplyContext {}
+fn clone_result<T: Clone>(r: &Result<T>) -> Result<T> {
+    match r {
+        Ok(v) => Ok(v.clone()),
+        Err(e) => bail!("{}", e),
+    }
+}
+
+#[async_trait]
+impl bob::BobClosure for ApplyContext {
+    type Output = Result<Outcome>;
+
+    type Key = Goal;
+
+    async fn work(&self, context: bob::BobContext<Self>, key: Self::Key) -> Self::Output {
+        let closure = context.closure();
+
+        let r = match key {
+            Goal::ListResources() => {
+                (async {
+                    let msg_id = closure.eval_sender.next_id();
+                    let rx = closure.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+                    self.eval_sender
+                        .query(msg_id, EvalRequest::ListResources, closure.deployment_id)
+                        .await?;
+
+                    loop {
+                        let (_id, r) = rx
+                            .recv()
+                            .await
+                            .context("waiting for ListResources response")?;
+                        match r {
+                            EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                            EvalResponse::QueryResponse(_id, query_response_value) => {
+                                match query_response_value {
+                                    QueryResponseValue::ListResources((_dt, resource_names)) => {
+                                        break Ok(Outcome::ResourcesListed(resource_names))
+                                    }
+                                    _ => bail!(
+                                        "Unexpected response to ListResources, {:?}",
+                                        query_response_value
+                                    ),
+                                }
+                            }
+                            EvalResponse::TracingEvent(_) => {}
+                        }
+                    }
+                })
+                .instrument(info_span!("Listing resources"))
+                .await
+            }
+            Goal::ListResourceInputs(id, name) => {
+                (async {
+                    let msg_id = closure.eval_sender.next_id();
+                    let rx = closure.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+                    self.eval_sender
+                        .query(msg_id, EvalRequest::ListResourceInputs, id)
+                        .await?;
+
+                    loop {
+                        let (_id, r) = rx
+                            .recv()
+                            .await
+                            .context("waiting for ListResourceInputs response")?;
+                        match r {
+                            EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                            EvalResponse::QueryResponse(_id, query_response_value) => {
+                                match query_response_value {
+                                    QueryResponseValue::ListResourceInputs((_id, input_names)) => {
+                                        break Ok(Outcome::ResourceInputsListed(input_names))
+                                    }
+                                    _ => bail!(
+                                        "Unexpected response to ListResourceInputs, {:?}",
+                                        query_response_value
+                                    ),
+                                }
+                            }
+                            EvalResponse::TracingEvent(_) => {}
+                        }
+                    }
+                })
+                .instrument(info_span!("Listing resource inputs", resource = name))
+                .await
+            }
+            Goal::GetResourceInputValue(id, resource_name, input_name) => {
+                let resource_name_2 = resource_name.clone();
+                let input_name_2 = input_name.clone();
+                (async {
+                    let msg_id = closure.eval_sender.next_id();
+                    let rx = closure.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+                    loop {
+                        self.eval_sender
+                        .query(
+                            msg_id,
+                            EvalRequest::GetResourceInput,
+                            Property {
+                                resource: id,
+                                name: input_name.clone(),
+                            },
+                        )
+                        .await?;
+
+                        let (_id, r) = rx
+                            .recv()
+                            .await
+                            .context("waiting for GetResourceInputValue response")?;
+                        match r {
+                            EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                            EvalResponse::QueryResponse(_id, query_response_value) => {
+                                match query_response_value {
+                                    QueryResponseValue::ResourceInputState((_, state)) => {
+                                        match state {
+                                            ResourceInputState::ResourceInputValue((_, value)) => {
+                                                break Ok(Outcome::ResourceInputValue(value))
+                                            }
+                                            ResourceInputState::ResourceInputDependency(x) => {
+                                                let dep_id = closure.state.lock().unwrap().resource_ids
+                                                        .get(x.dependency.resource_name())
+                                                        .unwrap().clone();
+                                                if let Some(property) = x.dependency.property_name() {
+                                                    let r = context.require(Goal::GetResourceOutputValue(
+                                                        dep_id,
+                                                        x.dependency.resource_name().clone(),
+                                                        property.clone(),
+                                                    )).await.map_err(|e| {
+                                                        anyhow::anyhow!(
+                                                            "Dependency cycle detected while getting resource input value: {}",
+                                                            e
+                                                        )
+                                                    })?;
+                                                    let _ = clone_result(r.as_ref())?;
+                                                    // Ignore output value, because ApplyResource already pushes all its outputs eagerly.
+                                                    // Just let it loop back and let it try to evaluate the requested input again
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => bail!(
+                                        "Unexpected response to GetResourceInputValue, {:?}",
+                                        query_response_value
+                                    ),
+                                }
+                            }
+                            EvalResponse::TracingEvent(_) => {}
+                        }
+                    }
+                })
+                .instrument(info_span!(
+                    "Getting resource input value",
+                    resource = resource_name_2,
+                    input = input_name_2
+                ))
+                .await
+            }
+            Goal::GetResourceOutputValue(id, name, property) => {
+                let name_2 = name.clone();
+                let property_2 = property.clone();
+                (async move {
+                    // Apply the resource
+                    let r = context
+                        .require(Goal::ApplyResource(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while getting resource output value: {}",
+                                e
+                            )
+                        })?;
+                    let outcome = clone_result(r.as_ref())?;
+                    match outcome {
+                        Outcome::ResourceOutputs(outputs) => {
+                            if let Some(_value) = outputs.get(&property) {
+                                Ok(Outcome::ResourceOutputValue)
+                            } else {
+                                bail!("Resource {} does not have output {}", name, property)
+                            }
+                        }
+                        _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+                    }
+                })
+                .instrument(info_span!(
+                    "Getting resource output value",
+                    resource = name_2,
+                    property = property_2
+                ))
+                .await
+            }
+            Goal::ApplyResource(id, name) => {
+                let name_2 = name.clone();
+                let context = context.clone();
+                (async move {
+                    let provider_info_thunk = context
+                        .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+
+                    let resource_inputs_list_id = context
+                        .spawn(Goal::ListResourceInputs(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+
+                    let inputs_list = {
+                        let outcome = clone_result(resource_inputs_list_id.force().await.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceInputsListed(i) => i,
+                            _ => {
+                                panic!("Unexpected outcome from ListResourceInputs: {:?}", outcome)
+                            }
+                        }
+                    };
+
+                    let mut inputs_thunks = HashMap::new();
+                    for input_name in inputs_list {
+                        let input_id = context
+                            .spawn(Goal::GetResourceInputValue(
+                                id,
+                                name.clone(),
+                                input_name.clone(),
+                            ))
+                            .await
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "Dependency cycle detected while evaluating input: {}",
+                                    e
+                                )
+                            })?;
+                        inputs_thunks.insert(input_name, input_id);
+                    }
+
+                    let provider_info = {
+                        let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceProviderInfo(i) => i,
+                            _ => panic!(
+                                "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                                outcome
+                            ),
+                        }
+                    };
+
+                    let inputs = {
+                        let mut inputs = serde_json::Map::new();
+                        for (input_name, input_thunk) in inputs_thunks {
+                            let outcome = clone_result(input_thunk.force().await.as_ref())?;
+                            match outcome {
+                                Outcome::ResourceInputValue(i) => {
+                                    inputs.insert(input_name, i);
+                                }
+                                _ => panic!(
+                                    "Unexpected outcome from GetResourceInputValue: {:?}",
+                                    outcome
+                                ),
+                            }
+                        }
+                        inputs
+                    };
+
+                    let span = info_span!("creating resource", name = name);
+
+                    if closure.options.verbose {
+                        eprintln!("Provider details for {}: {:?}", name, provider_info);
+                        eprintln!("Resource inputs for {}: {:?}", name, inputs);
+                    }
+
+                    let provider_argv = provider::parse_provider(&provider_info.provider)?;
+                    // Run the provider
+                    let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+                        provider_executable: provider_argv.executable,
+                        provider_args: provider_argv.args,
+                    })
+                    .await?;
+                    // FIXME: async
+                    let outputs = provider
+                        .create(provider_info.resource_type.as_str(), &inputs)
+                        .await
+                        .with_context(|| format!("Failed to create resource {}", name))?;
+                    let r = provider.close_wait().await?;
+                    if !r.success() {
+                        bail!("Provider exited unexpectedly: {}", r);
+                    }
+
+                    drop(span);
+
+                    if closure.options.verbose {
+                        eprintln!("Resource outputs: {:?}", outputs);
+                    }
+
+                    // Send the outputs eagerly, to avoid roundtrips and costly
+                    // re-evaluation when some output is "missing" but not really
+                    for (output_name, output_value) in outputs.iter() {
+                        let output_prop = NamedProperty {
+                            resource: name.clone(),
+                            name: output_name.clone(),
+                        };
+                        closure
+                            .eval_sender
+                            .send(&EvalRequest::PutResourceOutput(
+                                output_prop,
+                                output_value.clone(),
+                            ))
+                            .await?;
+                    }
+
+                    Ok(Outcome::ResourceOutputs(outputs))
+                })
+                .instrument(info_span!("Applying resource", resource = name_2))
+                .await
+            }
+            Goal::GetResourceProviderInfo(id, resource_name) => {
+                (async {
+                    let msg_id = closure.eval_sender.next_id();
+                    let rx = closure.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+                    self.eval_sender
+                        .query(msg_id, EvalRequest::GetResource, id)
+                        .await?;
+
+                    loop {
+                        let (_id, r) = rx
+                            .recv()
+                            .await
+                            .context("waiting for GetResourceProviderInfo response")?;
+                        match r {
+                            EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                            EvalResponse::QueryResponse(_id, query_response_value) => {
+                                match query_response_value {
+                                    QueryResponseValue::ResourceProviderInfo(info) => {
+                                        break Ok(Outcome::ResourceProviderInfo(info))
+                                    }
+                                    _ => bail!(
+                                        "Unexpected response to GetResourceProviderInfo, {:?}",
+                                        query_response_value
+                                    ),
+                                }
+                            }
+                            EvalResponse::TracingEvent(_) => {}
+                        }
+                    }
+                })
+                .instrument(info_span!(
+                    "Getting resource provider info",
+                    resource = resource_name
+                ))
+                .await
+            }
+
+            Goal::Apply() => {
+                (async {
+                    let r = context.require(Goal::ListResources()).await;
+                    let outcome = match r {
+                        Err(e) => {
+                            bail!("Error while listing resources: {}", e);
+                        }
+                        Ok(v) => clone_result(v.as_ref()),
+                    }?;
+                    let resources = match outcome {
+                        Outcome::ResourcesListed(items) => items,
+                        outcome => {
+                            bail!("Unexpected outcome from ListResources, {:?}", outcome)
+                        }
+                    };
+                    if resources.is_empty() {
+                        eprintln!("Deployment contains no resources; nothing to apply.");
+                    } else {
+                        eprintln!(
+                            "The following resources will be checked, created and/or updated:"
+                        );
+                        for r in &resources {
+                            eprintln!("  - {}", r);
+                        }
+                    }
+                    closure.interrupt_state.check_interrupted()?;
+
+                    // Assign ids to the resources
+
+                    let resource_ids: BTreeMap<String, Id<ResourceType>> = resources
+                        .iter()
+                        .map(|name| (name.clone(), self.eval_sender.next_id()))
+                        .collect();
+                    for (r, id) in resource_ids.iter() {
+                        closure
+                            .eval_sender
+                            .send(&EvalRequest::LoadResource(AssignRequest {
+                                assign_to: *id,
+                                payload: ResourceRequest {
+                                    deployment: closure.deployment_id,
+                                    name: r.clone(),
+                                },
+                            }))
+                            .await?;
+                        closure
+                            .state
+                            .lock()
+                            .unwrap()
+                            .resource_ids
+                            .insert(r.clone(), *id);
+                    }
+
+                    let mut resource_thunk_map = BTreeMap::new();
+                    for (resource_name, id) in resource_ids.iter() {
+                        let r = context
+                            .spawn(Goal::ApplyResource(*id, resource_name.clone()))
+                            .await
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "Dependency cycle detected while applying resource: {}",
+                                    e
+                                )
+                            })?;
+                        resource_thunk_map.insert(*id, r);
+                    }
+                    let mut resource_map = BTreeMap::new();
+                    for (id, outcome) in force_map(resource_thunk_map).await {
+                        match clone_result(&outcome)? {
+                            Outcome::ResourceOutputs(i) => {
+                                resource_map.insert(id, i);
+                            }
+                            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+                        }
+                    }
+
+                    eprintln!("The following resources were created:");
+
+                    // This is of questionable value, and we should probably only print values that are explicitly requested.
+                    for (resource_name, resource_id) in resource_ids.iter() {
+                        let empty = serde_json::Map::new();
+                        let outputs = resource_map.get(resource_id).unwrap_or(&empty);
+                        eprintln!("  - resource {}", resource_name);
+                        for (k, v) in outputs.iter() {
+                            eprintln!("    - output {}: {}", k, indented_json(v));
+                        }
+                        // Used to print inputs too, but may not be worth the hassle
+                    }
+
+                    Ok(Outcome::Done())
+                })
+                .instrument(info_span!("Applying"))
+                .await
+            }
+        };
+        r
+    }
+}
+
+async fn force_map<Key: Ord, Value>(
+    provider_map: BTreeMap<Key, Arc<Thunk<Value>>>,
+) -> BTreeMap<Key, Arc<Value>> {
+    let mut result_map = BTreeMap::new();
+    for (id, thunk) in provider_map {
+        result_map.insert(id, thunk.force().await);
+    }
+    result_map
+}
+
+pub(crate) async fn apply_async(
     interrupt_state: &InterruptState,
     options: &Options, /* global options; apply options tbd, extra param */
     args: &Args,
 ) -> Result<()> {
-    with_flake(options, |mut c, flake_id| {
-        let deployment_id = c.next_id();
-        c.send(&EvalRequest::LoadDeployment(AssignRequest {
+    let options = options;
+    let eval_options = to_eval_options(options);
+    EvalSender::with(&eval_options, |s, mut r| async {
+        let flake_id = s.next_id();
+        // TODO: use better file path string type more
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        s.send(&EvalRequest::LoadFlake(AssignRequest {
+            assign_to: flake_id,
+            payload: FlakeRequest {
+                abspath: cwd,
+                input_overrides: eval_options.flake_input_overrides.clone(),
+            },
+        }))
+        .await?;
+
+        let deployment_id = s.next_id();
+        s.send(&EvalRequest::LoadDeployment(AssignRequest {
             assign_to: deployment_id,
             payload: DeploymentRequest {
                 flake: flake_id,
                 name: args.deployment.to_string(),
             },
-        }))?;
-        let resources_list_id = c.query(EvalRequest::ListResources, deployment_id)?;
-        let resources = c.receive_until(|client, _resp| {
-            client.check_error(flake_id)?;
-            client.check_error(deployment_id)?;
-            client.check_error(resources_list_id)?;
-            Ok(client.get_resources(deployment_id).cloned())
-        })?;
-        if resources.is_empty() {
-            eprintln!("Deployment contains no resources; nothing to apply.");
-        } else {
-            eprintln!("The following resources will be checked, created and/or updated:");
-            for r in &resources {
-                eprintln!("  - {}", r);
-            }
-        }
-        let resource_ids: BTreeMap<String, Id<ResourceType>> = resources
-            .iter()
-            .map(|name| (name.clone(), c.next_id()))
-            .collect();
-        for (r, id) in resource_ids.iter() {
-            c.send(&EvalRequest::LoadResource(AssignRequest {
-                assign_to: *id,
-                payload: ResourceRequest {
-                    deployment: deployment_id,
-                    name: r.clone(),
-                },
-            }))?;
-            // TODO: check for errors on this id
-            c.query(EvalRequest::GetResource, *id)?;
-            // TODO: check for errors on this id
-            c.query(EvalRequest::ListResourceInputs, *id)?;
-        }
-        let resource_ids_to_names: BTreeMap<Id<ResourceType>, String> =
-            resource_ids.iter().map(|(k, v)| (*v, k.clone())).collect();
-        let resource_ids_clone = resource_ids.clone();
-        // key: blocking property, value: blocked properties
-        let resources_blocked: Mutex<BTreeMap<DependencyById, BTreeSet<Property>>> =
-            Mutex::new(BTreeMap::new());
-        let resources_outputs: Mutex<BTreeMap<Id<ResourceType>, serde_json::Map<String, Value>>> =
-            Mutex::new(BTreeMap::new());
-        let resource_inputs = Mutex::new(BTreeMap::new());
-        let resource_input_values = Mutex::new(BTreeMap::new());
-        let resource_provider_info = Mutex::new(BTreeMap::new());
+        }))
+        .await?;
 
-        let (resource_inputs, resource_outputs, resource_input_values) = {
-            c.receive_until(move |client, resp| {
-                // TODO: stop asynchronously
-                // TODO: when concurrent track critical tasks and wait for them
-                interrupt_state.check_interrupted()?;
-                match resp {
-                    EvalResponse::Error(id, e) => {
-                        if options.verbose {
-                            eprintln!("Error on id {}: {}", id.num(), e);
+        let apply_context = Arc::new(Box::new(ApplyContext {
+            options: options.clone(),
+            eval_sender: s,
+            deployment_id: deployment_id,
+            state: Mutex::new(ApplyState {
+                resource_ids: BTreeMap::new(),
+            }),
+            interrupt_state: interrupt_state.clone(),
+            id_subscriptions: Pubsub::new(),
+        }));
+        let apply_context_2 = apply_context.clone();
+
+        let bob = bob::BobState::new_arc(apply_context.clone());
+
+        let r = {
+            let h: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
+                while let Some(msg) = r.recv().await {
+                    match &msg {
+                        EvalResponse::Error(id, _) => {
+                            apply_context.id_subscriptions.publish(id.num(), msg).await;
                         }
-                        bail!("Error during evaluation: {}", e);
-                    }
-                    EvalResponse::QueryResponse(_id, payload) => match payload {
-                        QueryResponseValue::ListResourceInputs((res, input_names)) => {
-                            resource_inputs
-                                .lock()
-                                .unwrap()
-                                .insert(*res, input_names.clone());
-                            for input_name in input_names {
-                                let input_id = client.next_id();
-                                client.send(&EvalRequest::GetResourceInput(QueryRequest::new(
-                                    input_id,
-                                    Property {
-                                        resource: *res,
-                                        name: input_name.clone(),
-                                    },
-                                )))?;
-                            }
+                        EvalResponse::QueryResponse(id, _) => {
+                            apply_context.id_subscriptions.publish(id.num(), msg).await;
                         }
-                        QueryResponseValue::ListDeployments(_) => {}
-                        QueryResponseValue::ListResources(_) => todo!(),
-                        QueryResponseValue::ResourceProviderInfo(info) => {
-                            resource_provider_info
-                                .lock()
-                                .unwrap()
-                                .insert(info.id, info.clone());
+                        EvalResponse::TracingEvent(_value) => {
+                            // Already handled in an EvalSender::with thread => ignore
                         }
-
-                        QueryResponseValue::ResourceInputState((_property, st)) => match st {
-                            ResourceInputState::ResourceInputValue((prop, value)) => {
-                                // Store it
-                                resource_input_values
-                                    .lock()
-                                    .unwrap()
-                                    .insert(prop.clone(), value.clone());
-
-                                // Is the resource ready to be created?
-                                let this_resource_inputs = {
-                                    let resource_inputs = resource_inputs.lock().unwrap();
-                                    resource_inputs.get(&prop.resource).unwrap().clone()
-                                };
-                                {
-                                    let resource_input_values =
-                                        resource_input_values.lock().unwrap();
-                                    let mut inputs = serde_json::Map::new();
-                                    let is_complete =
-                                        this_resource_inputs.iter().all(|input_name| {
-                                            let input_prop = Property {
-                                                resource: prop.resource,
-                                                name: input_name.clone(),
-                                            };
-                                            if let Some(value) =
-                                                resource_input_values.get(&input_prop)
-                                            {
-                                                inputs.insert(input_name.clone(), value.clone());
-                                                true
-                                            } else {
-                                                false
-                                            }
-                                        });
-
-                                    if options.verbose {
-                                        eprintln!("Resource complete: {}", is_complete);
-                                        eprintln!("Resource inputs: {:?}", inputs);
-                                    }
-
-                                    if is_complete {
-                                        if resources_outputs
-                                            .lock()
-                                            .unwrap()
-                                            .get(&prop.resource)
-                                            .is_none()
-                                        {
-                                            let provider_info = {
-                                                let resource_provider_info =
-                                                    resource_provider_info.lock().unwrap();
-                                                resource_provider_info
-                                                    .get(&prop.resource)
-                                                    .unwrap()
-                                                    .clone()
-                                            };
-
-                                            let resource_name = {
-                                                resource_ids_to_names
-                                                    .get(&prop.resource)
-                                                    .unwrap()
-                                                    .clone()
-                                            };
-
-                                            let span = info_span!(
-                                                "creating resource",
-                                                name = resource_name
-                                            );
-
-                                            if options.verbose {
-                                                eprintln!(
-                                                    "Resource details for {}: {:?}",
-                                                    resource_name, provider_info
-                                                );
-                                            }
-
-                                            let provider_argv =
-                                                provider::parse_provider(&provider_info.provider)?;
-                                            // Run the provider
-                                            let mut provider = ResourceProviderClient::new(
-                                                ResourceProviderConfig {
-                                                    provider_executable: provider_argv.executable,
-                                                    provider_args: provider_argv.args,
-                                                },
-                                            )?;
-                                            let outputs = provider
-                                                .create(
-                                                    provider_info.resource_type.as_str(),
-                                                    &inputs,
-                                                )
-                                                .with_context(|| {
-                                                    format!(
-                                                        "Failed to create resource {}",
-                                                        resource_name
-                                                    )
-                                                })?;
-
-                                            drop(span);
-
-                                            if options.verbose {
-                                                eprintln!("Resource outputs: {:?}", outputs);
-                                            }
-
-                                            resources_outputs
-                                                .lock()
-                                                .unwrap()
-                                                .insert(prop.resource, outputs.clone());
-
-                                            // Push the outputs to the evaluator
-                                            for (output_name, output_value) in outputs.iter() {
-                                                let resource_name = {
-                                                    resource_ids_to_names
-                                                        .get(&prop.resource)
-                                                        .unwrap()
-                                                        .clone()
-                                                };
-                                                let output_prop = NamedProperty {
-                                                    resource: resource_name,
-                                                    name: output_name.clone(),
-                                                };
-                                                client.send(&EvalRequest::PutResourceOutput(
-                                                    output_prop,
-                                                    output_value.clone(),
-                                                ))?;
-                                            }
-
-                                            // Trigger dependents
-                                            {
-                                                let dependents: BTreeSet<Property> = {
-                                                    let resources_blocked =
-                                                        resources_blocked.lock().unwrap();
-                                                    let blocker_resource = prop.resource;
-                                                    outputs
-                                                        .keys()
-                                                        .flat_map(|k| {
-                                                            let blocker_property = Property {
-                                                                resource: blocker_resource,
-                                                                name: k.clone(),
-                                                            };
-                                                            resources_blocked
-                                                                .get(&DependencyById::ResourceOutput { property: blocker_property })
-                                                                .unwrap_or(&BTreeSet::new())
-                                                                .clone()
-                                                        })
-                                                        .collect()
-                                                };
-                                                for dependent_property in dependents.iter() {
-                                                    let req_id = client.next_id();
-                                                    client.send(&EvalRequest::GetResourceInput(
-                                                        QueryRequest::new(
-                                                            req_id,
-                                                            dependent_property.clone(),
-                                                        ),
-                                                    ))?;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            ResourceInputState::ResourceInputDependency(dep) => {
-                                // We might have learned the value after we've asked to evaluate this,
-                                // so we need to check if we have the value now.
-                                let resource_output_opt = {
-                                    let resources_outputs = resources_outputs.lock().unwrap();
-                                    let resource_id =
-                                        resource_ids.get(dep.dependency.resource_name()).unwrap();
-                                    resources_outputs.get(resource_id).cloned()
-                                };
-                                match resource_output_opt {
-                                    Some(_) => {
-                                        // Have have already sent PutResourceOutput for this,
-                                        // so all that's missing is the request to recompute the dependents
-
-                                        // Trigger the dependent (TODO dedup?)
-                                        // TODO: handle errors on _req_id
-                                        let _req_id = client.query(
-                                            EvalRequest::GetResourceInput,
-                                            Property {
-                                                resource: dep.dependent.resource,
-                                                name: dep.dependent.name.clone(),
-                                            },
-                                        )?;
-                                    }
-                                    None => {
-                                        let mut resources_blocked =
-                                            resources_blocked.lock().unwrap();
-                                        let dependency_resource = resource_ids
-                                            .get(dep.dependency.resource_name())
-                                            .unwrap();
-                                        let dependency = match &dep.dependency {
-                                            Dependency::ResourceOutput { property } => {
-                                                DependencyById::ResourceOutput {
-                                                    property: Property {
-                                                        resource: *dependency_resource,
-                                                        name: property.name.clone(),
-                                                    }
-                                                }
-                                            },
-                                            Dependency::State{ resource: _ } => {
-                                                DependencyById::State {
-                                                    resource: *dependency_resource,
-                                                }
-                                            },
-                                        };
-                                        resources_blocked
-                                            .entry(dependency)
-                                            .or_default()
-                                            .insert(dep.dependent.clone());
-                                    }
-                                }
-                            }
-                        },
-                    },
-                    EvalResponse::TracingEvent(_) => {
-                        // already handled in EvalClient
                     }
                 }
-                for id in resource_ids.values() {
-                    client.check_error(*id)?;
-                }
-
-                // Are we done?
-                {
-                    if resources.len() == resources_outputs.lock().unwrap().len() {
-                        let resources_inputs = resource_inputs.lock().unwrap();
-                        let resources_outputs = resources_outputs.lock().unwrap();
-                        Ok(Some((
-                            resources_inputs.clone(),
-                            resources_outputs.clone(),
-                            resource_input_values.lock().unwrap().clone(),
-                        )))
-                    } else {
-                        Ok(None)
-                    }
-                }
-            })?
+                Ok(())
+            });
+            let r = bob.run(Goal::Apply()).await;
+            apply_context_2.eval_sender.close().await;
+            h.await??;
+            r
         };
-
-        if options.verbose {
-            eprintln!();
-            eprintln!("Done!");
-        }
-        eprintln!("The following resources were created:");
-        for (resource_name, resource_id) in resource_ids_clone {
-            eprintln!("Resource {}:", resource_name);
-            {
-                let inputs = resource_inputs.get(&resource_id).unwrap();
-                for input in inputs.iter() {
-                    let property = Property {
-                        resource: resource_id,
-                        name: input.clone(),
-                    };
-                    let input_value = resource_input_values.get(&property).unwrap();
-                    eprintln!("  - input {}: {}", input, indented_json(input_value));
-                }
-            }
-            {
-                let outputs = resource_outputs.get(&resource_id).unwrap();
-                for (k, v) in outputs.iter() {
-                    eprintln!("  - output {}: {}", k, indented_json(v));
-                }
+        match r.as_ref() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                bail!("{}", e);
             }
         }
-        Ok(())
     })
+    .await
 }
 
 fn indented_json(v: &Value) -> String {

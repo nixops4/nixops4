@@ -9,8 +9,14 @@ use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 /// This is a separate executable because this functionality is not needed
 /// during normal nixops4 operation, and it would pollute the shell autocompletion.
 fn main() -> Result<()> {
-    let args = Args::parse();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
 
+async fn async_main() -> Result<()> {
+    let args = Args::parse();
     match &args.command {
         Commands::Create {
             provider_exe,
@@ -67,11 +73,16 @@ fn main() -> Result<()> {
             let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
                 provider_args: vec![],
-            })?;
+            })
+            .await?;
 
             let result = provider
                 .create(resource_type, &inputs)
+                .await
                 .with_context(|| "failed to create resource");
+
+            provider.close_wait().await?;
+
             match result {
                 Ok(response) => {
                     println!("{}", serde_json::to_string_pretty(&response)?);
@@ -102,14 +113,19 @@ fn main() -> Result<()> {
             let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
                 provider_args: vec![],
-            })?;
+            })
+            .await?;
 
-            let result = provider.update(
-                resource_type,
-                &input_properties_json,
-                &previous_input_properties_json,
-                &previous_output_properties_json,
-            );
+            let result = provider
+                .update(
+                    resource_type,
+                    &input_properties_json,
+                    &previous_input_properties_json,
+                    &previous_output_properties_json,
+                )
+                .await;
+
+            provider.close_wait().await?;
 
             match result {
                 Ok(response) => {
