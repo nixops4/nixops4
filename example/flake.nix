@@ -28,7 +28,14 @@
         resources.test3 = {
           type = providers.local.memo;
           state = "state";
-          inputs.initialize_with = { hello = "world"; };
+          inputs.initialize_with = { hello = "World"; };
+        };
+        resources.version_file = {
+          type = providers.local.file;
+          inputs = {
+            name = "version.txt";
+            contents = "version: ${resources.test3.value.hello}";
+          };
         };
 
         resources.demoA = {
