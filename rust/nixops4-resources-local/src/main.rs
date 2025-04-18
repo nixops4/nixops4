@@ -4,12 +4,13 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 
 use anyhow::{bail, Context, Result};
+use chrono::Utc;
 use nixops4_resource::framework::run_main;
 use nixops4_resource::schema::v0;
 use nixops4_resource::{schema::v0::CreateResourceRequest, schema::v0::CreateResourceResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use state::StateHandle;
+use state::{StateEvent, StateEventMeta, StateHandle};
 
 use crate::state::StateEventStream;
 
@@ -264,7 +265,17 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     ) -> Result<v0::StateResourceReadResponse> {
         match request.resource.type_.as_str() {
             "state_file" => {
-                todo!();
+                let inputs = parse_input_properties::<StateFileInProperties>(&request.resource.input_properties, &request.resource.type_)?;
+
+                let file_contents = std::fs::read_to_string(inputs.name.as_str())?;
+                let stream = StateEventStream::open_from_reader(
+                    io::BufReader::new(file_contents.as_bytes()),
+                )?;
+                let mut state = serde_json::json!({});
+                state::apply_state_events(&mut state, stream).unwrap();
+                Ok(v0::StateResourceReadResponse {
+                    state: serde_json::from_value(state)?,
+                })
             },
             t => bail!(
                 "LocalResourceProvider::state_read: not a state resource, or unknown resource type: {}",
@@ -279,7 +290,20 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     ) -> Result<v0::StateResourceEventResponse> {
         match request.resource.type_.as_str() {
             "state_file" => {
-                todo!();
+                let inputs = parse_input_properties::<StateFileInProperties>(&request.resource.input_properties, &request.resource.type_)?;
+                let mut handle = StateHandle::open(inputs.name.as_str(), false)?;
+
+                handle.append(&[&StateEvent {
+                    index: 0,
+                    meta: StateEventMeta {
+                        time: Utc::now().to_rfc3339(),
+                        other_fields: serde_json::json!({
+                            "event": request.event,
+                        }),
+                    },
+                    patch: serde_json::from_value(serde_json::Value::Array(request.patch))?,
+                }])?;
+                Ok(v0::StateResourceEventResponse { })
             },
             t => bail!(
                 "LocalResourceProvider::state_read: not a state resource, or unknown resource type: {}",
@@ -293,15 +317,7 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     request: v0::CreateResourceRequest,
     f: impl Fn(In) -> Result<Out>,
 ) -> std::prelude::v1::Result<CreateResourceResponse, anyhow::Error> {
-    let parsed_properties: In = serde_json::from_value(Value::Object(
-        request.input_properties.0.into_iter().collect(),
-    ))
-    .with_context(|| {
-        format!(
-            "Could not deserialize input properties for {} resource",
-            request.type_
-        )
-    })?;
+    let parsed_properties = parse_input_properties(&request.input_properties, &request.type_)?;
 
     let out = f(parsed_properties)?;
 
@@ -317,6 +333,25 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     Ok(CreateResourceResponse {
         output_properties: out_properties,
     })
+}
+
+fn parse_input_properties<In: for<'de> Deserialize<'de>>(
+    input_properties: &v0::InputProperties,
+    type_: &String,
+) -> Result<In, anyhow::Error> {
+    let parsed_properties: In = serde_json::from_value(Value::Object(
+        input_properties
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
+    .with_context(|| {
+        format!(
+            "Could not deserialize input properties for {} resource",
+            type_
+        )
+    })?;
+    Ok(parsed_properties)
 }
 
 fn do_read<In: for<'de> Deserialize<'de>, Out: Serialize>(

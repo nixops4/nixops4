@@ -1,16 +1,16 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::{Arc, Mutex},
 };
 
-use crate::Options;
 use crate::{
     bob::{self, Thunk},
     eval_client::EvalSender,
     interrupt::InterruptState,
     provider, to_eval_options,
 };
+use crate::{state, Options};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use nixops4_core::eval_api::{
@@ -18,6 +18,7 @@ use nixops4_core::eval_api::{
     FlakeRequest, Id, IdNum, NamedProperty, Property, QueryResponseValue, ResourceInputState,
     ResourceRequest, ResourceType,
 };
+use nixops4_resource::schema::v0;
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
@@ -39,6 +40,7 @@ enum Goal {
     // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
     GetResourceOutputValue(Id<ResourceType>, String, String),
     ApplyResource(Id<ResourceType>, String),
+    RunState(Id<ResourceType>, String),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,6 +72,9 @@ impl Display for Goal {
             Goal::ApplyResource(_, name) => {
                 write!(f, "Apply resource {}", name)
             }
+            Goal::RunState(_, name) => {
+                write!(f, "Run state provider resource {}", name)
+            }
         }
     }
 }
@@ -82,7 +87,8 @@ enum Outcome {
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
     ResourceOutputValue, /*Value ignored because passed eagerly before ResourceOutputs, a dependency of this.*/
-    ResourceOutputs(serde_json::Map<String, Value>),
+    ResourceOutputs(v0::ExtantResource),
+    RunState(Arc<state::StateHandle>),
 }
 struct ApplyState {
     resource_ids: BTreeMap<String, Id<ResourceType>>,
@@ -266,7 +272,12 @@ impl bob::BobClosure for ApplyContext {
                     let outcome = clone_result(r.as_ref())?;
                     match outcome {
                         Outcome::ResourceOutputs(outputs) => {
-                            if let Some(_value) = outputs.get(&property) {
+                            if let Some(_value) = outputs
+                                .output_properties
+                                .map(|v| v.0)
+                                .unwrap_or_default()
+                                .get(&property)
+                            {
                                 Ok(Outcome::ResourceOutputValue)
                             } else {
                                 bail!("Resource {} does not have output {}", name, property)
@@ -345,6 +356,33 @@ impl bob::BobClosure for ApplyContext {
                         }
                     };
 
+                    let state_provider = match &provider_info.state {
+                        Some(state_resource_name) => {
+                            let state_resource_id = closure
+                                .state
+                                .lock()
+                                .unwrap()
+                                .resource_ids
+                                .get(state_resource_name)
+                                .unwrap()
+                                .clone();
+                            let thunk = context
+                                .spawn(Goal::RunState(
+                                    state_resource_id,
+                                    state_resource_name.clone(),
+                                ))
+                                .await
+                                .map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Dependency cycle detected while applying resource: {}",
+                                        e
+                                    )
+                                })?;
+                            Some((state_resource_name, state_resource_id, thunk))
+                        }
+                        None => None,
+                    };
+
                     let inputs = {
                         let mut inputs = serde_json::Map::new();
                         for (input_name, input_thunk) in inputs_thunks {
@@ -362,10 +400,21 @@ impl bob::BobClosure for ApplyContext {
                         inputs
                     };
 
+                    let state = match state_provider {
+                        Some((state_resource_id, state_resource_name, thunk)) => {
+                            let outcome = clone_result(thunk.force().await.as_ref())?;
+                            match outcome {
+                                Outcome::RunState(i) => Some(i),
+                                _ => panic!("Unexpected outcome from RunState: {:?}", outcome),
+                            }
+                        }
+                        None => None,
+                    };
+
                     let span = info_span!("creating resource", name = name);
 
                     if closure.options.verbose {
-                        eprintln!("Provider details for {}: {:?}", name, provider_info);
+                        eprintln!("Provider details for {}: {:?}", name, &provider_info);
                         eprintln!("Resource inputs for {}: {:?}", name, inputs);
                     }
 
@@ -376,15 +425,80 @@ impl bob::BobClosure for ApplyContext {
                         provider_args: provider_argv.args,
                     })
                     .await?;
-                    // FIXME: async
-                    let outputs = provider
-                        .create(provider_info.resource_type.as_str(), &inputs)
-                        .await
-                        .with_context(|| format!("Failed to create resource {}", name))?;
-                    let r = provider.close_wait().await?;
-                    if !r.success() {
-                        bail!("Provider exited unexpectedly: {}", r);
-                    }
+
+                    let outputs = match state {
+                        None => {
+                            let outputs = provider
+                                .create(provider_info.resource_type.as_str(), &inputs)
+                                .await?;
+                            // .with_context(|| format!("Failed to create resource {}", name))?;
+                            let r = provider.close_wait().await?;
+                            if !r.success() {
+                                // We did get outputs, so this seems unlikely
+                                bail!("Provider exited unexpectedly: {}", r);
+                            }
+                            outputs
+                        }
+                        Some(state) => match state.past.deployment.resources.get(&name) {
+                            Some(past_resource) => {
+                                if past_resource.type_ != provider_info.resource_type {
+                                    bail!(
+                                        "Resource type change is not supported: {} != {}",
+                                        past_resource.type_,
+                                        provider_info.resource_type
+                                    );
+                                }
+                                let outputs = provider
+                                    .update(
+                                        provider_info.resource_type.as_str(),
+                                        &inputs,
+                                        &past_resource.input_properties,
+                                        &past_resource.output_properties,
+                                    )
+                                    .await
+                                    .with_context(|| {
+                                        format!("Failed to update resource {}", name)
+                                    })?;
+                                let current_resource = state::ResourceState {
+                                    type_: provider_info.resource_type.clone(),
+                                    input_properties: inputs.clone(),
+                                    output_properties: outputs.clone(),
+                                };
+                                if &current_resource != past_resource {
+                                    state
+                                        .resource_event(
+                                            &name,
+                                            "update",
+                                            Some(past_resource),
+                                            &current_resource,
+                                        )
+                                        .await?;
+                                }
+                                outputs
+                            }
+                            None => {
+                                let outputs = provider
+                                    .create(provider_info.resource_type.as_str(), &inputs)
+                                    .await
+                                    .with_context(|| {
+                                        format!("Failed to create stateless resource {}", name)
+                                    })?;
+                                let current_resource = state::ResourceState {
+                                    type_: provider_info.resource_type.clone(),
+                                    input_properties: inputs.clone(),
+                                    output_properties: outputs.clone(),
+                                };
+                                state
+                                    .resource_event(&name, "create", None, &current_resource)
+                                    .await?;
+                                // let r = provider.close_wait().await?;
+                                // if !r.success() {
+                                //     bail!("Provider exited unexpectedly: {}", r);
+                                // }
+                                outputs
+                            }
+                        },
+                    };
 
                     drop(span);
 
@@ -408,7 +522,13 @@ impl bob::BobClosure for ApplyContext {
                             .await?;
                     }
 
-                    Ok(Outcome::ResourceOutputs(outputs))
+                    let resource = v0::ExtantResource {
+                        input_properties: v0::InputProperties(inputs),
+                        output_properties: Some(v0::OutputProperties(outputs)),
+                        type_: v0::ResourceType(provider_info.resource_type),
+                    };
+
+                    Ok(Outcome::ResourceOutputs(resource))
                 })
                 .instrument(info_span!("Applying resource", resource = name_2))
                 .await
@@ -449,7 +569,59 @@ impl bob::BobClosure for ApplyContext {
                 ))
                 .await
             }
+            Goal::RunState(id, name) => {
+                (async {
+                    // Apply the resource
+                    let r = context
+                        .require(Goal::ApplyResource(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+                    let resource = {
+                        let outcome = clone_result(r.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceOutputs(i) => i,
+                            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+                        }
+                    };
 
+                    // Get the provider info
+                    let provider_info_thunk = context
+                        .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+                    let provider_info = {
+                        let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceProviderInfo(i) => i,
+                            _ => panic!(
+                                "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                                outcome
+                            ),
+                        }
+                    };
+
+                    let handle = state::StateHandle::open(&provider_info, &resource).await?;
+
+                    eprintln!("Read state {}: \n{:?}", name, &handle.past);
+
+                    Ok(Outcome::RunState(handle))
+                })
+                .instrument(info_span!(
+                    "Running state provider resource",
+                    resource = name
+                ))
+                .await
+            }
             Goal::Apply() => {
                 (async {
                     let r = context.require(Goal::ListResources()).await;
@@ -530,12 +702,25 @@ impl bob::BobClosure for ApplyContext {
                     // This is of questionable value, and we should probably only print values that are explicitly requested.
                     for (resource_name, resource_id) in resource_ids.iter() {
                         let empty = serde_json::Map::new();
-                        let outputs = resource_map.get(resource_id).unwrap_or(&empty);
+                        let outputs = match resource_map.get(resource_id) {
+                            Some(x) => x
+                                .output_properties
+                                .as_ref()
+                                .map(|v| v.0.clone())
+                                .unwrap_or_default()
+                                .clone(),
+                            None => serde_json::Map::new(),
+                        };
+                        let inputs = resource_map
+                            .get(resource_id)
+                            .map_or(&empty, |v| &v.input_properties);
                         eprintln!("  - resource {}", resource_name);
+                        for (k, v) in inputs.iter() {
+                            eprintln!("    - input {}: {}", k, indented_json(v));
+                        }
                         for (k, v) in outputs.iter() {
                             eprintln!("    - output {}: {}", k, indented_json(v));
                         }
-                        // Used to print inputs too, but may not be worth the hassle
                     }
 
                     Ok(Outcome::Done())

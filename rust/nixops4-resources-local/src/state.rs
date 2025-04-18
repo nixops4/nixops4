@@ -11,18 +11,18 @@ use std::{
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StateEvent {
-    index: u64,
-    meta: StateEventMeta,
-    patch: json_patch::Patch,
+    pub index: u64,
+    pub meta: StateEventMeta,
+    pub patch: json_patch::Patch,
     // #[serde(flatten)]
     // unknown_fields: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StateEventMeta {
-    time: String,
+    pub time: String,
     #[serde(flatten)]
-    other_fields: serde_json::Value,
+    pub other_fields: serde_json::Value,
 }
 
 pub struct StateEventStream<'a, R: io::Read> {
@@ -217,25 +217,25 @@ impl<'a, R: io::Read> Iterator for StateEventStream<'a, R> {
     }
 }
 
+pub fn apply_state_event(state: &mut serde_json::Value, event: &StateEvent) -> Result<()> {
+    json_patch::patch(state, event.patch.0.as_slice()).map_err(Into::into)
+}
+
+pub fn apply_state_events(
+    state: &mut serde_json::Value,
+    events: impl Iterator<Item = Result<StateEvent>>,
+) -> Result<()> {
+    for event in events {
+        apply_state_event(state, &event?)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use io::{stdout, Read};
 
     use super::*;
-
-    fn apply_state_event(state: &mut serde_json::Value, event: &StateEvent) -> Result<()> {
-        json_patch::patch(state, event.patch.0.as_slice()).map_err(Into::into)
-    }
-
-    fn apply_state_events(
-        state: &mut serde_json::Value,
-        events: impl Iterator<Item = Result<StateEvent>>,
-    ) -> Result<()> {
-        for event in events {
-            apply_state_event(state, &event?)?;
-        }
-        Ok(())
-    }
 
     const BASIC_EXAMPLE: &str = r#"
     {

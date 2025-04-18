@@ -4,7 +4,7 @@ use nixops4_resource::schema::v0;
 use serde_json::Value;
 use tracing::warn;
 
-use std::{collections::BTreeMap, process::ExitStatus};
+use std::{fmt::Debug, process::ExitStatus};
 
 use tokio::{
     io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, BufWriter},
@@ -59,9 +59,9 @@ impl ResourceProviderClient {
         })
     }
     async fn write_request(&mut self, req: v0::Request) -> Result<()> {
-        let stdin_str = serde_json::to_string(&req).unwrap();
+        let req_str = serde_json::to_string(&req).unwrap();
         let writer = self.get_writer()?;
-        writer.write_all(stdin_str.as_bytes()).await.unwrap();
+        writer.write_all(req_str.as_bytes()).await.unwrap();
         writer.write_all(b"\n").await.unwrap();
         writer.flush().await.unwrap();
         Ok(())
@@ -120,10 +120,10 @@ impl ResourceProviderClient {
     pub async fn update(
         &mut self,
         type_: &str,
-        inputs: &BTreeMap<String, Value>,
-        previous_inputs: &BTreeMap<String, Value>,
-        previous_outputs: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>> {
+        inputs: &serde_json::Map<String, Value>,
+        previous_inputs: &serde_json::Map<String, Value>,
+        previous_outputs: &serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>> {
         let res = v0::ExtantResource {
             input_properties: v0::InputProperties(
                 previous_inputs
@@ -161,6 +161,48 @@ impl ResourceProviderClient {
                 response
             ),
         }
+    }
+
+    pub async fn state_read(
+        &mut self,
+        resource: v0::ExtantResource,
+    ) -> Result<serde_json::Map<String, Value>> {
+        let req = v0::StateResourceReadRequest { resource: resource };
+        // Write the request
+        self.write_request(v0::Request::StateResourceReadRequest(req))
+            .await?;
+        eprintln!("State read request sent");
+        let response = self.read_response().await?;
+        eprintln!("State read response received");
+        match response {
+            v0::Response::StateResourceReadResponse(r) => Ok(r.state),
+            _ => anyhow::bail!(
+                "Expected StateResourceReadResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
+    pub async fn state_event(&mut self, event: v0::StateResourceEvent) -> Result<()> {
+        // Write the request
+        self.write_request(v0::Request::StateResourceEvent(event))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::StateResourceEventResponse(_) => Ok(()),
+            _ => anyhow::bail!(
+                "Expected StateResourceEventResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+}
+impl Debug for ResourceProviderClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResourceProviderClient")
+            .field("process", &self.process)
+            .finish()
     }
 }
 

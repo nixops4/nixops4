@@ -1,4 +1,5 @@
 use std::{
+    fs::File,
     io::{BufRead, BufReader},
     os::fd::{AsRawFd, FromRawFd},
 };
@@ -30,8 +31,15 @@ pub trait ResourceProvider {
     }
 }
 
-fn write_response<W: std::io::Write>(out: W, resp: &v0::Response) -> Result<()> {
-    serde_json::to_writer(out, &resp).context("writing response")
+fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
+    out.write_all(
+        serde_json::to_string(resp)
+            .with_context(|| "Could not serialize response")
+            .unwrap()
+            .as_bytes(),
+    )?;
+    out.write_all(b"\n").context("writing newline")?;
+    out.flush().context("flushing response")
 }
 
 pub fn run_main(provider: impl ResourceProvider) {
@@ -43,17 +51,27 @@ pub fn run_main(provider: impl ResourceProvider) {
     // Read the request from the input
 
     let mut in_ = BufReader::new(pipe.in_);
+    let mut out = pipe.out;
 
-    let request: v0::Request = {
-        let mut line = String::new();
-        in_.read_line(&mut line)
-            .with_context(|| "Could not read line for request message")
-            .unwrap_or_exit();
-        serde_json::from_str(&line)
-            .with_context(|| "Could not parse request message")
-            .unwrap_or_exit()
-    };
+    loop {
+        let request: v0::Request = {
+            let mut line = String::new();
+            let len = in_
+                .read_line(&mut line)
+                .with_context(|| "Could not read line for request message")
+                .unwrap_or_exit();
+            if len == 0 {
+                break;
+            }
+            serde_json::from_str(&line)
+                .with_context(|| "Could not parse request message")
+                .unwrap_or_exit()
+        };
+        handle_request(&mut out, &provider, request);
+    }
+}
 
+fn handle_request(out: &mut File, provider: &impl ResourceProvider, request: v0::Request) {
     match request {
         v0::Request::CreateResourceRequest(r) => {
             let span = tracing::info_span!("create", type = r.type_.as_str());
@@ -61,7 +79,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .create(r)
                 .with_context(|| "Could not create resource")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::CreateResourceResponse(resp))
+            write_response(out, &v0::Response::CreateResourceResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
@@ -72,7 +90,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .read(r)
                 .with_context(|| "Could not read resource")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::ReadResourceResponse(resp))
+            write_response(out, &v0::Response::ReadResourceResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
@@ -83,7 +101,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .update(r)
                 .with_context(|| "Could not update resource")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::UpdateResourceResponse(resp))
+            write_response(out, &v0::Response::UpdateResourceResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
@@ -94,7 +112,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .destroy(r)
                 .with_context(|| "Could not destroy resource (or not completely, correctly)")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::DestroyResourceResponse(resp))
+            write_response(out, &v0::Response::DestroyResourceResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
@@ -105,7 +123,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .state_event(r)
                 .with_context(|| "Could not handle state event")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::StateResourceEventResponse(resp))
+            write_response(out, &v0::Response::StateResourceEventResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
@@ -116,14 +134,12 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .state_read(r)
                 .with_context(|| "Could not read state")
                 .unwrap_or_exit();
-            write_response(pipe.out, &v0::Response::StateResourceReadResponse(resp))
+            write_response(out, &v0::Response::StateResourceReadResponse(resp))
                 .context("writing response")
                 .unwrap_or_exit();
             drop(span);
         }
     }
-
-    // Write the response to the output
 }
 
 /// A pair of `T` values: one for input and one for output.
