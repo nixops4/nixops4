@@ -11,6 +11,16 @@ use tokio::task::JoinHandle;
 mod eval;
 
 fn main() {
+    // Create a new thread with known good stack size, to be used for Nix evaluation.
+    let handle = std::thread::Builder::new()
+        .name("evaluator".to_string())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(main2)
+        .expect("failed to main evaluator thread with new stack size");
+    handle.join().expect("failed to join evaluator thread");
+}
+
+fn main2() {
     // Be friendly to the user if they try to run this.
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 || args[1] != "<subprocess>" {
@@ -28,6 +38,9 @@ fn main() {
             .enable_all()
             .thread_name("no4-e-tokio")
             .build()?;
+        // MultiThread.block_on:
+        // > The future will execute on the current thread, but all spawned tasks
+        // > will be executed on the thread pool.
         runtime.block_on(async_main())?;
         Ok(())
     })())
@@ -67,10 +80,17 @@ async fn async_main() -> Result<()> {
     {
         // Downgrade eval_tx so that we can drop it when all the real work is done, closing the log channel.
         let tx = eval_tx.downgrade();
+        // let has_logged_fail = AtomicBool::new(false);
+        let log_fail_once = std::sync::Once::new();
         let log_subscriber = tracing_tunnel::TracingEventSender::new(move |event| {
             if let Some(tx) = tx.upgrade() {
                 let json = serde_json::to_value(&event).expect("serializing tracing event to JSON");
-                let _ = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
+                let r = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
+                if r.is_err() {
+                    log_fail_once.call_once(|| {
+                        eprintln!("warning: couldn't submit log event to log channel; some structured logs may be lost");
+                    });
+                }
             } else {
                 eprintln!("warning: can't log after log channel is closed; some structured logs may be lost");
             }

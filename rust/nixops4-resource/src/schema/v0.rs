@@ -1,6 +1,20 @@
 use serde::{Deserialize, Serialize};
 schemafy::schemafy!("resource-schema-v0.json");
 
+// BUG: these types are prefixed with the wrong parent type name
+pub type CreateResourceResponseEnvelope =
+    ResponseStateResourceReadRequestCreateResourceResponseEnvelope;
+pub type ReadResourceResponseEnvelope =
+    ResponseStateResourceReadRequestReadResourceResponseEnvelope;
+pub type UpdateResourceResponseEnvelope =
+    ResponseStateResourceReadRequestUpdateResourceResponseEnvelope;
+pub type DestroyResourceResponseEnvelope =
+    ResponseStateResourceReadRequestDestroyResourceResponseEnvelope;
+pub type StateResourceEventResponseEnvelope =
+    ResponseStateResourceReadRequestStateResourceEventResponseEnvelope;
+pub type StateResourceReadResponseEnvelope =
+    ResponseStateResourceReadRequestStateResourceReadResponseEnvelope;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -22,6 +36,7 @@ mod tests {
                         Value::String("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD".to_string())
                     ),
                 ]),
+                is_stateful: false,
             }
         );
     }

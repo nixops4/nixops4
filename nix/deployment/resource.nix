@@ -1,7 +1,7 @@
 /**
   A reification of the resource interface between the language and nixops4.
  */
-{ config, lib, ... }:
+{ config, lib, options, ... }:
 let
   inherit (lib) mkOption types;
 in
@@ -41,6 +41,20 @@ in
         The type of resource to create. Most resource providers will have some fixed set of resource types.
       '';
     };
+    requireState = mkOption {
+      type = types.bool;
+      description = ''
+        Whether the resource requires state to be stored.
+      '';
+    };
+    state = mkOption {
+      type = types.nullOr types.str;
+      description = ''
+        The state handler for the resource, if needed.
+      '';
+      default = null;
+      apply = x: lib.throwIf (config.requireState && x == null) "${options.state} ${if options.state.highestPrio >= lib.modules.defaultOverridePriority then "has not been defined" else "must not be null"}" x;
+    };
     inputs = mkOption {
       type = types.submodule { };
       description = ''
@@ -71,7 +85,7 @@ in
   };
   config = {
     _resourceForNixOps = {
-      inherit (config) provider inputs outputsSkeleton;
+      inherit (config) provider inputs outputsSkeleton state;
       type = config.resourceType;
     };
   };

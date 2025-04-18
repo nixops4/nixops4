@@ -6,7 +6,12 @@ default: book
 include ./make/cargo_or_provided_exe.mk
 
 open: book
-	xdg-open book/index.html || open book/index.html
+	@echo " 		   OPEN" book
+	@if type xdg-open &>/dev/null; then \
+		xdg-open "book/index.html"; \
+	else \
+		open "book/index.html"; \
+	fi
 
 GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \

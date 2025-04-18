@@ -1,19 +1,26 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    sync::{atomic::AtomicU64, Arc},
+};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone)]
 pub struct Ids {
-    counter: u64,
+    counter: Arc<AtomicU64>,
 }
 impl Ids {
     pub fn new() -> Self {
-        Ids { counter: 0 }
+        Ids {
+            counter: Arc::new(AtomicU64::new(0)),
+        }
     }
-    pub fn next<T>(&mut self) -> Id<T> {
-        let id = self.counter;
-        self.counter += 1;
+    pub fn next<T>(&self) -> Id<T> {
+        let id = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Id::new(id)
     }
 }
@@ -170,15 +177,36 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceInputDependency {
     pub dependent: Property,
-    pub dependency: NamedProperty,
+    pub dependency: Dependency,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Dependency {
+    ResourceOutput { property: NamedProperty },
+    State { resource: String },
+}
+impl Dependency {
+    pub fn resource_name(&self) -> &String {
+        match self {
+            Dependency::ResourceOutput { property } => &property.resource,
+            Dependency::State { resource } => resource,
+        }
+    }
+    pub fn property_name(&self) -> Option<&String> {
+        match self {
+            Dependency::ResourceOutput { property } => Some(&property.name),
+            Dependency::State { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
     pub resource: String,
     pub name: String,
@@ -189,6 +217,12 @@ pub struct NamedProperty {
 pub struct Property {
     pub resource: Id<ResourceType>,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DependencyById {
+    ResourceOutput { property: Property },
+    State { resource: Id<ResourceType> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
