@@ -171,12 +171,15 @@
         },
         "event": {
           "type": "string",
+          "description": "The operation that produced this change."
+        },
+        "nixopsVersion": {
+          "type": "string",
           "title": "NixOps version",
           "description": "The version of NixOps that is running, for posterity and forward compatibility."
         },
         "patch": {
-          "type": "object",
-          "additionalProperties": true,
+          "type": "array",
           "title": "Patch",
           "description": "A JSON Patch <https://datatracker.ietf.org/doc/html/rfc6902> that describes the changes to the combined state of all managed resources. This method is only implemented by resources that function as a state storage. NixOps4 takes great care to make sure that the patch can be applied, but if it does not, the patch must be saved."
         }
@@ -184,6 +187,7 @@
       "required": [
         "resource",
         "event",
+        "nixopsVersion",
         "patch"
       ],
       "additionalProperties": false

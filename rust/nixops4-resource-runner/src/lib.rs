@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tracing::warn;
 
-use std::{collections::BTreeMap, process::ExitStatus};
+use std::{collections::BTreeMap, fmt::Debug, process::ExitStatus};
 
 use nixops4_resource::schema::v0;
 use tokio::{
@@ -59,9 +59,9 @@ impl ResourceProviderClient {
         })
     }
     async fn write_request(&mut self, req: v0::Request) -> Result<()> {
-        let stdin_str = serde_json::to_string(&req).unwrap();
+        let req_str = serde_json::to_string(&req).unwrap();
         let writer = self.get_writer()?;
-        writer.write_all(stdin_str.as_bytes()).await.unwrap();
+        writer.write_all(req_str.as_bytes()).await.unwrap();
         writer.write_all(b"\n").await.unwrap();
         writer.flush().await.unwrap();
         Ok(())
@@ -169,6 +169,58 @@ impl ResourceProviderClient {
                 response
             ),
         }
+    }
+
+    pub async fn state_read(
+        &mut self,
+        resource: v0::ExtantResource,
+    ) -> Result<BTreeMap<String, Value>> {
+        let req = v0::StateResourceReadRequest { resource: resource };
+        // Write the request
+        self.write_request(v0::Request::StateResourceReadRequestEnvelope(
+            v0::RequestOutputPropertiesStateResourceReadRequestEnvelope {
+                state_resource_read_request: req,
+            },
+        ))
+        .await?;
+        eprintln!("State read request sent");
+        let response = self.read_response().await?;
+        eprintln!("State read response received");
+        match response {
+            v0::Response::StateResourceReadResponseEnvelope(r) => {
+                Ok(r.state_resource_read_response.state)
+            }
+            _ => anyhow::bail!(
+                "Expected StateResourceReadResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
+    pub async fn state_event(&mut self, event: v0::StateResourceEvent) -> Result<()> {
+        // Write the request
+        self.write_request(v0::Request::StateResourceEventEnvelope(
+            v0::RequestOutputPropertiesStateResourceEventEnvelope {
+                state_resource_event: event,
+            },
+        ))
+        .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::StateResourceEventResponseEnvelope(_) => Ok(()),
+            _ => anyhow::bail!(
+                "Expected StateResourceEventResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+}
+impl Debug for ResourceProviderClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResourceProviderClient")
+            .field("process", &self.process)
+            .finish()
     }
 }
 

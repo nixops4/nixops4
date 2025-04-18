@@ -1,4 +1,5 @@
 use std::{
+    fs::File,
     io::{BufRead, BufReader},
     os::fd::{AsRawFd, FromRawFd},
 };
@@ -30,8 +31,15 @@ pub trait ResourceProvider {
     }
 }
 
-fn write_response<W: std::io::Write>(out: W, resp: &v0::Response) -> Result<()> {
-    serde_json::to_writer(out, &resp).context("writing response")
+fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
+    out.write_all(
+        serde_json::to_string(resp)
+            .with_context(|| "Could not serialize response")
+            .unwrap()
+            .as_bytes(),
+    )?;
+    out.write_all(b"\n").context("writing newline")?;
+    out.flush().context("flushing response")
 }
 
 pub fn run_main(provider: impl ResourceProvider) {
@@ -43,17 +51,27 @@ pub fn run_main(provider: impl ResourceProvider) {
     // Read the request from the input
 
     let mut in_ = BufReader::new(pipe.in_);
+    let mut out = pipe.out;
 
-    let request: v0::Request = {
-        let mut line = String::new();
-        in_.read_line(&mut line)
-            .with_context(|| "Could not read line for request message")
-            .unwrap_or_exit();
-        serde_json::from_str(&line)
-            .with_context(|| "Could not parse request message")
-            .unwrap_or_exit()
-    };
+    loop {
+        let request: v0::Request = {
+            let mut line = String::new();
+            let len = in_
+                .read_line(&mut line)
+                .with_context(|| "Could not read line for request message")
+                .unwrap_or_exit();
+            if len == 0 {
+                break;
+            }
+            serde_json::from_str(&line)
+                .with_context(|| "Could not parse request message")
+                .unwrap_or_exit()
+        };
+        handle_request(&mut out, &provider, request);
+    }
+}
 
+fn handle_request(out: &mut File, provider: &impl ResourceProvider, request: v0::Request) {
     match request {
         v0::RequestOutputProperties::CreateResourceRequestEnvelope(r) => {
             let span =
@@ -63,7 +81,7 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .with_context(|| "Could not create resource")
                 .unwrap_or_exit();
             write_response(
-                pipe.out,
+                out,
                 &v0::Response::CreateResourceResponseEnvelope(v0::CreateResourceResponseEnvelope {
                     create_resource_response: resp,
                 }),
@@ -79,8 +97,8 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .read(r.read_resource_request)
                 .with_context(|| "Could not read resource")
                 .unwrap_or_exit();
-            serde_json::to_writer(
-                pipe.out,
+            write_response(
+                out,
                 &v0::Response::ReadResourceResponseEnvelope(v0::ReadResourceResponseEnvelope {
                     read_resource_response: resp,
                 }),
@@ -95,8 +113,8 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .update(r.update_resource_request)
                 .with_context(|| "Could not update resource")
                 .unwrap_or_exit();
-            serde_json::to_writer(
-                pipe.out,
+            write_response(
+                out,
                 &v0::Response::UpdateResourceResponseEnvelope(v0::UpdateResourceResponseEnvelope {
                     update_resource_response: resp,
                 }),
@@ -111,11 +129,13 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .destroy(r.destroy_resource_request)
                 .with_context(|| "Could not destroy resource (or not completely, correctly)")
                 .unwrap_or_exit();
-            serde_json::to_writer(
-                pipe.out,
-                &v0::DestroyResourceResponseEnvelope {
-                    destroy_resource_response: resp,
-                },
+            write_response(
+                out,
+                &v0::Response::DestroyResourceResponseEnvelope(
+                    v0::DestroyResourceResponseEnvelope {
+                        destroy_resource_response: resp,
+                    },
+                ),
             )
             .context("writing response")
             .unwrap_or_exit();
@@ -127,8 +147,8 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .state_event(r.state_resource_event)
                 .with_context(|| "Could not handle state event")
                 .unwrap_or_exit();
-            serde_json::to_writer(
-                pipe.out,
+            write_response(
+                out,
                 &v0::Response::StateResourceEventResponseEnvelope(
                     v0::StateResourceEventResponseEnvelope {
                         state_resource_event_response: resp,
@@ -145,8 +165,8 @@ pub fn run_main(provider: impl ResourceProvider) {
                 .state_read(r.state_resource_read_request)
                 .with_context(|| "Could not read state")
                 .unwrap_or_exit();
-            serde_json::to_writer(
-                pipe.out,
+            write_response(
+                out,
                 &v0::Response::StateResourceReadResponseEnvelope(
                     v0::StateResourceReadResponseEnvelope {
                         state_resource_read_response: resp,
@@ -158,8 +178,6 @@ pub fn run_main(provider: impl ResourceProvider) {
             drop(span);
         }
     }
-
-    // Write the response to the output
 }
 
 /// A pair of `T` values: one for input and one for output.
