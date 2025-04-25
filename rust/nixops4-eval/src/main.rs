@@ -67,10 +67,16 @@ async fn async_main() -> Result<()> {
     {
         // Downgrade eval_tx so that we can drop it when all the real work is done, closing the log channel.
         let tx = eval_tx.downgrade();
+        let log_fail_once = std::sync::Once::new();
         let log_subscriber = tracing_tunnel::TracingEventSender::new(move |event| {
             if let Some(tx) = tx.upgrade() {
                 let json = serde_json::to_value(&event).expect("serializing tracing event to JSON");
-                let _ = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
+                let r = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
+                if r.is_err() {
+                    log_fail_once.call_once(|| {
+                        eprintln!("warning: couldn't submit log event to log channel; some structured logs may be lost");
+                    });
+                }
             } else {
                 eprintln!("warning: can't log after log channel is closed; some structured logs may be lost");
             }
