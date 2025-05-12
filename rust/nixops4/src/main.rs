@@ -187,7 +187,7 @@ struct Options {
     #[arg(long, global = true, default_value_t = false)]
     show_trace: bool,
 
-    /// Temporarily change a flake input
+    /// Temporarily use a different flake input
     // will be post-processed to pair them up
     #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
     override_input: Vec<String>,
