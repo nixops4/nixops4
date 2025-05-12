@@ -430,8 +430,10 @@ impl bob::BobClosure for ApplyContext {
                         None => {
                             let outputs = provider
                                 .create(provider_info.resource_type.as_str(), &inputs)
-                                .await?;
-                            // .with_context(|| format!("Failed to create resource {}", name))?;
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to create stateless resource {}", name)
+                                })?;
                             let r = provider.close_wait().await?;
                             if !r.success() {
                                 // We did get outputs, so this seems unlikely
