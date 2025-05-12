@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, Write},
-};
+use std::io::{BufRead, Write};
 
 use anyhow::{Context, Result};
 use nixops4_resource::schema::v0::{CreateResourceRequest, CreateResourceResponse};
@@ -26,8 +23,8 @@ impl ResourceProviderClient {
     pub fn create(
         &self,
         type_: &str,
-        inputs: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>> {
+        inputs: &serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>> {
         let stdin_str = {
             let req = CreateResourceRequest {
                 input_properties: inputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),

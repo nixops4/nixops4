@@ -1,11 +1,9 @@
-use serde::{Deserialize, Serialize};
-schemafy::schemafy!("resource-schema-v0.json");
+include!(concat!(env!("OUT_DIR"), "/generated/v0.rs"));
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
-    use std::collections::BTreeMap;
 
     #[test]
     fn examples_v0_create_resource_request() {
@@ -15,7 +13,7 @@ mod tests {
             _value,
             CreateResourceRequest {
                 type_: "file".to_string(),
-                input_properties: BTreeMap::from_iter(vec![
+                input_properties: serde_json::Map::from_iter(vec![
                     ("path".to_string(), Value::String("pubkey.txt".to_string())),
                     (
                         "content".to_string(),
@@ -33,7 +31,7 @@ mod tests {
         assert_eq!(
             _value,
             CreateResourceResponse {
-                output_properties: BTreeMap::from_iter(vec![
+                output_properties: serde_json::Map::from_iter(vec![
                     ("id".to_string(), Value::String("vm-12w94ty8".to_string())),
                     (
                         "interfaces".to_string(),

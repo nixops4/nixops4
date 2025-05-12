@@ -1,3 +1,4 @@
+<div class="schema-content">
 
 ## Raw JSON schema
 
@@ -19,3 +20,5 @@
 
 <!-- Section ends. This generated file start withs its own header: -->
 {{#include resource-schema-v0.gen.md}}
+
+</div>

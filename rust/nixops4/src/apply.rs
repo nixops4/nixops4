@@ -73,7 +73,7 @@ pub(crate) fn apply(
         // key: blocking property, value: blocked properties
         let resources_blocked: Mutex<BTreeMap<Property, BTreeSet<Property>>> =
             Mutex::new(BTreeMap::new());
-        let resources_outputs: Mutex<BTreeMap<Id<ResourceType>, BTreeMap<String, Value>>> =
+        let resources_outputs: Mutex<BTreeMap<Id<ResourceType>, serde_json::Map<String, Value>>> =
             Mutex::new(BTreeMap::new());
         let resource_inputs = Mutex::new(BTreeMap::new());
         let resource_input_values = Mutex::new(BTreeMap::new());
@@ -133,7 +133,7 @@ pub(crate) fn apply(
                                 {
                                     let resource_input_values =
                                         resource_input_values.lock().unwrap();
-                                    let mut inputs = BTreeMap::new();
+                                    let mut inputs = serde_json::Map::new();
                                     let is_complete =
                                         this_resource_inputs.iter().all(|input_name| {
                                             let input_prop = Property {

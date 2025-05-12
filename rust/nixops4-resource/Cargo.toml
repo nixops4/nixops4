@@ -12,7 +12,14 @@ anyhow = "1.0.79"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.115"
 nix = { version = "0.29.0", features = ["fs"] }
-schemafy = "0.6.0"
+chrono = { version = "0.4.41", features = ["serde"] }
 
 [lib]
 path = "src/lib.rs"
+
+[build-dependencies]
+prettyplease = "0.2.32"
+schemars = "0.8.22"
+serde_json = "1.0.115"
+syn = "2.0.101"
+typify = "0.4.1"

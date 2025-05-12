@@ -27,3 +27,24 @@ html.rust a:target {
 :root {
   --code-font-size: 0.9em;
 }
+
+.schema-content table {
+  width: 100%;
+}
+
+/*
+  - json-schema-for-humans creates a deep hierarchy.
+  - mdbook style has increasingly smaller font sizes
+  - the nesting isn't all that significant
+
+  So it is more readable to have most of them in the same font size.
+*/
+.schema-content h2 {
+  font-size: 2em !important;
+}
+.schema-content h3,
+.schema-content h4,
+.schema-content h5,
+.schema-content h6 {
+  font-size: 1.5em !important;
+}
