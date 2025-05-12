@@ -3,6 +3,7 @@ name = "nixops4-resource"
 version = "0.1.0"
 description = "A library for the NixOps resource provider interface"
 edition = "2021"
+build = "build.rs"
 license = "LGPL-2.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -12,6 +13,7 @@ anyhow = "1.0.79"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.115"
 nix = { version = "0.29.0", features = ["fs"] }
+tracing = "0.1.40"
 chrono = { version = "0.4.41", features = ["serde"] }
 
 [lib]
