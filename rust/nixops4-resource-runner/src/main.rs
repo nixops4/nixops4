@@ -3,8 +3,6 @@ use clap::{arg, CommandFactory};
 use clap::{Parser, Subcommand};
 use core::str;
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
-use serde_json::Value;
-use std::collections::BTreeMap;
 
 /// The nixops4-resource-runner executable
 ///
@@ -34,11 +32,9 @@ fn main() -> Result<()> {
 
             // Mutable map that is used for gathering all input properties.
             let mut inputs = match input_properties_json {
-                Some(json_string) => {
-                    serde_json::from_str::<BTreeMap<String, Value>>(json_string.as_str())
-                        .with_context(|| "failed to parse value of --inputs-json")?
-                }
-                None => BTreeMap::new(),
+                Some(json_string) => serde_json::from_str(json_string.as_str())
+                    .with_context(|| "failed to parse value of --inputs-json")?,
+                None => serde_json::Map::new(),
             };
 
             for pair in input_property_json.chunks(2) {
