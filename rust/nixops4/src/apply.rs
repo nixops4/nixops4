@@ -434,11 +434,6 @@ impl bob::BobClosure for ApplyContext {
                                 .with_context(|| {
                                     format!("Failed to create stateless resource {}", name)
                                 })?;
-                            let r = provider.close_wait().await?;
-                            if !r.success() {
-                                // We did get outputs, so this seems unlikely
-                                bail!("Provider exited unexpectedly: {}", r);
-                            }
                             outputs
                         }
                         Some(state) => match state.past.deployment.resources.get(&name) {
@@ -493,10 +488,6 @@ impl bob::BobClosure for ApplyContext {
                                 state
                                     .resource_event(&name, "create", None, &current_resource)
                                     .await?;
-                                // let r = provider.close_wait().await?;
-                                // if !r.success() {
-                                //     bail!("Provider exited unexpectedly: {}", r);
-                                // }
                                 outputs
                             }
                         },
