@@ -3,4 +3,5 @@
 //! It includes abstractions handling delayed computations, and composing
 //! complex behaviors from simpler components.
 
+pub mod task_tracker;
 pub mod thunk;
