@@ -1,4 +1,5 @@
 mod apply;
+mod control;
 mod eval_client;
 mod interrupt;
 mod logging;
