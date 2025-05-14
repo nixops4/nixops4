@@ -1,4 +1,5 @@
-//! Async task scheduling with cycle detection.
+//! Async task scheduling with cycle detection and memoization.
+//! See [`TaskTracker`] for more details.
 
 use super::thunk::Thunk;
 use std::{
@@ -27,15 +28,16 @@ pub trait TaskWork {
     /// add dependencies to the current task.
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output;
 
+    /// Convert a Cycle error into an error type of your choice.
     fn cycle_error(&self, cycle: Cycle<Self::Key>) -> Self::CycleError;
 }
 
 struct TaskState<Work: TaskWork + ?Sized> {
-    // key: Work::Key,
     result: Thunk<Work::Output>,
     dependencies: Vec<Work::Key>,
 }
 
+/// The mutable state of `TaskTracker`.
 struct InnerState<Work: TaskWork + ?Sized> {
     tasks: BTreeMap<Work::Key, TaskState<Work>>,
 
@@ -44,6 +46,14 @@ struct InnerState<Work: TaskWork + ?Sized> {
     work_context: Arc<Box<Work>>,
 }
 
+/// Task scheduling with memoization and cycle detection.
+///
+/// It can be used for top-down dynamic programming, where each task represents
+/// a subproblem, and tasks can spawn new tasks as dependencies.
+///
+/// Your implementation of the [`TaskWork`] trait is responsible for the actual
+/// work. It uses the [`TaskContext`] provided to it to `spawn` or immediately
+/// `require` new tasks.
 pub struct TaskTracker<Work: TaskWork + ?Sized> {
     state: Arc<Mutex<InnerState<Work>>>,
 }
@@ -65,6 +75,8 @@ where
         TaskTracker::new_arc(Arc::new(Box::new(closure)))
     }
 
+    /// Create a new task for the given key. Work is not performed or started -
+    /// instead, a `Thunk` is returned that can be used to force the task to run.
     pub async fn create(self: &Self, key: Work::Key) -> Thunk<Work::Output> {
         // Look up the task
         let mut state = self.state.lock().await;
@@ -92,6 +104,7 @@ where
         state.tasks.get(&key).unwrap().result.clone()
     }
 
+    /// Run the task for the given key. This will block until the task completes.
     pub async fn run(self: &Self, key: Work::Key) -> Work::Output {
         // Look up the task
         let thunk = self.create(key).await;
@@ -99,6 +112,8 @@ where
         thunk.force().await.clone()
     }
 }
+
+// Derived `Clone` has unnecessary constraints, so we implement it manually
 impl<Work> Clone for TaskTracker<Work>
 where
     Work: TaskWork + ?Sized,
@@ -110,6 +125,9 @@ where
     }
 }
 
+/// `TaskContext` is used while performing the work for a task.
+/// It provides the capability to spawn new tasks and add dependencies to the current task.
+/// The `TaskContext` is created by the [`TaskTracker`] and passed to the [`TaskWork::work`] method
 pub struct TaskContext<Work: TaskWork + ?Sized> {
     tracker: TaskTracker<Work>,
     key: Work::Key,
@@ -186,7 +204,12 @@ where
     }
 }
 
-// Naive cycle detection
+// Naive cycle detection. It searches the whole graph without tracking anything
+// clever across runs. This tends to be fast enough for our pretty small graphs.
+// Most nodes are new nodes without any dependencies anyway, and we expect
+// outgoing edges to be just one.
+// I haven't analyzed this in practice, but certainly for now, the graphs are
+// small enough.
 fn find_path_to<Work: TaskWork>(
     seen: &mut BTreeSet<<Work as TaskWork>::Key>,
     tasks: &BTreeMap<Work::Key, TaskState<Work>>,
@@ -216,6 +239,10 @@ fn find_path_to<Work: TaskWork>(
     None
 }
 
+/// A type that represents a cycle in the task graph, implementing `std::fmt::Display`
+/// so that it can be printed in a human-readable format.
+/// The cycle is represented as a vector of keys, where the first element depends on the second element, and so forth.
+/// The last element depends on the first element, but the first element is not repeated in `path()`.
 pub struct Cycle<Key> {
     path: Vec<Key>,
 }
