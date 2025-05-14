@@ -9,6 +9,13 @@ use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 /// This is a separate executable because this functionality is not needed
 /// during normal nixops4 operation, and it would pollute the shell autocompletion.
 fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> Result<()> {
     let args = Args::parse();
 
     match &args.command {
@@ -64,14 +71,19 @@ fn main() -> Result<()> {
                 inputs.insert(k.clone(), serde_json::Value::String(v.clone()));
             }
 
-            let provider = ResourceProviderClient::new(ResourceProviderConfig {
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
                 provider_args: vec![],
-            });
+            })
+            .await?;
 
             let result = provider
                 .create(resource_type, &inputs)
+                .await
                 .with_context(|| "failed to create resource");
+
+            provider.close_wait().await?;
+
             match result {
                 Ok(response) => {
                     println!("{}", serde_json::to_string_pretty(&response)?);

@@ -4,25 +4,34 @@ mod eval_client;
 mod interrupt;
 mod logging;
 mod provider;
+mod work;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
-use eval_client::EvalClient;
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
-use nixops4_core::eval_api::{AssignRequest, EvalRequest, FlakeRequest, FlakeType, Id};
+use nixops4_core::eval_api::{
+    AssignRequest, EvalRequest, EvalResponse, FlakeRequest, QueryResponseValue,
+};
 use std::process::exit;
 
 fn main() {
     let interrupt_state = set_up_process_interrupt_handler();
-    let args = Args::parse();
-    handle_result(run_args(&interrupt_state, args));
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to initialize tokio runtime");
+    rt.block_on(async {
+        let args = Args::parse();
+        handle_result(run_args(&interrupt_state, args).await);
+    })
 }
 
-fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
+async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
     match &args.command {
         Commands::Apply(subargs) => {
             let mut logging = set_up_logging(interrupt_state, &args)?;
-            apply::apply(interrupt_state, &args.options, subargs)?;
+            apply::apply(interrupt_state, &args.options, subargs).await?;
             logging.tear_down()?;
             Ok(())
         }
@@ -30,7 +39,7 @@ fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             match sub {
                 Deployments::List {} => {
                     let mut logging = set_up_logging(interrupt_state, &args)?;
-                    let deployments = deployments_list(&args.options)?;
+                    let deployments = deployments_list(&args.options).await?;
                     logging.tear_down()?;
                     for d in deployments {
                         println!("{}", d);
@@ -108,41 +117,54 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
     }
 }
 
-/// Convenience function that sets up an evaluator with a flake, asynchronously with regard to evaluation.
-fn with_flake<T>(
-    options: &Options,
-    f: impl FnOnce(EvalClient, Id<FlakeType>) -> Result<T>,
-) -> Result<T> {
-    let options = to_eval_options(options);
-    EvalClient::with(&options, |mut c| {
-        let flake_id = c.next_id();
+// TODO: clean up, unify with apply infrastructure
+async fn deployments_list(options: &Options) -> Result<Vec<String>> {
+    let eval_options = to_eval_options(options);
+    let eval_options_2 = eval_options.clone();
+    eval_client::EvalSender::with(&eval_options, |s, mut r| async move {
+        let flake_id = s.next_id();
         // TODO: use better file path string type more
         let cwd = std::env::current_dir()
             .unwrap()
             .to_string_lossy()
             .to_string();
-        c.send(&EvalRequest::LoadFlake(AssignRequest {
+        s.send(&EvalRequest::LoadFlake(AssignRequest {
             assign_to: flake_id,
             payload: FlakeRequest {
                 abspath: cwd,
-                input_overrides: options.flake_input_overrides.clone(),
+                input_overrides: eval_options_2.flake_input_overrides.clone(),
             },
-        }))?;
-        f(c, flake_id)
-    })
-}
+        }))
+        .await?;
 
-fn deployments_list(options: &Options) -> Result<Vec<String>> {
-    with_flake(options, |mut c, flake_id| {
-        let deployments_id = c.query(EvalRequest::ListDeployments, flake_id)?;
-        let deployments = c.receive_until(|client, _resp| {
-            client.check_error(flake_id)?;
-            client.check_error(deployments_id)?;
-            let x = client.get_deployments(flake_id);
-            Ok(x.cloned())
-        })?;
+        s.query(s.next_id(), &EvalRequest::ListDeployments, flake_id)
+            .await?;
+
+        let deployments = loop {
+            match r.recv().await {
+                None => {
+                    bail!("Error: no response from evaluator");
+                }
+                Some(EvalResponse::Error(_id, e)) => {
+                    bail!("Error: {}", e);
+                }
+                Some(EvalResponse::QueryResponse(
+                    _,
+                    QueryResponseValue::ListDeployments((_id, deployments)),
+                )) => {
+                    break deployments.iter().cloned().collect::<Vec<_>>();
+                }
+                Some(EvalResponse::QueryResponse(_, _)) => {
+                    // Ignore other query responses
+                }
+                Some(EvalResponse::TracingEvent(_value)) => {
+                    // Already handled in an EvalSender::with thread => ignore
+                }
+            }
+        };
         Ok(deployments)
     })
+    .await
 }
 
 fn handle_result(r: Result<()>) {
