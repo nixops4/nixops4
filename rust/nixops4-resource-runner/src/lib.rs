@@ -94,14 +94,14 @@ impl ResourceProviderClient {
         inputs: &serde_json::Map<String, Value>,
     ) -> Result<serde_json::Map<String, Value>> {
         let req = v0::CreateResourceRequest {
-            input_properties: inputs.clone(),
-            type_: type_.to_string(),
+            input_properties: v0::InputProperties(inputs.clone()),
+            type_: v0::ResourceType(type_.to_string()),
         };
 
         // Write the request
         self.write_request(req).await?;
 
-        Ok(self.read_response().await?.output_properties)
+        Ok(self.read_response().await?.output_properties.0)
     }
 }
 

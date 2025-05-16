@@ -3,19 +3,31 @@
   "title": "NixOps4 Resource Protocol Schema",
   "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
   "definitions": {
+    "resourceType": {
+      "type": "string",
+      "title": "Provider-defined resource type",
+      "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user. The resource type is chosen by the deployment expression, but must be one of the types that the resource provider supports. The resource provider must not proceed if the type is not supported."
+    },
+    "inputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Input properties",
+      "description": "The set of input properties. The set of valid fields is determined by the resource provider implementation."
+    },
+    "outputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Output properties",
+      "description": "The set of output properties. The set of fields is determined by the resource provider implementation. Fields that are unknown to the accompanying Nix expressions will be ignored."
+    },
     "CreateResourceRequest": {
       "type": "object",
       "properties": {
         "type": {
-          "type": "string",
-          "title": "Provider-defined resource type",
-          "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+          "$ref": "#/definitions/resourceType"
         },
         "inputProperties": {
-          "type": "object",
-          "additionalProperties": true,
-          "title": "Input properties",
-          "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+          "$ref": "#/definitions/inputProperties"
         }
       },
       "required": [
@@ -28,9 +40,7 @@
       "type": "object",
       "properties": {
         "outputProperties": {
-          "type": "object",
-          "additionalProperties": true,
-          "title": "Output properties",
+          "$ref": "#/definitions/outputProperties",
           "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
         }
       },

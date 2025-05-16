@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 use nixops4_resource::framework::run_main;
-use nixops4_resource::{schema::v0::CreateResourceRequest, schema::v0::CreateResourceResponse};
+use nixops4_resource::schema::v0;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -31,7 +31,7 @@ struct ExecOutProperties {
 }
 
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
-    fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse> {
+    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse> {
         match request.type_.as_str() {
             "file" => do_create(request, |p: FileInProperties| {
                 std::fs::write(&p.name, &p.contents)?;
@@ -91,11 +91,11 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
 }
 
 fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
-    request: CreateResourceRequest,
+    request: v0::CreateResourceRequest,
     f: impl Fn(In) -> Result<Out>,
-) -> std::prelude::v1::Result<CreateResourceResponse, anyhow::Error> {
+) -> std::prelude::v1::Result<v0::CreateResourceResponse, anyhow::Error> {
     let parsed_properties: In = serde_json::from_value(Value::Object(
-        request.input_properties.into_iter().collect(),
+        request.input_properties.0.into_iter().collect(),
     ))
     .with_context(|| {
         format!(
@@ -115,8 +115,8 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
 
     let out_properties = out_object.into_iter().collect();
 
-    Ok(CreateResourceResponse {
-        output_properties: out_properties,
+    Ok(v0::CreateResourceResponse {
+        output_properties: v0::OutputProperties(out_properties),
     })
 }
 

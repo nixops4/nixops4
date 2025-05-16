@@ -12,14 +12,14 @@ mod tests {
         assert_eq!(
             _value,
             CreateResourceRequest {
-                type_: "file".to_string(),
-                input_properties: serde_json::Map::from_iter(vec![
+                type_: ResourceType("file".to_string()),
+                input_properties: InputProperties(serde_json::Map::from_iter(vec![
                     ("path".to_string(), Value::String("pubkey.txt".to_string())),
                     (
                         "content".to_string(),
                         Value::String("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD".to_string())
                     ),
-                ]),
+                ])),
             }
         );
     }
@@ -31,7 +31,7 @@ mod tests {
         assert_eq!(
             _value,
             CreateResourceResponse {
-                output_properties: serde_json::Map::from_iter(vec![
+                output_properties: OutputProperties(serde_json::Map::from_iter(vec![
                     ("id".to_string(), Value::String("vm-12w94ty8".to_string())),
                     (
                         "interfaces".to_string(),
@@ -43,7 +43,7 @@ mod tests {
                             )])
                         )])
                     )
-                ]),
+                ])),
             }
         );
     }
