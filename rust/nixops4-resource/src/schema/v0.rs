@@ -1,4 +1,4 @@
-include!(concat!(env!("OUT_DIR"), "/generated/v0.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/schema/resource/v0.rs"));
 
 #[cfg(test)]
 mod tests {
