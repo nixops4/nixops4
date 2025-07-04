@@ -1,19 +1,45 @@
 use std::{
+    fs::File,
     io::{BufRead, BufReader},
     os::fd::{AsRawFd, FromRawFd},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use nix::unistd::{dup, dup2};
+use tracing;
 
-use crate::schema::v0::{CreateResourceRequest, CreateResourceResponse};
+use crate::schema::v0::{self};
 
 pub trait ResourceProvider {
-    fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse>;
-    // TODO:
-    // fn check(&self) -> Result<()>;
-    // fn destroy(&self) -> Result<()>;
-    // fn update(&self) -> Result<()>;
+    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse>;
+    fn read(&self, request: v0::ReadResourceRequest) -> Result<v0::ReadResourceResponse>;
+    fn destroy(&self, request: v0::DestroyResourceRequest) -> Result<v0::DestroyResourceResponse>;
+    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse>;
+    fn state_read(
+        &self,
+        request: v0::StateResourceReadRequest,
+    ) -> Result<v0::StateResourceReadResponse> {
+        let _ = request;
+        bail!("State read operation not implemented by resource provider")
+    }
+    fn state_event(
+        &self,
+        request: v0::StateResourceEvent,
+    ) -> Result<v0::StateResourceEventResponse> {
+        let _ = request;
+        bail!("State event not implemented by resource provider")
+    }
+}
+
+fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
+    out.write_all(
+        serde_json::to_string(resp)
+            .with_context(|| "Could not serialize response")
+            .unwrap()
+            .as_bytes(),
+    )?;
+    out.write_all(b"\n").context("writing newline")?;
+    out.flush().context("flushing response")
 }
 
 pub fn run_main(provider: impl ResourceProvider) {
@@ -25,25 +51,95 @@ pub fn run_main(provider: impl ResourceProvider) {
     // Read the request from the input
 
     let mut in_ = BufReader::new(pipe.in_);
+    let mut out = pipe.out;
 
-    let request = {
-        let mut line = String::new();
-        in_.read_line(&mut line)
-            .with_context(|| "Could not read line for request message")
-            .unwrap_or_exit();
-        serde_json::from_str(&line)
-            .with_context(|| "Could not parse request message")
-            .unwrap_or_exit()
-    };
+    loop {
+        let request: v0::Request = {
+            let mut line = String::new();
+            let len = in_
+                .read_line(&mut line)
+                .with_context(|| "Could not read line for request message")
+                .unwrap_or_exit();
+            if len == 0 {
+                break;
+            }
+            serde_json::from_str(&line)
+                .with_context(|| "Could not parse request message")
+                .unwrap_or_exit()
+        };
+        handle_request(&mut out, &provider, request);
+    }
+}
 
-    // Call the provider
-    let resp = provider
-        .create(request)
-        .with_context(|| "Could not create resource")
-        .unwrap_or_exit();
-
-    // Write the response to the output
-    serde_json::to_writer(pipe.out, &resp).unwrap();
+fn handle_request(out: &mut File, provider: &impl ResourceProvider, request: v0::Request) {
+    match request {
+        v0::Request::CreateResourceRequest(r) => {
+            let span = tracing::info_span!("create", type = r.type_.as_str());
+            let resp = provider
+                .create(r)
+                .with_context(|| "Could not create resource")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::CreateResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+        v0::Request::ReadResourceRequest(r) => {
+            let span = tracing::info_span!("read", type = r.resource.type_.as_str());
+            let resp = provider
+                .read(r)
+                .with_context(|| "Could not read resource")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::ReadResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+        v0::Request::UpdateResourceRequest(r) => {
+            let span = tracing::info_span!("update", type = r.resource.type_.as_str());
+            let resp = provider
+                .update(r)
+                .with_context(|| "Could not update resource")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::UpdateResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+        v0::Request::DestroyResourceRequest(r) => {
+            let span = tracing::info_span!("destroy", type = r.resource.type_.as_str());
+            let resp = provider
+                .destroy(r)
+                .with_context(|| "Could not destroy resource (or not completely, correctly)")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::DestroyResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+        v0::Request::StateResourceEvent(r) => {
+            let span = tracing::info_span!("state_event", type = r.resource.type_.as_str());
+            let resp = provider
+                .state_event(r)
+                .with_context(|| "Could not handle state event")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::StateResourceEventResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+        v0::Request::StateResourceReadRequest(r) => {
+            let span = tracing::info_span!("state_read", type = r.resource.type_.as_str());
+            let resp = provider
+                .state_read(r)
+                .with_context(|| "Could not read state")
+                .unwrap_or_exit();
+            write_response(out, &v0::Response::StateResourceReadResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+            drop(span);
+        }
+    }
 }
 
 /// A pair of `T` values: one for input and one for output.
