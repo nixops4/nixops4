@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://nixops.dev/manual/development/schema/state-schema-v0.json",
+  "title": "NixOps4 State Event/File Schema",
+  "description": "This schema describes the shape of state events and the cumulative state file. The state file is a JSON file that contains the current state of the NixOps4 deployment. The state events are a sequence of changes to the state file, and are used to track the history of the deployment.",
+  "definitions": {
+    "Patch": {
+      "description": "An RFC 6902 JSON Patch document. See <https://tools.ietf.org/html/rfc6902>, <https://json.schemastore.org/json-patch.json>",
+      "$ref": "https://json.schemastore.org/json-patch.json#",
+      "x-rust-type": {
+        "crate": "json_patch",
+        "version": "4.0.0",
+        "path": "json_patch::Patch"
+      }
+    },
+    "StateEvent": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "description": "The index of the event. This should be a monotonically increasing number that is used to order the events. A lack of monotonicity indicates concurrent operations that may need manual reconciliation."
+        },
+        "meta": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "The time at which the event occurred."
+            }
+          },
+          "required": [
+            "time"
+          ],
+          "additionalProperties": true
+        },
+        "patch": {
+          "$ref": "#/definitions/Patch",
+          "title": "JSON Patch"
+        }
+      },
+      "required": [
+        "index",
+        "meta",
+        "patch"
+      ]
+    },
+    "State": {
+      "type": "object",
+      "properties": {
+        "_type": {
+          "type": "string",
+          "enum": [
+            "nixopsState"
+          ],
+          "description": "The type of the state. This is used to distinguish the format of the NixOps state. Currently only one type has been developed: `nixopsState`. Any code that reads the state should reject any other type."
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "deployments": {
+          "description": "A set of nested deployments, TBD",
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "_type",
+        "resources",
+        "deployments"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/definitions/StateEvent"
+    },
+    {
+      "$ref": "#/definitions/State"
+    }
+  ]
+}

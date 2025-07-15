@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://nixops.dev/manual/development/schema/resource-schema-v0.json",
   "title": "NixOps4 Resource Protocol Schema",
   "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
   "definitions": {

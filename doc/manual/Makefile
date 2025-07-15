@@ -14,11 +14,13 @@ open: book
 	fi
 
 GENERATED = src/schema/resource-schema-v0.gen.md \
+	src/schema/state-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
 	src/cli/nixops4.md \
 	src/modules/option-docs.gen.md \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
+	src/schema/state-v0/examples/empty.json \
 	src/architecture/cargo-deps.gen.md \
 	src/lib/lib.gen.md
 
@@ -34,18 +36,32 @@ src/schema/resource-schema-v0.json: ../../rust/nixops4-resource/resource-schema-
 	@mkdir -p $(dir $@)
 	@cp $< $@
 
+src/schema/state-schema-v0.json: ../../rust/nixops4-resource/state-schema-v0.json
+	@echo "        COPY" $@
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+# Generate markdown documentation from JSON schema files
 # package: json-schema-for-humans
 %.gen.md: %.json json-schema-for-humans-config.yaml
 	@echo " JSON SCHEMA" $@
-	@generate-schema-doc --config-file json-schema-for-humans-config.yaml $< $@.tmp
+	# Resolve external schema references for offline processing and pin exact schema contents
+	@cp $< $@.tmp.json
+	@x="https://json.schemastore.org/json-patch.json"; y="file://$$(json-schema-catalog lookup "$$x" )"; sed -i -e "s!$$x!$$y!" $@.tmp.json
+	# Generate documentation
+	@generate-schema-doc --config-file json-schema-for-humans-config.yaml $@.tmp.json $@.tmp
+	# Post-process: add raw schema link and fix formatting
+	# FIXME: #oneOf_i0_patch_items: known broken link
 	@(head -n 1 $@.tmp; echo "[Raw JSON schema]($(shell basename $<))"; tail -n +2 $@.tmp) \
 	  | sed -e 's!a name=!a id=!g' \
 		    -e 's!\[\](#[^)]*)!!g' \
 				-e 's!^#!##!g' \
+				-e 's!\[\(.*\)\](#oneOf_i0_patch_items)!\1!g' \
 				-e 's!\[\[Any type: allowed\]\](# "Additional Properties of any type are allowed\.")!Any type allowed!g' \
 				-e 's!\[\[Not allowed\]\](# "Additional Properties not allowed.")!Not allowed!g' \
+				-e "s!\(file://\)*$$(json-schema-catalog lookup "https://json.schemastore.org/json-patch.json")!https://json.schemastore.org/json-patch.json!g" \
 				> $@
-	@rm $@.tmp
+	@rm $@.tmp $@.tmp.json
 
 # sets
 # - NIXOPS4_RESOURCE_RUNNER_CMD
@@ -58,6 +74,11 @@ src/cli/nixops4-resource-runner.md: $(NIXOPS4_RESOURCE_RUNNER_EXE)
 	@$(NIXOPS4_RESOURCE_RUNNER_CMD) generate-markdown > $@
 
 src/schema/resource-v0/examples/%.json: ../../rust/nixops4-resource/examples/v0/%.json
+	@echo "        COPY" $@
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+src/schema/state-v0/examples/%.json: ../../rust/nixops4-resource/examples/state/v0/%.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@

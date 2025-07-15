@@ -1,5 +1,7 @@
 <div class="schema-content">
 
+# Resource Protocol Schema
+
 ## Raw JSON schema
 
 [Open JSON schema file](resource-schema-v0.json)

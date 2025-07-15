@@ -1,14 +1,16 @@
-{ json-schema-for-humans
-, cargo
+{ cargo
 , fetchpatch2
 , jq
+, json-schema-catalog-rs
+, json-schema-for-humans
+, jsonSchemaCatalogs
 , lib
+, manual-deployment-option-docs-md
 , mdbook
 , mdbook-mermaid
 , nixdoc
 , nixops4
 , nixops4-resource-runner
-, manual-deployment-option-docs-md
 , stdenv
 }:
 let
@@ -22,6 +24,7 @@ stdenv.mkDerivation (finalAttrs: {
       ../../nix/lib/lib.nix
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
+      ../../rust/nixops4-resource/state-schema-v0.json
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
       ./book.toml
       ./cargo-deps.sh
@@ -69,6 +72,8 @@ stdenv.mkDerivation (finalAttrs: {
       nixdoc
       json-schema-for-humans
       jq
+      json-schema-catalog-rs
+      jsonSchemaCatalogs.json-patch-schemastore
     ];
   };
 })

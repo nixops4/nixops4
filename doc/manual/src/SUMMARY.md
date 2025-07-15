@@ -10,6 +10,7 @@
 - [Module Options](./modules/index.md)
 - [Protocols]()
   - [Resource Protocol Schema](./schema/resource-v0.md)
+  - [State File Schema](./schema/state-v0.md)
 - [Architecture]()
   - [Components](./architecture/nixops-components.md)
 - [Index](./index/index.md)

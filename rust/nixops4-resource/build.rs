@@ -8,6 +8,7 @@ fn main() {
         "generated/schema/resource",
         "v0.rs",
     );
+    schema_to_rust("state-schema-v0.json", "generated/schema/state", "v0.rs");
 }
 
 fn schema_to_rust(schema_file: &str, out_dir: &str, out_file: &str) {
@@ -20,6 +21,11 @@ fn schema_to_rust(schema_file: &str, out_dir: &str, out_file: &str) {
             .with_derive("PartialEq".to_string())
             .with_derive("Eq".to_string())
             .with_derive("Clone".to_string())
+            .with_crate(
+                "json_patch",
+                typify::CrateVers::parse("4.0.0").unwrap(),
+                None,
+            )
             .with_map_type("std::collections::BTreeMap".to_string()),
     );
     type_space.add_ref_types(schema.definitions).unwrap();
