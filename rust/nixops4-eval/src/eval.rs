@@ -7,11 +7,11 @@ use cstr::cstr;
 use nix_expr::{
     eval_state::EvalState,
     primop::{PrimOp, PrimOpMeta},
-    value::Value,
+    value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
-    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    AssignRequest, Dependency, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty,
+    QueryRequest, QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
     ResourceProviderInfo, ResourceType,
 };
 use std::sync::{Arc, Mutex};
@@ -411,10 +411,18 @@ fn perform_get_resource(
     };
     let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
     let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
+    let resource_state_value = this.eval_state.require_attrs_select(&resource, "state")?;
+    let resource_state_value_type = this.eval_state.value_type(&resource_state_value)?;
+    let resource_state_opt_str = match resource_state_value_type {
+        ValueType::Null => None,
+        ValueType::String => Some(this.eval_state.require_string(&resource_state_value)?),
+        _ => bail!("expected state to be a string or null"),
+    };
     Ok(ResourceProviderInfo {
         id: req.to_owned(),
         provider: provider_json,
         resource_type: resource_type_str,
+        state: resource_state_opt_str,
     })
 }
 
@@ -447,7 +455,9 @@ fn perform_get_resource_input(
                 Ok(ResourceInputState::ResourceInputDependency(
                     ResourceInputDependency {
                         dependent: req.to_owned(),
-                        dependency: named_property,
+                        dependency: Dependency::ResourceOutput {
+                            property: named_property,
+                        },
                     },
                 ))
             } else {
