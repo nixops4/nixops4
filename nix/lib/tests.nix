@@ -35,6 +35,7 @@ in
                 type = types.str;
               };
             };
+            requireState = false;
             outputs = {
               options.stdout = mkOption {
                 type = types.str;
@@ -69,6 +70,7 @@ in
                     type = "stdio";
                   };
                   inputs = { };
+                  requireState = false;
                   outputs = { ... }: {
                     options.aResult = mkOption {
                       type = types.str;
@@ -94,6 +96,8 @@ in
                   config.a = resources.a.aResult;
                   config.a2 = config.resources.a.outputs.aResult;
                 };
+                requireState = true;
+                state = "a";
                 outputs = { };
                 outputsSkeleton = { };
               };
@@ -145,6 +149,7 @@ in
                 executable = "/foo/bin/agree";
                 type = "stdio";
               };
+              state = null;
               type = "aye";
               outputsSkeleton = { aResult = { }; };
             };
@@ -158,6 +163,7 @@ in
                 executable = "/foo/bin/bee";
                 type = "stdio";
               };
+              state = "a";
               type = "bee";
               outputsSkeleton = { };
             };
@@ -170,6 +176,7 @@ in
                 executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
                 type = "stdio";
               };
+              state = null;
               type = "exec";
               outputsSkeleton = { stdout = { }; };
             };
