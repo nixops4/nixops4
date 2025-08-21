@@ -5,8 +5,6 @@
 , nixops4-resource-runner
 , nixops4-resources-local
 , runCommand
-, runtimeShell
-, writeScriptBin
 , die
 }:
 
