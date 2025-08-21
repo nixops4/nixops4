@@ -12,6 +12,7 @@ in
     );
   resourceTypes = {
     file = {
+      requireState = false;
       inputs = {
         options = {
           name = mkOption {
@@ -27,6 +28,7 @@ in
       };
     };
     exec = {
+      requireState = false;
       inputs = {
         options = {
           executable = mkOption {

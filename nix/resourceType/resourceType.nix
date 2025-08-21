@@ -100,6 +100,13 @@ in
       '';
     };
 
+    requireState = mkOption {
+      type = types.bool;
+      description = ''
+        Whether the resource requires state to be stored.
+      '';
+    };
+
     type = mkOption {
       type = types.str;
       description = ''
