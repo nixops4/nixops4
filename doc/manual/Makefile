@@ -56,9 +56,6 @@ src/schema/state-schema-v0.json: ../../rust/nixops4-resource/state-schema-v0.jso
 	  | sed -e 's!a name=!a id=!g' \
 		    -e 's!\[\](#[^)]*)!!g' \
 				-e 's!^#!##!g' \
-				-e 's!\[\(.*\)\](#oneOf_i0_patch_items)!\1!g' \
-				-e 's!\[\[Any type: allowed\]\](# "Additional Properties of any type are allowed\.")!Any type allowed!g' \
-				-e 's!\[\[Not allowed\]\](# "Additional Properties not allowed.")!Not allowed!g' \
 				-e "s!\(file://\)*$$(json-schema-catalog lookup "https://json.schemastore.org/json-patch.json")!https://json.schemastore.org/json-patch.json!g" \
 				> $@
 	@rm $@.tmp $@.tmp.json

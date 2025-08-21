@@ -8,9 +8,6 @@
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    # https://github.com/NixOS/nixpkgs/issues/359286
-    nixpkgs-old.url = "github:NixOS/nixpkgs/nixos-24.05";
   };
 
   outputs = inputs@{ self, flake-parts, ... }:
