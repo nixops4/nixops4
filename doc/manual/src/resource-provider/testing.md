@@ -31,7 +31,7 @@ Criteria:
 
 ¹: Make sure to add expected build inputs to the check derivation or [`system.extraDependencies`][nixos-extraDependencies]
 
-²: Requires a "remote" builder, which can be provided by [nix-darwin]'s [`nix.linux-builder.enable`](https://daiderd.com/nix-darwin/manual/index.html#opt-nix.linux-builder.enable)
+²: Requires a "remote" builder, which can be provided by [nix-darwin]'s [`nix.linux-builder.enable`](https://nix-darwin.github.io/nix-darwin/manual/index.html#opt-nix.linux-builder.enable)
 
 ³: The [`recursive-nix`][recursive-nix] experimental feature is not planned to be supported in the long term and [has problems](https://github.com/NixOS/nix/labels/recursive-nix).
 
@@ -66,7 +66,7 @@ We can distinguish between the ability to test a provider that is built for macO
 A NixOS VM test can be run on a macOS host, but it will not test the provider on macOS.
 
 [recursive-nix]: https://nix.dev/manual/nix/latest/development/experimental-features#xp-feature-recursive-nix
-[nix-darwin]: https://daiderd.com/nix-darwin/
+[nix-darwin]: https://github.com/nix-darwin/nix-darwin#readme
 [nixos-extraDependencies]: https://search.nixos.org/options?show=system.extraDependencies&sort=relevance&query=extraDependencies
 [`nixops4-resource-runner`]: ../cli/nixops4-resource-runner.md
 
