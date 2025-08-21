@@ -7,7 +7,7 @@ use cstr::cstr;
 use nix_expr::{
     eval_state::EvalState,
     primop::{PrimOp, PrimOpMeta},
-    value::Value,
+    value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
     AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
@@ -393,28 +393,43 @@ fn perform_load_deployment(
 fn perform_get_resource(
     this: &mut EvaluationDriver,
     req: &Id<nixops4_core::eval_api::ResourceType>,
-) -> std::result::Result<ResourceProviderInfo, anyhow::Error> {
+) -> Result<ResourceProviderInfo> {
     let resource = this.get_value(req.to_owned())?.clone();
+    let resource_name = this.resource_names.get(req).unwrap();
     // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
-    let provider_value = this
-        .eval_state
-        .require_attrs_select(&resource, "provider")?;
+    parse_resource(req, &mut this.eval_state, resource_name, resource)
+}
+
+fn parse_resource(
+    req: &Id<nixops4_core::eval_api::ResourceType>,
+    eval_state: &mut EvalState,
+    resource_name: &String,
+    resource: Value,
+) -> Result<ResourceProviderInfo> {
+    let provider_value = eval_state.require_attrs_select(&resource, "provider")?;
     let provider_json = {
-        let resource_name = this.resource_names.get(req).unwrap();
         let span = tracing::info_span!(
             "evaluating and realising provider",
             resource_name = resource_name
         );
-        let r = value_to_json(&mut this.eval_state, &provider_value)?;
+        let r = value_to_json(eval_state, &provider_value)?;
         drop(span);
         r
     };
-    let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
-    let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
+    let resource_type_value = eval_state.require_attrs_select(&resource, "type")?;
+    let resource_type_str = eval_state.require_string(&resource_type_value)?;
+    let resource_state_value = eval_state.require_attrs_select(&resource, "state")?;
+    let resource_state_value_type = eval_state.value_type(&resource_state_value)?;
+    let resource_state_opt_str = match resource_state_value_type {
+        ValueType::Null => None,
+        ValueType::String => Some(eval_state.require_string(&resource_state_value)?),
+        _ => bail!("expected state to be a string or null"),
+    };
     Ok(ResourceProviderInfo {
         id: req.to_owned(),
         provider: provider_json,
         resource_type: resource_type_str,
+        state: resource_state_opt_str,
     })
 }
 
@@ -892,5 +907,73 @@ mod tests {
             };
             drop(guard);
         }
+    }
+
+    #[test]
+    fn test_parse_resource() {
+        let ids = Ids::new();
+        let guard = gc_register_my_thread().unwrap();
+        let (mut eval_state, _fetch_settings, _flake_settings) = new_eval_state().unwrap();
+
+        // Test parsing a resource with state
+        let resource_with_state = eval_state
+            .eval_from_string(
+                r#"{
+                provider = { example = "config"; };
+                type = "example";
+                state = "stateful";
+            }"#,
+                "<test-resource-with-state>",
+            )
+            .unwrap();
+
+        let req_id = ids.next();
+        let resource_name = "myResource".to_string();
+
+        let result = parse_resource(
+            &req_id,
+            &mut eval_state,
+            &resource_name,
+            resource_with_state,
+        )
+        .unwrap();
+
+        assert_eq!(result.id, req_id);
+        assert_eq!(result.resource_type, "example");
+        assert_eq!(result.state, Some("stateful".to_string()));
+        assert_eq!(
+            result.provider.get("example").unwrap().as_str().unwrap(),
+            "config"
+        );
+
+        // Test parsing a resource without state (null)
+        let resource_without_state = eval_state
+            .eval_from_string(
+                r#"{
+                provider = { another = "value"; };
+                type = "another-type";
+                state = null;
+            }"#,
+                "<test-resource-without-state>",
+            )
+            .unwrap();
+
+        let result2 = parse_resource(
+            &req_id,
+            &mut eval_state,
+            &resource_name,
+            resource_without_state,
+        )
+        .unwrap();
+
+        assert_eq!(result2.id, req_id);
+        assert_eq!(result2.resource_type, "another-type");
+        assert_eq!(result2.state, None);
+        assert_eq!(
+            result2.provider.get("another").unwrap().as_str().unwrap(),
+            "value"
+        );
+
+        drop(guard);
     }
 }
