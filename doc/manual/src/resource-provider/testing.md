@@ -22,7 +22,7 @@ Criteria:
 <!-- | Environment | Test runner | Hermetic | Network access | Can build | Can use cache | Tests macOS build | Runs on macOS | Status / notes | -->
 | Environment                         | Runner                 | 📦 | ❄️  | ☁️  | 🏗️ | 🚚 | 🍏📦 | 🍏🧑‍💻 | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Nix sandbox                         | [`nixops4-resource-runner`] | ✅ | ❌ | ❌ | ❌ | ❌  | ✅ | ✅  | |
+| Nix sandbox                         | [`nixops4-resource-runner`](#nixops4-resource-runner) | ✅ | ❌ | ❌ | ❌ | ❌  | ✅ | ✅  | |
 | Nix sandbox with different storeDir | `nixops4`                   | ✅ | ❌ | ❌ | ✅ | ❌  | ✅ | ✅  | Impractical |
 | Nix sandbox with relocated store    | `nixops4`                   | ✅ | ❌ | ❌ | ✅ | ✅¹ | ❌ | ❌  | 🚧 Untested |
 | Nix sandbox with recursive nix      | `nixops4`                   | ⚠️³ | ❌ | ❌ | ✅ | ✅  | ✅ | ✅  | ⚠️³ |
@@ -69,3 +69,42 @@ A NixOS VM test can be run on a macOS host, but it will not test the provider on
 [nix-darwin]: https://daiderd.com/nix-darwin/
 [nixos-extraDependencies]: https://search.nixos.org/options?show=system.extraDependencies&sort=relevance&query=extraDependencies
 [`nixops4-resource-runner`]: ../cli/nixops4-resource-runner.md
+
+## Testing with nixops4-resource-runner {#nixops4-resource-runner}
+
+The [`nixops4-resource-runner`] tool provides a simple way to test resource providers by invoking all provider operations directly. See the [resource provider interface](./interface.md) for details about the protocol.
+
+### Example: Testing a stateless resource
+
+```bash
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type file \
+  --input-str name test.txt \
+  --input-str contents "Hello, world!"
+```
+
+See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create).
+
+### Example: Testing a stateful resource
+
+```bash
+# Create with state persistence
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --stateful \
+  --input-json initialize_with '"initial value"'
+
+# Update the stateful resource
+nixops4-resource-runner update \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --inputs-json '{"initialize_with": "new value"}' \
+  --previous-inputs-json '{"initialize_with": "initial value"}' \
+  --previous-outputs-json '{"value": "initial value"}'
+```
+
+The `--stateful` flag indicates that state persistence will be provided to the resource. Resources that require state must fail if this flag is not set.
+
+See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create) and [`nixops4-resource-runner update`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-update).

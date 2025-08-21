@@ -30,6 +30,16 @@ struct ExecOutProperties {
     stdout: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct MemoInProperties {
+    initialize_with: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct MemoOutProperties {
+    value: Value,
+}
+
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse> {
         match request.type_.as_str() {
@@ -82,8 +92,57 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     )
                 }
             }),
+            "memo" => {
+                if !request.is_stateful {
+                    bail!("memo resources require state (isStateful must be true)");
+                }
+                do_create(request, |p: MemoInProperties| {
+                    // A stateful resource that is initialized upon creation and
+                    // not modified afterwards, except perhaps through a manual
+                    // operation or a migration of sorts
+                    Ok(MemoOutProperties {
+                        value: p.initialize_with,
+                    })
+                })
+            }
             t => bail!(
                 "LocalResourceProvider::create: unknown resource type: {}",
+                t
+            ),
+        }
+    }
+
+    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                bail!("Internal error: update called on stateless file resource");
+            }
+            "exec" => {
+                bail!("Internal error: update called on stateless exec resource");
+            }
+            "memo" => do_update(&request, |_p: MemoInProperties| {
+                let previous_output_properties = request.resource.output_properties.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("The update operation on a memo resource requires that the output properties are set")
+                    })?;
+                let previous_output_properties: MemoOutProperties =
+                    serde_json::from_value(Value::Object(
+                        previous_output_properties
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
+                    ))
+                    .with_context(|| {
+                        format!(
+                            "Could not deserialize output properties for {} resource",
+                            request.resource.type_
+                        )
+                    })?;
+                Ok(MemoOutProperties {
+                    value: previous_output_properties.value,
+                })
+            }),
+            t => bail!(
+                "LocalResourceProvider::update: unknown resource type: {}",
                 t
             ),
         }
@@ -116,6 +175,41 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     let out_properties = out_object.into_iter().collect();
 
     Ok(v0::CreateResourceResponse {
+        output_properties: v0::OutputProperties(out_properties),
+    })
+}
+
+fn do_update<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
+    request: &v0::UpdateResourceRequest,
+    f: impl Fn(In) -> Result<Out>,
+) -> std::prelude::v1::Result<v0::UpdateResourceResponse, anyhow::Error> {
+    let parsed_properties: In = serde_json::from_value(Value::Object(
+        request
+            .input_properties
+            .0
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
+    .with_context(|| {
+        format!(
+            "Could not deserialize input properties for {} resource",
+            request.resource.type_
+        )
+    })?;
+
+    let out = f(parsed_properties)?;
+
+    let out_value = serde_json::to_value(out)?;
+
+    let out_object = match out_value {
+        Value::Object(o) => o,
+        _ => bail!("Expected object as output"),
+    };
+
+    let out_properties = out_object.into_iter().collect();
+
+    Ok(v0::UpdateResourceResponse {
         output_properties: v0::OutputProperties(out_properties),
     })
 }

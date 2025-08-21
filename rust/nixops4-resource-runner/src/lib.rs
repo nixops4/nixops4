@@ -56,7 +56,7 @@ impl ResourceProviderClient {
             anyhow::anyhow!("Can not write to provider while provider is shutting down.")
         })
     }
-    async fn write_request(&mut self, req: v0::CreateResourceRequest) -> Result<()> {
+    async fn write_request(&mut self, req: v0::Request) -> Result<()> {
         let req_str = serde_json::to_string(&req).unwrap();
         let writer = self.get_writer()?;
         writer.write_all(req_str.as_bytes()).await.unwrap();
@@ -64,7 +64,7 @@ impl ResourceProviderClient {
         writer.flush().await.unwrap();
         Ok(())
     }
-    async fn read_response(&mut self) -> Result<v0::CreateResourceResponse> {
+    async fn read_response(&mut self) -> Result<v0::Response> {
         let mut response = String::new();
         let n = self.child_reader.read_line(&mut response).await;
         match n {
@@ -92,16 +92,56 @@ impl ResourceProviderClient {
         &mut self,
         type_: &str,
         inputs: &serde_json::Map<String, Value>,
+        is_stateful: bool,
     ) -> Result<serde_json::Map<String, Value>> {
         let req = v0::CreateResourceRequest {
             input_properties: v0::InputProperties(inputs.clone()),
             type_: v0::ResourceType(type_.to_string()),
+            is_stateful,
         };
 
         // Write the request
-        self.write_request(req).await?;
+        self.write_request(v0::Request::CreateResourceRequest(req))
+            .await?;
 
-        Ok(self.read_response().await?.output_properties.0)
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::CreateResourceResponse(r) => Ok(r.output_properties.0),
+            _ => anyhow::bail!(
+                "Expected CreateResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
+    pub async fn update(
+        &mut self,
+        type_: &str,
+        inputs: &serde_json::Map<String, Value>,
+        previous_inputs: &serde_json::Map<String, Value>,
+        previous_outputs: &serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>> {
+        let req = v0::UpdateResourceRequest {
+            resource: v0::ExtantResource {
+                type_: v0::ResourceType(type_.to_string()),
+                input_properties: v0::InputProperties(previous_inputs.clone()),
+                output_properties: Some(v0::OutputProperties(previous_outputs.clone())),
+            },
+            input_properties: v0::InputProperties(inputs.clone()),
+        };
+
+        // Write the request
+        self.write_request(v0::Request::UpdateResourceRequest(req))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::UpdateResourceResponse(r) => Ok(r.output_properties.0),
+            _ => anyhow::bail!(
+                "Expected UpdateResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
     }
 }
 
