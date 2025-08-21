@@ -6,14 +6,22 @@ use std::{
 use anyhow::{Context, Result};
 use nix::unistd::{dup, dup2};
 
-use crate::schema::v0::{CreateResourceRequest, CreateResourceResponse};
+use crate::schema::v0;
 
 pub trait ResourceProvider {
-    fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse>;
-    // TODO:
-    // fn check(&self) -> Result<()>;
-    // fn destroy(&self) -> Result<()>;
-    // fn update(&self) -> Result<()>;
+    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse>;
+    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse>;
+}
+
+fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
+    out.write_all(
+        serde_json::to_string(resp)
+            .with_context(|| "Could not serialize response")
+            .unwrap()
+            .as_bytes(),
+    )?;
+    out.write_all(b"\n").context("writing newline")?;
+    out.flush().context("flushing response")
 }
 
 pub fn run_main(provider: impl ResourceProvider) {
@@ -26,7 +34,9 @@ pub fn run_main(provider: impl ResourceProvider) {
 
     let mut in_ = BufReader::new(pipe.in_);
 
-    let request = {
+    let mut out = pipe.out;
+
+    let request: v0::Request = {
         let mut line = String::new();
         in_.read_line(&mut line)
             .with_context(|| "Could not read line for request message")
@@ -36,14 +46,26 @@ pub fn run_main(provider: impl ResourceProvider) {
             .unwrap_or_exit()
     };
 
-    // Call the provider
-    let resp = provider
-        .create(request)
-        .with_context(|| "Could not create resource")
-        .unwrap_or_exit();
-
-    // Write the response to the output
-    serde_json::to_writer(pipe.out, &resp).unwrap();
+    match request {
+        v0::Request::CreateResourceRequest(r) => {
+            let resp = provider
+                .create(r)
+                .with_context(|| "Could not create resource")
+                .unwrap_or_exit();
+            write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+        }
+        v0::Request::UpdateResourceRequest(r) => {
+            let resp = provider
+                .update(r)
+                .with_context(|| "Could not update resource")
+                .unwrap_or_exit();
+            write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
+                .context("writing response")
+                .unwrap_or_exit();
+        }
+    }
 }
 
 /// A pair of `T` values: one for input and one for output.

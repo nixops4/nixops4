@@ -13,13 +13,32 @@
       "type": "object",
       "additionalProperties": true,
       "title": "Input properties",
-      "description": "The set of input properties. The set of valid fields is determined by the resource provider implementation."
+      "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
     },
     "outputProperties": {
       "type": "object",
       "additionalProperties": true,
       "title": "Output properties",
-      "description": "The set of output properties. The set of fields is determined by the resource provider implementation. Fields that are unknown to the accompanying Nix expressions will be ignored."
+      "description": "Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions."
+    },
+    "ExtantResource": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/resourceType"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        },
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "type",
+        "inputProperties"
+      ],
+      "additionalProperties": false
     },
     "CreateResourceRequest": {
       "type": "object",
@@ -29,11 +48,17 @@
         },
         "inputProperties": {
           "$ref": "#/definitions/inputProperties"
+        },
+        "isStateful": {
+          "type": "boolean",
+          "title": "Stateful resource",
+          "description": "Whether the resource is declared to be stateful. If false, the response will not be persisted. If persistence is required, an error must be raised by the resource provider."
         }
       },
       "required": [
         "type",
-        "inputProperties"
+        "inputProperties",
+        "isStateful"
       ],
       "additionalProperties": false
     },
@@ -49,11 +74,99 @@
         "outputProperties"
       ],
       "additionalProperties": false
+    },
+    "UpdateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        }
+      },
+      "required": [
+        "resource",
+        "inputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceRequest",
+          "properties": {
+            "createResourceRequest": {
+              "$ref": "#/definitions/CreateResourceRequest"
+            }
+          },
+          "required": [
+            "createResourceRequest"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceRequest",
+          "properties": {
+            "updateResourceRequest": {
+              "$ref": "#/definitions/UpdateResourceRequest"
+            }
+          },
+          "required": [
+            "updateResourceRequest"
+          ]
+        }
+      ]
+    },
+    "Response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceResponse",
+          "properties": {
+            "createResourceResponse": {
+              "$ref": "#/definitions/CreateResourceResponse"
+            }
+          },
+          "required": [
+            "createResourceResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceResponse",
+          "properties": {
+            "updateResourceResponse": {
+              "$ref": "#/definitions/UpdateResourceResponse"
+            }
+          },
+          "required": [
+            "updateResourceResponse"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
-    { "$ref": "#/definitions/CreateResourceRequest" },
-    { "$ref": "#/definitions/CreateResourceResponse" }
+    {
+      "$ref": "#/definitions/Request"
+    },
+    {
+      "$ref": "#/definitions/Response"
+    }
   ],
   "additionalProperties": false
 }

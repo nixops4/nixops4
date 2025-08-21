@@ -1,3 +1,15 @@
+<!--
+  Context:
+    - Concepts have already been outlined in ../concepts/resource.md
+    - A generated schema reference documentation is available in
+      - wrapper: schema/resource-v0.md
+      - generated: doc/manual/src/schema/resource-schema-v0.gen.md
+  Purpose of this page:
+    - Describe the technical details of the interface transport
+    - Provide a readable, high level description of the protocol, as the schema page is extremely verbose
+    - "Link" the concepts to the schema
+-->
+
 # Resource Provider Interface
 
 Note that the resource provider interface is still in development.
@@ -29,8 +41,56 @@ We will refer to the JSON value that takes the line as a _message_.
 
 Messages going from NixOps to the provider are _requests_, and messages going from the provider to NixOps are _responses_.
 
-The content of the messages is specified in [`resource-provider-schema.json`](https://github.com/nixops4/nixops4/blob/main/rust/nixops4-resources/resource-provider-schema.json).
+The content of the messages is specified in the [resource schema](../schema/resource-v0.md).
 
-<!-- TODO: describe handshake -->
+### Message Flow
 
-<!-- TODO: describe how the message types relate -->
+Each request-response exchange follows this pattern:
+
+1. NixOps sends a single request message to the provider's stdin
+2. The provider processes the request and sends a single response message to stdout
+
+The provider may write diagnostic messages to stderr at any time.
+
+### Request and Response Structure
+
+Both requests and responses use a wrapper object where the key indicates the message type (see [`Request`](../schema/resource-v0.md#1-property-request) and [`Response`](../schema/resource-v0.md#2-property-response)):
+
+```json
+// Request
+{
+  "createResourceRequest": {
+    "type": "memo",
+    "inputProperties": { "initialize_with": "hello" },
+    "isStateful": true
+  }
+}
+
+// Response
+{
+  "createResourceResponse": {
+    "outputProperties": { "value": "hello" }
+  }
+}
+```
+
+### Operations
+
+The protocol currently supports two operations:
+
+**Create**: Provisions a new resource. The request includes:
+- `type`: The resource type identifier
+- `inputProperties`: Configuration values for the resource
+- `isStateful`: Whether state persistence will be provided
+
+See [`CreateResourceRequest`](../schema/resource-v0.md#11-property-createresourcerequest) and [`CreateResourceResponse`](../schema/resource-v0.md#21-property-createresourceresponse) in the schema documentation.
+
+**Update**: Modifies an existing stateful resource. The request includes:
+- `resource`: The current resource state (type, input properties, and output properties)
+- `inputProperties`: New configuration values
+
+See [`UpdateResourceRequest`](../schema/resource-v0.md#12-property-updateresourcerequest) and [`UpdateResourceResponse`](../schema/resource-v0.md#22-property-updateresourceresponse) in the schema documentation.
+
+### State Persistence
+
+The `isStateful` flag in create requests indicates whether the resource will have access to persistent state storage. Resource types that require state must validate this flag and fail if state persistence is not available.

@@ -25,6 +25,7 @@ async fn async_main() -> Result<()> {
             input_properties_json,
             input_property_json,
             input_property_str,
+            stateful,
         } => {
             // NOTE (loss of ordering):
             //
@@ -78,7 +79,7 @@ async fn async_main() -> Result<()> {
             .await?;
 
             let result = provider
-                .create(resource_type, &inputs)
+                .create(resource_type, &inputs, *stateful)
                 .await
                 .with_context(|| "failed to create resource");
 
@@ -90,7 +91,51 @@ async fn async_main() -> Result<()> {
                     Ok(())
                 }
                 Err(err) => {
-                    eprintln!("error: {}", err);
+                    eprintln!("error: {:#}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Update {
+            provider_exe,
+            resource_type,
+            input_properties_json,
+            previous_input_properties_json,
+            previous_output_properties_json,
+        } => {
+            let input_properties_json = serde_json::from_str(input_properties_json.as_str())
+                .with_context(|| "failed to parse value of --inputs-json")?;
+            let previous_input_properties_json =
+                serde_json::from_str(previous_input_properties_json.as_str())
+                    .with_context(|| "failed to parse value of --previous-inputs-json")?;
+            let previous_output_properties_json =
+                serde_json::from_str(previous_output_properties_json.as_str())
+                    .with_context(|| "failed to parse value of --previous-outputs-json")?;
+
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+                provider_executable: provider_exe.clone(),
+                provider_args: vec![],
+            })
+            .await?;
+
+            let result = provider
+                .update(
+                    resource_type,
+                    &input_properties_json,
+                    &previous_input_properties_json,
+                    &previous_output_properties_json,
+                )
+                .await;
+
+            provider.close_wait().await?;
+
+            match result {
+                Ok(response) => {
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                    Ok(())
+                }
+                Err(err) => {
+                    eprintln!("error: {:#}", err);
                     std::process::exit(1);
                 }
             }
@@ -160,6 +205,36 @@ enum Commands {
         /// This is equivalent to `--input-json NAME JSON` if JSON is the JSON string formatting of STR.
         #[arg(long("input-str"),short('s'),number_of_values = 2, value_names = &["NAME", "STR"])]
         input_property_str: Vec<String>,
+
+        /// Whether state persistence will be provided to the resource
+        #[arg(long)]
+        stateful: bool,
+    },
+
+    /// Update a stateful resource
+    Update {
+        /// The executable that implements the resource operations
+        #[arg(long)]
+        provider_exe: String,
+
+        /// The type of resource to update: an identifier recognized by the resource provider
+        #[arg(long("type"))]
+        resource_type: String,
+
+        /// The new JSON input properties for the resource
+        ///
+        /// This is a JSON object with the values needed to update the resource.
+        /// The structure of this object is defined by the resource provider behavior.
+        #[arg(long("inputs-json"))]
+        input_properties_json: String,
+
+        /// The previous JSON input properties for the resource, as recorded in the state
+        #[arg(long("previous-inputs-json"))]
+        previous_input_properties_json: String,
+
+        /// The previous JSON output properties for the resource, as recorded in the state
+        #[arg(long("previous-outputs-json"))]
+        previous_output_properties_json: String,
     },
 
     /// Generate markdown documentation for nixops4-resource-runner

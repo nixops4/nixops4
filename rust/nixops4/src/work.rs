@@ -474,7 +474,11 @@ impl WorkContext {
         .await?;
 
         let outputs = provider
-            .create(provider_info.resource_type.as_str(), &inputs)
+            .create(
+                provider_info.resource_type.as_str(),
+                &inputs,
+                false, /* TODO */
+            )
             .await
             .with_context(|| format!("Failed to create resource {}", name))?;
 
