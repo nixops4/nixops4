@@ -6,6 +6,7 @@
 - [Resource Provider](./resource-provider/index.md)
   - [Resource Provider Interface](./resource-provider/interface.md)
   - [Testing](./resource-provider/testing.md)
+- [State](./state/index.md)
 - [Library](./lib/index.md)
 - [Module Options](./modules/index.md)
 - [Protocols]()

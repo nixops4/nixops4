@@ -15,6 +15,12 @@ nixops4-resource = { path = "../nixops4-resource" }
 anyhow = "1.0.79"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.115" }
+json-patch = "4.0.0"
+fd-lock = "4.0.2"
+chrono = "0.4.39"
+
+[dev-dependencies]
+tempfile = { version = "3.17.1" }
 
 [[bin]]
 path = "src/main.rs"

@@ -76,7 +76,7 @@ Both requests and responses use a wrapper object where the key indicates the mes
 
 ### Operations
 
-The protocol currently supports two operations:
+The protocol supports the following operations:
 
 **Create**: Provisions a new resource. The request includes:
 - `type`: The resource type identifier
@@ -91,6 +91,25 @@ See [`CreateResourceRequest`](../schema/resource-v0.md#11-property-createresourc
 
 See [`UpdateResourceRequest`](../schema/resource-v0.md#12-property-updateresourcerequest) and [`UpdateResourceResponse`](../schema/resource-v0.md#22-property-updateresourceresponse) in the schema documentation.
 
+### State Operations
+
+Resources that provide state storage implement additional operations:
+
+**State Read**: Retrieves the complete state managed by a state resource. The request includes:
+- `resource`: The state resource (type, input properties, and output properties)
+
+The response contains the full state as a JSON object representing all managed resources.
+
+**State Event**: Records a change event to the state. The request includes:
+- `resource`: The state resource
+- `event`: The operation that produced this change (e.g., "create", "update", "destroy")
+- `nixopsVersion`: The version of NixOps that produced this event
+- `patch`: JSON Patch operations to apply to the state
+
+These operations use JSON Patch ([RFC 6902](https://tools.ietf.org/html/rfc6902)) to track incremental state changes, enabling efficient state updates and historical tracking.
+
 ### State Persistence
 
 The `isStateful` flag in create requests indicates whether the resource will have access to persistent state storage. Resource types that require state must validate this flag and fail if state persistence is not available.
+
+State resources manage the persistence layer for stateful resources, providing operations to read the current state and record state changes as JSON Patch events.

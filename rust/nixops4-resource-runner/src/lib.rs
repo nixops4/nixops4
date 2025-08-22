@@ -143,6 +143,41 @@ impl ResourceProviderClient {
             ),
         }
     }
+
+    pub async fn state_read(
+        &mut self,
+        resource: v0::ExtantResource,
+    ) -> Result<serde_json::Map<String, Value>> {
+        let req = v0::StateResourceReadRequest { resource };
+
+        // Write the request
+        self.write_request(v0::Request::StateResourceReadRequest(req))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::StateResourceReadResponse(r) => Ok(r.state),
+            _ => anyhow::bail!(
+                "Expected StateResourceReadResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
+    pub async fn state_event(&mut self, request: v0::StateResourceEvent) -> Result<()> {
+        // Write the request
+        self.write_request(v0::Request::StateResourceEvent(request))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::StateResourceEventResponse(_) => Ok(()),
+            _ => anyhow::bail!(
+                "Expected StateResourceEventResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
 }
 
 fn bail_provider_exit_code<Absurd>(r: std::process::ExitStatus) -> Result<Absurd> {

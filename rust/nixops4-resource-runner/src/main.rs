@@ -140,6 +140,100 @@ async fn async_main() -> Result<()> {
                 }
             }
         }
+        Commands::StateRead {
+            provider_exe,
+            resource_type,
+            input_properties_json,
+            output_properties_json,
+        } => {
+            let input_properties_json = serde_json::from_str(input_properties_json.as_str())
+                .with_context(|| "failed to parse value of --inputs-json")?;
+            let output_properties_json = serde_json::from_str(output_properties_json.as_str())
+                .with_context(|| "failed to parse value of --outputs-json")?;
+
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+                provider_executable: provider_exe.clone(),
+                provider_args: vec![],
+            })
+            .await?;
+
+            let resource = nixops4_resource::schema::v0::ExtantResource {
+                type_: nixops4_resource::schema::v0::ResourceType(resource_type.clone()),
+                input_properties: nixops4_resource::schema::v0::InputProperties(
+                    input_properties_json,
+                ),
+                output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
+                    output_properties_json,
+                )),
+            };
+
+            let result = provider.state_read(resource).await;
+
+            provider.close_wait().await?;
+
+            match result {
+                Ok(response) => {
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                    Ok(())
+                }
+                Err(err) => {
+                    eprintln!("error: {:#}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::StateEvent {
+            provider_exe,
+            resource_type,
+            input_properties_json,
+            output_properties_json,
+            event,
+            nixops_version,
+            patch_json,
+        } => {
+            let input_properties_json = serde_json::from_str(input_properties_json.as_str())
+                .with_context(|| "failed to parse value of --inputs-json")?;
+            let output_properties_json = serde_json::from_str(output_properties_json.as_str())
+                .with_context(|| "failed to parse value of --outputs-json")?;
+            let patch: json_patch::Patch = serde_json::from_str(patch_json.as_str())
+                .with_context(|| "failed to parse value of --patch-json")?;
+
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+                provider_executable: provider_exe.clone(),
+                provider_args: vec![],
+            })
+            .await?;
+
+            let request = nixops4_resource::schema::v0::StateResourceEvent {
+                resource: nixops4_resource::schema::v0::ExtantResource {
+                    type_: nixops4_resource::schema::v0::ResourceType(resource_type.clone()),
+                    input_properties: nixops4_resource::schema::v0::InputProperties(
+                        input_properties_json,
+                    ),
+                    output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
+                        output_properties_json,
+                    )),
+                },
+                event: event.clone(),
+                nixops_version: nixops_version.clone(),
+                patch,
+            };
+
+            let result = provider.state_event(request).await;
+
+            provider.close_wait().await?;
+
+            match result {
+                Ok(()) => {
+                    println!("State event sent successfully");
+                    Ok(())
+                }
+                Err(err) => {
+                    eprintln!("error: {:#}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::GenerateMan => {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -235,6 +329,56 @@ enum Commands {
         /// The previous JSON output properties for the resource, as recorded in the state
         #[arg(long("previous-outputs-json"))]
         previous_output_properties_json: String,
+    },
+
+    /// Read state from a state resource
+    StateRead {
+        /// The executable that implements the resource operations
+        #[arg(long)]
+        provider_exe: String,
+
+        /// The type of resource to read state from: an identifier recognized by the resource provider
+        #[arg(long("type"))]
+        resource_type: String,
+
+        /// The JSON input properties for the resource
+        #[arg(long("inputs-json"))]
+        input_properties_json: String,
+
+        /// The JSON output properties for the resource
+        #[arg(long("outputs-json"))]
+        output_properties_json: String,
+    },
+
+    /// Send a state event to a state resource
+    StateEvent {
+        /// The executable that implements the resource operations
+        #[arg(long)]
+        provider_exe: String,
+
+        /// The type of resource to send the event to: an identifier recognized by the resource provider
+        #[arg(long("type"))]
+        resource_type: String,
+
+        /// The JSON input properties for the resource
+        #[arg(long("inputs-json"))]
+        input_properties_json: String,
+
+        /// The JSON output properties for the resource
+        #[arg(long("outputs-json"))]
+        output_properties_json: String,
+
+        /// The operation that produced this change
+        #[arg(long)]
+        event: String,
+
+        /// The version of NixOps that produced this event
+        #[arg(long)]
+        nixops_version: String,
+
+        /// JSON Patch operations to apply to the state
+        #[arg(long("patch-json"))]
+        patch_json: String,
     },
 
     /// Generate markdown documentation for nixops4-resource-runner
