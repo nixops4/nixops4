@@ -1,0 +1,35 @@
+{
+  "index": 0,
+  "meta": {
+    "time": "2024-01-01T00:00:00Z"
+  },
+  "patch": [
+    {
+      "op": "add",
+      "path": "",
+      "value": {
+        "_type": "nixopsState",
+        "resources": {},
+        "deployments": {}
+      }
+    }
+  ]
+}
+{
+  "index": 1,
+  "meta": {
+    "time": "2024-01-01T00:01:00Z",
+    "event": "create"
+  },
+  "patch": [
+    {
+      "op": "add",
+      "path": "/resources/myfile",
+      "value": {
+        "type": "file",
+        "inputProperties": {"name": "test.txt", "contents": "hello"},
+        "outputProperties": {}
+      }
+    }
+  ]
+}

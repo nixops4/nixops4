@@ -1,0 +1,14 @@
+{
+  "_type": "nixopsState",
+  "resources": {
+    "myfile": {
+      "type": "file",
+      "inputProperties": {
+        "name": "test.txt",
+        "contents": "hello"
+      },
+      "outputProperties": {}
+    }
+  },
+  "deployments": {}
+}

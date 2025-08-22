@@ -108,3 +108,93 @@ nixops4-resource-runner update \
 The `--stateful` flag indicates that state persistence will be provided to the resource. Resources that require state must fail if this flag is not set.
 
 See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create) and [`nixops4-resource-runner update`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-update).
+
+### Example: Testing state resources
+
+State resources provide persistent storage for resource state using JSON files and incremental updates via JSON Patch operations.
+
+#### Creating a state file resource
+
+```bash
+# Create a new state file
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --input-str name "deployment-state.json"
+```
+
+This creates a JSON file with the initial state structure containing empty resources and deployments.
+
+#### Reading state from a state resource
+
+```bash
+# Read the current state
+nixops4-resource-runner state-read \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}'
+```
+
+This returns the complete current state as reconstructed from all recorded events. Initially, this will show an empty state with no resources.
+
+#### Recording state changes
+
+```bash
+# Add a resource to the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "create" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "add",
+      "path": "/resources/myfile",
+      "value": {
+        "type": "file",
+        "inputProperties": {"name": "test.txt", "contents": "hello"},
+        "outputProperties": {}
+      }
+    }
+  ]'
+
+# Update a resource in the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "update" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "replace",
+      "path": "/resources/myfile/inputProperties/contents",
+      "value": "updated content"
+    }
+  ]'
+
+# Remove a resource from the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "destroy" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "remove",
+      "path": "/resources/myfile"
+    }
+  ]'
+```
+
+State events use [JSON Patch (RFC 6902)](https://tools.ietf.org/html/rfc6902) operations to record incremental changes to the state. This enables efficient state updates and provides a complete audit trail of all state modifications.
+
+For details about the state file format and structure, see [State](../state/index.md).
+
+See [`nixops4-resource-runner state-read`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-state-read) and [`nixops4-resource-runner state-event`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-state-event).

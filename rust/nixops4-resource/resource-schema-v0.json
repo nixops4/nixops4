@@ -4,6 +4,15 @@
   "title": "NixOps4 Resource Protocol Schema",
   "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
   "definitions": {
+    "Patch": {
+      "description": "An RFC 6902 JSON Patch document. See <https://tools.ietf.org/html/rfc6902>, <https://json.schemastore.org/json-patch.json>",
+      "$ref": "https://json.schemastore.org/json-patch.json#",
+      "x-rust-type": {
+        "crate": "json_patch",
+        "version": "4.0.0",
+        "path": "json_patch::Patch"
+      }
+    },
     "resourceType": {
       "type": "string",
       "title": "Provider-defined resource type",
@@ -103,6 +112,66 @@
       ],
       "additionalProperties": false
     },
+    "StateResourceReadRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceReadResponse": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "State",
+          "description": "The state of all the managed resources. This method is only implemented by resources that function as a state storage."
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceEvent": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "event": {
+          "type": "string",
+          "description": "The operation that produced this change."
+        },
+        "nixopsVersion": {
+          "type": "string",
+          "description": "The version of NixOps that produced this event."
+        },
+        "patch": {
+          "$ref": "#/definitions/Patch",
+          "title": "JSON Patch",
+          "description": "JSON Patch operations to apply to the state."
+        }
+      },
+      "required": [
+        "resource",
+        "event",
+        "nixopsVersion",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceEventResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "Request": {
       "oneOf": [
         {
@@ -127,6 +196,32 @@
           },
           "required": [
             "updateResourceRequest"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEvent",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceEvent": {
+              "$ref": "#/definitions/StateResourceEvent"
+            }
+          },
+          "required": [
+            "stateResourceEvent"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadRequest",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceReadRequest": {
+              "$ref": "#/definitions/StateResourceReadRequest"
+            }
+          },
+          "required": [
+            "stateResourceReadRequest"
           ]
         }
       ]
@@ -155,6 +250,32 @@
           },
           "required": [
             "updateResourceResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEventResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceEventResponse": {
+              "$ref": "#/definitions/StateResourceEventResponse"
+            }
+          },
+          "required": [
+            "stateResourceEventResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceReadResponse": {
+              "$ref": "#/definitions/StateResourceReadResponse"
+            }
+          },
+          "required": [
+            "stateResourceReadResponse"
           ]
         }
       ]

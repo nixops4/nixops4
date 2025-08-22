@@ -550,6 +550,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
+name = "fd-lock"
+version = "4.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
+dependencies = [
+ "cfg-if",
+ "rustix 1.0.7",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1038,6 +1049,7 @@ dependencies = [
  "clap_complete",
  "clap_derive",
  "clap_mangen",
+ "json-patch",
  "nixops4-resource",
  "serde",
  "serde_json",
@@ -1050,9 +1062,13 @@ name = "nixops4-resources-local"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "fd-lock",
+ "json-patch",
  "nixops4-resource",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
