@@ -123,7 +123,7 @@ src/modules/option-docs.gen.md: $(shell if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOC
 		fi
 
 src/providers/local: $(shell if [[ -z "$$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL" ]]; then \
-			echo generate-provider-option-docs.nix; \
+			find ../../nix/render-provider-docs -name '*.nix'; \
 			echo ../../flake.lock; \
 			find ../../nix/providers -name '*.nix'; \
 		fi)
