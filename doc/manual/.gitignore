@@ -5,3 +5,4 @@ src/cli
 *.gen.md
 src/**/*.json
 !src/**/snippets/**
+src/providers/

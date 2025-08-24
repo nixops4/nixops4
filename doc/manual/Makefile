@@ -18,6 +18,7 @@ GENERATED = src/schema/resource-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
 	src/cli/nixops4.md \
 	src/modules/option-docs.gen.md \
+	src/providers/local \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
 	src/schema/state-v0/examples/empty.json \
@@ -119,4 +120,28 @@ src/modules/option-docs.gen.md: $(shell if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOC
 		else \
 			echo "        COPY" $@; \
 			cp $$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD $@; \
+		fi
+
+src/providers/local: $(shell if [[ -z "$$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL" ]]; then \
+			echo generate-provider-option-docs.nix; \
+			echo ../../flake.lock; \
+			find ../../nix/providers -name '*.nix'; \
+		fi)
+	@if [[ -z "$$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL" ]]; then \
+	    if type -p nix >/dev/null; then \
+				rm -rf $@; \
+				echo "         NIX" $@; \
+				nix build --extra-experimental-features 'nix-command flakes' \
+				  .#manual-provider-option-docs-md-local --out-link $@.tmp; \
+				mkdir -p $@; \
+				cp -r $@.tmp/* $@/; \
+				rm $@.tmp; \
+			else \
+				echo "Nix not found and NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL not set. Can't build provider docs."; \
+				exit 1; \
+			fi; \
+		else \
+			echo "        COPY" $@; \
+			mkdir -p $@; \
+			cp -r $$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL/* $@/; \
 		fi
