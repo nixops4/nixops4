@@ -1,5 +1,9 @@
 { self, ... }:
 {
+  imports = [
+    ../../nix/flake-parts/builders.nix
+    ../../nix/render-provider-docs/flake-module.nix
+  ];
   perSystem =
     { config
     , pkgs
@@ -35,12 +39,9 @@
       packages.manual-deployment-option-docs-md = pkgs.callPackage ./deployment-option-docs-md.nix {
         inherit self;
       };
-      packages.manual-provider-option-docs-md-local =
-        pkgs.callPackage ./generate-provider-option-docs.nix
-          {
-            inherit self;
-            providerModule = self.modules.nixops4Provider.local;
-          };
+      packages.manual-provider-option-docs-md-local = config.builders.renderProviderDocs {
+        module = self.modules.nixops4Provider.local;
+      };
       checks.manual-links = pkgs.callPackage ./test.nix { site = config.packages.manual; };
     };
 }

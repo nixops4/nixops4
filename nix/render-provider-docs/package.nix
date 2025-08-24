@@ -1,3 +1,5 @@
+# Documentation: ../lib/lib.nix
+# Tests: ./test/test.nix
 { lib
 , self
 , providerModule
@@ -10,14 +12,23 @@ let
   # Evaluate the local provider module
   providerEval = lib.evalModules {
     modules = [
-      ../../nix/provider/provider.nix
+      ../provider/provider.nix
       { options._module.args = lib.mkOption { internal = true; }; }
       providerModule
     ];
     specialArgs = {
-      resourceProviderSystem = throw "Documentation generation encountered a dependency on `resourceProviderSystem`. This is not allowed, because the docs should be system-independent. Make sure that all built values are covered by `defaultText`. The evaluation trace contains important information about why this was attempted. Often `defaultText` needs to be added to the earliest option in the trace. If it's unclear why, one of the --show-trace items may indicate the fault. Pay special attention to traces from expression files that you control."; # Placeholder for docs
+      resourceProviderSystem = throw "Documentation rendering encountered a dependency on `resourceProviderSystem`. This is not allowed, because the docs should be system-independent. Make sure that all built values are covered by `defaultText`. The evaluation trace contains important information about why this was attempted. Often `defaultText` needs to be added to the earliest option in the trace. If it's unclear why, one of the --show-trace items may indicate the fault. Pay special attention to traces from expression files that you control.";
     };
   };
+
+  toCustomMarkdown =
+    optionDocs:
+    optionDocs.optionsCommonMark.overrideAttrs {
+      extraArgs = [
+        "--anchor-style"
+        "legacy"
+      ];
+    };
 
   # For each resource type, evaluate its inputs and outputs modules
   evaluateResourceType = name: resourceType: {
@@ -77,20 +88,21 @@ let
 
   resourceTypeDocs = lib.mapAttrs evaluateResourceType providerEval.config.resourceTypes;
 
-  # Generate individual resource type pages
-  generateResourceTypePage =
+  # Render individual resource type pages
+  renderResourceTypePage =
     name: rt:
     let
       # Check if inputs/outputs have any options
       hasInputs = rt.inputs.optionsNix != { };
       hasOutputs = rt.outputs.optionsNix != { };
 
-      inputsContent = if hasInputs then "{{#include ${rt.inputs.optionsCommonMark}}}" else "_(none)_";
-      outputsContent = if hasOutputs then "{{#include ${rt.outputs.optionsCommonMark}}}" else "_(none)_";
+      inputsContent = if hasInputs then toCustomMarkdown rt.inputs else null;
+      outputsContent = if hasOutputs then toCustomMarkdown rt.outputs else null;
     in
     {
       name = "${name}.md";
-      path = writeText "${name}.md" ''
+      path = runCommand "${name}.md" { } ''
+        cat > $out << 'EOF'
         # ${name}
 
         ${rt.description}
@@ -99,15 +111,18 @@ let
 
         ## Inputs
 
-        ${inputsContent}
+        EOF
+        ${if inputsContent != null then "cat ${inputsContent} >> $out" else "echo '_(none)_' >> $out"}
+        cat >> $out << 'EOF'
 
         ## Outputs
 
-        ${outputsContent}
+        EOF
+        ${if outputsContent != null then "cat ${outputsContent} >> $out" else "echo '_(none)_' >> $out"}
       '';
     };
 
-  # Generate index page
+  # Render index page
   indexPage = writeText "index.md" ''
     # Local Provider
 
@@ -129,7 +144,7 @@ let
       path = indexPage;
     }
   ]
-  ++ (lib.mapAttrsToList generateResourceTypePage resourceTypeDocs);
+  ++ (lib.mapAttrsToList renderResourceTypePage resourceTypeDocs);
 
   providerDocsDir = runCommand "local-provider-docs" { } ''
     mkdir -p $out
