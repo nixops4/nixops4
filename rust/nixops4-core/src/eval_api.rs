@@ -177,6 +177,7 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,5 +315,67 @@ mod tests {
         eprintln!("{}", s);
         let req2 = eval_request_from_json(&s).unwrap();
         assert_eq!(req, req2);
+    }
+
+    #[test]
+    fn test_resource_provider_info_without_state() {
+        let info = ResourceProviderInfo {
+            id: Id::new(1),
+            provider: serde_json::json!({"executable": "/bin/test", "type": "stdio"}),
+            resource_type: "file".to_string(),
+            state: None,
+        };
+
+        // Test serialization/deserialization
+        let json = serde_json::to_string(&info).unwrap();
+        let info2: ResourceProviderInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info, info2);
+
+        // Verify state field is None for stateless resources
+        assert_eq!(info.state, None);
+    }
+
+    #[test]
+    fn test_resource_provider_info_with_state() {
+        let info = ResourceProviderInfo {
+            id: Id::new(2),
+            provider: serde_json::json!({"executable": "/bin/memo", "type": "stdio"}),
+            resource_type: "memo".to_string(),
+            state: Some("myStateHandler".to_string()),
+        };
+
+        // Test serialization/deserialization
+        let json = serde_json::to_string(&info).unwrap();
+        let info2: ResourceProviderInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info, info2);
+
+        // Verify state field contains the expected value
+        assert_eq!(info.state, Some("myStateHandler".to_string()));
+    }
+
+    #[test]
+    fn test_resource_provider_info_json_compatibility() {
+        // Test that old JSON without state field can still be deserialized
+        let json_without_state = r#"{
+            "id": {"id": 3},
+            "provider": {"executable": "/bin/test", "type": "stdio"},
+            "resource_type": "file"
+        }"#;
+
+        let info: ResourceProviderInfo = serde_json::from_str(json_without_state).unwrap();
+        assert_eq!(info.state, None);
+        assert_eq!(info.resource_type, "file");
+
+        // Test that new JSON with state field works correctly
+        let json_with_state = r#"{
+            "id": {"id": 4},
+            "provider": {"executable": "/bin/memo", "type": "stdio"},
+            "resource_type": "memo",
+            "state": "myState"
+        }"#;
+
+        let info: ResourceProviderInfo = serde_json::from_str(json_with_state).unwrap();
+        assert_eq!(info.state, Some("myState".to_string()));
+        assert_eq!(info.resource_type, "memo");
     }
 }

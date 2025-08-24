@@ -40,8 +40,9 @@ in
                 type = types.str;
               };
             };
+            requireState = false;
           };
-          b = { type = "bee"; };
+          b = { type = "bee"; requireState = false; };
         };
       };
 
@@ -75,6 +76,7 @@ in
                     };
                   };
                   outputsSkeleton.aResult = { };
+                  requireState = false;
                 };
 
               resources.b = {
@@ -96,6 +98,7 @@ in
                 };
                 outputs = { };
                 outputsSkeleton = { };
+                requireState = false;
               };
               providers.local = localProvider;
               resources.install-mgmttool = {
@@ -147,6 +150,7 @@ in
               };
               type = "aye";
               outputsSkeleton = { aResult = { }; };
+              state = null;
             };
             b = {
               inputs = {
@@ -160,6 +164,7 @@ in
               };
               type = "bee";
               outputsSkeleton = { };
+              state = null;
             };
             install-mgmttool = {
               inputs = {
@@ -172,9 +177,103 @@ in
               };
               type = "exec";
               outputsSkeleton = { stdout = { }; };
+              state = null;
             };
           };
         };
+      };
+    };
+
+  "requireState validation" =
+    let
+      # Define a test provider module that includes both stateful and stateless resource types
+      testProviderModule = {
+        executable = "/fake/store/example-provider/bin/example-provider";
+        type = "stdio";
+        resourceTypes = {
+          stateful = {
+            requireState = true;
+            inputs = {
+              options.data = mkOption {
+                type = types.str;
+              };
+            };
+            outputs = {
+              options = { };
+            };
+            outputsSkeleton = { };
+          };
+          stateless = {
+            requireState = false;
+            inputs = {
+              options.data = mkOption {
+                type = types.str;
+              };
+            };
+            outputs = {
+              options = { };
+            };
+            outputsSkeleton = { };
+          };
+        };
+      };
+
+      # This should work - stateless resource without state
+      validStateless = self.lib.mkDeployment {
+        modules = [
+          ({ config, providers, ... }: {
+            providers.example = testProviderModule;
+            resources.myStateless = {
+              type = providers.example.stateless;
+              inputs.data = "hello";
+            };
+          })
+        ];
+      };
+
+      # This should work - stateful resource with state
+      validStateful = self.lib.mkDeployment {
+        modules = [
+          ({ config, providers, ... }: {
+            providers.example = testProviderModule;
+            resources.myStateful = {
+              type = providers.example.stateful;
+              state = "myStateHandler";
+              inputs.data = "world";
+            };
+          })
+        ];
+      };
+
+      # This should fail - stateful resource without state
+      invalidStateful = self.lib.mkDeployment {
+        modules = [
+          ({ config, providers, ... }: {
+            providers.example = testProviderModule;
+            resources.myStateful = {
+              type = providers.example.stateful;
+              inputs.data = "fail";
+              # state is missing - this should cause an error due to requireState = true
+            };
+          })
+        ];
+      };
+    in
+    {
+      "test stateless resource works without state" = {
+        expr = (validStateless.deploymentFunction { resources = { myStateless = { }; }; resourceProviderSystem = system; }).resources.myStateless.state;
+        expected = null;
+      };
+
+      "test stateful resource works with state" = {
+        expr = (validStateful.deploymentFunction { resources = { myStateful = { }; }; resourceProviderSystem = system; }).resources.myStateful.state;
+        expected = "myStateHandler";
+      };
+
+      "test stateful resource without state throws error" = {
+        expr = (invalidStateful.deploymentFunction { resources = { myStateful = { }; }; resourceProviderSystem = system; }).resources.myStateful.state;
+        expectedError.type = "ThrownError";
+        expectedError.msg = "resources\\.myStateful\\.state has not been defined";
       };
     };
 }

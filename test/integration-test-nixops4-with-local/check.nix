@@ -1,3 +1,5 @@
+# Run with:
+#   nix build .#checks.<system>.itest-nixops4-resources-local
 { hello
 , jq
 , nixops4
