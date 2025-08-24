@@ -6,12 +6,14 @@
 , jsonSchemaCatalogs
 , lib
 , manual-deployment-option-docs-md
+, manual-provider-option-docs-md-local
 , mdbook
 , mdbook-mermaid
 , nixdoc
 , nixops4
 , nixops4-resource-runner
 , stdenv
+,
 }:
 let
   inherit (lib) fileset;
@@ -60,12 +62,15 @@ stdenv.mkDerivation (finalAttrs: {
   allowedReferences = [ ];
   env = {
     NIXOPS_DEPLOYMENT_OPTION_DOCS_MD = manual-deployment-option-docs-md;
+    NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL = manual-provider-option-docs-md-local;
   };
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
     index = finalAttrs.passthru.html + "/index.html";
-    /** To add to the project-wide dev shell */
+    /**
+      To add to the project-wide dev shell
+    */
     externalBuildTools = [
       mdbook
       mdbook-mermaid

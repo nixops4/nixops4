@@ -33,6 +33,13 @@ in
 {
   _class = "nixops4ResourceType";
   options = {
+    description = mkOption {
+      type = types.str;
+      description = ''
+        A description of what this resource type represents.
+      '';
+    };
+
     provider.executable = mkOption {
       type = types.str;
       default = provider.executable;
