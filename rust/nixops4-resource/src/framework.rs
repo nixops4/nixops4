@@ -50,52 +50,62 @@ pub fn run_main(provider: impl ResourceProvider) {
 
     let mut out = pipe.out;
 
-    let request: v0::Request = {
-        let mut line = String::new();
-        in_.read_line(&mut line)
-            .with_context(|| "Could not read line for request message")
-            .unwrap_or_exit();
-        serde_json::from_str(&line)
-            .with_context(|| "Could not parse request message")
-            .unwrap_or_exit()
-    };
+    // Loop to handle multiple requests
+    loop {
+        let request: v0::Request = {
+            let mut line = String::new();
+            match in_.read_line(&mut line) {
+                Ok(0) => {
+                    // EOF - client closed stdin, exit gracefully
+                    break;
+                }
+                Ok(_) => serde_json::from_str(&line)
+                    .with_context(|| "Could not parse request message")
+                    .unwrap_or_exit(),
+                Err(e) => {
+                    eprintln!("Error reading request: {}", e);
+                    break;
+                }
+            }
+        };
 
-    match request {
-        v0::Request::CreateResourceRequest(r) => {
-            let resp = provider
-                .create(r)
-                .with_context(|| "Could not create resource")
-                .unwrap_or_exit();
-            write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
-                .context("writing response")
-                .unwrap_or_exit();
-        }
-        v0::Request::UpdateResourceRequest(r) => {
-            let resp = provider
-                .update(r)
-                .with_context(|| "Could not update resource")
-                .unwrap_or_exit();
-            write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
-                .context("writing response")
-                .unwrap_or_exit();
-        }
-        v0::Request::StateResourceEvent(r) => {
-            let resp = provider
-                .state_event(r)
-                .with_context(|| "Could not handle state event")
-                .unwrap_or_exit();
-            write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
-                .context("writing response")
-                .unwrap_or_exit();
-        }
-        v0::Request::StateResourceReadRequest(r) => {
-            let resp = provider
-                .state_read(r)
-                .with_context(|| "Could not read state")
-                .unwrap_or_exit();
-            write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
-                .context("writing response")
-                .unwrap_or_exit();
+        match request {
+            v0::Request::CreateResourceRequest(r) => {
+                let resp = provider
+                    .create(r)
+                    .with_context(|| "Could not create resource")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::UpdateResourceRequest(r) => {
+                let resp = provider
+                    .update(r)
+                    .with_context(|| "Could not update resource")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::StateResourceEvent(r) => {
+                let resp = provider
+                    .state_event(r)
+                    .with_context(|| "Could not handle state event")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::StateResourceReadRequest(r) => {
+                let resp = provider
+                    .state_read(r)
+                    .with_context(|| "Could not read state")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
         }
     }
 }
