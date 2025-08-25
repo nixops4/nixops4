@@ -28,6 +28,7 @@
           open "$manual"
         fi
       '';
+      apps.open-manual.meta.description = "Open the NixOps4 manual in your browser";
       packages.manual = pkgs.callPackage ./package.nix {
         inherit (config.packages)
           nixops4
