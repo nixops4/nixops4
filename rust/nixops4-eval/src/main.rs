@@ -3,7 +3,7 @@ use nix_expr::eval_state::{self, gc_register_my_thread, EvalStateBuilder};
 use nix_flake::EvalStateBuilderExt as _;
 use nix_store::store::Store;
 use std::process::exit;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -77,29 +77,38 @@ async fn async_main() -> Result<()> {
     // An effectively unbounded channel. We don't want to drop logs.
     let (eval_tx, mut eval_rx) = channel(Semaphore::MAX_PERMITS);
 
-    let session = Session {
-        sender: eval_tx.clone(),
-    };
-
+    // Set up tracing subscriber as early as possible to avoid coordination issues
     {
-        // Downgrade eval_tx so that we can drop it when all the real work is done, closing the log channel.
-        let tx = eval_tx.downgrade();
-        let log_fail_once = std::sync::Once::new();
+        // Use std::sync::Mutex to serialize tracing events synchronously - no async scheduling reordering
+        let sender_mutex = std::sync::Arc::new(std::sync::Mutex::new(eval_tx.downgrade()));
+        let log_fail_warned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let log_subscriber = tracing_tunnel::TracingEventSender::new(move |event| {
-            if let Some(tx) = tx.upgrade() {
+            // Synchronously serialize sends to avoid async scheduler reordering
+            let tx_guard: std::sync::MutexGuard<
+                '_,
+                tokio::sync::mpsc::WeakSender<nixops4_core::eval_api::EvalResponse>,
+            > = sender_mutex.lock().expect("tracing sender mutex poisoned");
+            if let Some(tx) = tx_guard.upgrade() {
                 let json = serde_json::to_value(&event).expect("serializing tracing event to JSON");
-                let r = tx.try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json));
-                if r.is_err() {
-                    log_fail_once.call_once(|| {
+                if tx
+                    .try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json))
+                    .is_err()
+                {
+                    if !log_fail_warned.swap(true, std::sync::atomic::Ordering::Relaxed) {
                         eprintln!("warning: couldn't submit log event to log channel; some structured logs may be lost");
-                    });
+                    }
                 }
-            } else {
+                drop(tx_guard);
+            } else if !log_fail_warned.load(std::sync::atomic::Ordering::Relaxed) {
                 eprintln!("warning: can't log after log channel is closed; some structured logs may be lost");
             }
         });
         tracing::subscriber::set_global_default(log_subscriber)?;
     }
+
+    let session = Session {
+        sender: eval_tx.clone(),
+    };
 
     // Read lines from stdin and pass them to the driver
     let stdin = tokio::io::stdin();
@@ -126,11 +135,19 @@ async fn async_main() -> Result<()> {
         Ok(())
     });
 
-    let writer_done: JoinHandle<Result<()>> = tokio::spawn(async move {
-        while let Some(response) = eval_rx.recv().await {
+    // NOTE: This is **NOT** tokio, but std sync code because tokio only provides a highly
+    //       unreliable Stdout object that reorders writes internally after returning from
+    //       write_all.
+    //       This is not acceptable because the TracingEvent instances have interdependencies
+    //       that require them to be transmitted in the correct order, or the receiver would be
+    //       unable to accept those tracing messages.
+    let writer_done = std::thread::spawn(move || -> Result<()> {
+        use std::io::Write;
+        while let Some(response) = eval_rx.blocking_recv() {
             let mut s = nixops4_core::eval_api::eval_response_to_json(&response)?;
             s.push('\n');
-            tokio::io::stdout().write_all(s.as_bytes()).await?;
+            print!("{}", s);
+            std::io::stdout().flush()?;
         }
         Ok(())
     });
@@ -188,7 +205,7 @@ async fn async_main() -> Result<()> {
     reader_done.await??;
     queue_done.await??;
     drop(eval_tx);
-    writer_done.await??;
+    writer_done.join().unwrap()?;
     Ok(())
 }
 

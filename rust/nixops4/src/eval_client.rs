@@ -136,9 +136,9 @@ async fn forward_eval_responses(
                         eprintln!("\x1b[32mreceived: {}\x1b[0m", line.trim_end());
                     }
 
-                    if let eval_api::EvalResponse::TracingEvent(v) = &response {
-                        let event = serde_json::from_value(v.clone())
-                            .context("while parsing tracing event")?;
+                    if let eval_api::EvalResponse::TracingEvent(v) = response {
+                        let event =
+                            serde_json::from_value(v).context("while parsing tracing event")?;
                         if let Err(e) = tracing_event_receiver.try_receive(event) {
                             eprintln!("error handling tracing event: {}", e);
                         }

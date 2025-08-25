@@ -1752,9 +1752,8 @@ dependencies = [
 
 [[package]]
 name = "tracing-tunnel"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "507bbab1fc2c9e606543558f5656b62e8014ba7e0ffa68b9484511b6871019c5"
+version = "0.1.99-fork-0"
+source = "git+https://github.com/roberth/tracing-toolbox?tag=0.1.99-fork-0#2b342882dd2ed36beb3ea4eed5bb28c70d13a28f"
 dependencies = [
  "once_cell",
  "serde",
