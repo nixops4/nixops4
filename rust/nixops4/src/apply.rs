@@ -11,6 +11,7 @@ use nixops4_core::eval_api::{
     AssignRequest, DeploymentRequest, EvalRequest, EvalResponse, FlakeRequest,
 };
 use pubsub_rs::Pubsub;
+use std::sync::Arc;
 
 #[derive(clap::Parser, Debug)]
 pub(crate) struct Args {
@@ -61,8 +62,8 @@ pub(crate) async fn apply(
         };
 
         let id_subscriptions = work_context.id_subscriptions.clone();
-
-        let tasks = TaskTracker::new(work_context);
+        let work_context = Arc::new(Box::new(work_context));
+        let tasks = TaskTracker::new_arc(work_context.clone());
 
         let r = {
             let h: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
@@ -82,6 +83,13 @@ pub(crate) async fn apply(
                 Ok(())
             });
             let r = tasks.run(Goal::Apply()).await;
+
+            // TODO: These cleanup operations should collect all errors and report them together
+            // instead of stopping at the first error, since we want all cleanup to complete
+
+            // Clean up state providers after apply completes - fatal error if this fails
+            work_context.clean_up_state_providers().await?;
+
             s.close().await;
             h.await??;
             r

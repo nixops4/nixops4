@@ -976,6 +976,7 @@ dependencies = [
  "clap_mangen",
  "crossterm",
  "ctrlc",
+ "json-patch",
  "nix 0.29.0",
  "nixops4-core",
  "nixops4-resource",

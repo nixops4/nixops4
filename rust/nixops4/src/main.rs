@@ -4,6 +4,7 @@ mod eval_client;
 mod interrupt;
 mod logging;
 mod provider;
+mod state;
 mod work;
 
 use anyhow::{bail, Result};

@@ -91,7 +91,7 @@ runCommand
       [[ ! -e file.txt ]]
 
       grep -F 'oh no, this and that failed' err.log
-      grep -F 'Failed to create resource hello' err.log
+      grep -F 'Failed to create stateless resource hello' err.log
 
       touch $out
     )

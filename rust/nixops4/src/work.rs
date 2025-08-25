@@ -20,6 +20,7 @@ use std::{
     fmt::Display,
     sync::Arc,
 };
+use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 use tracing::{info_span, Instrument as _};
 
@@ -33,6 +34,7 @@ pub enum Goal {
     // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
     GetResourceOutputValue(Id<ResourceType>, String, String),
     ApplyResource(Id<ResourceType>, String),
+    RunState(Id<ResourceType>, String),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,6 +64,9 @@ impl Display for Goal {
             Goal::ApplyResource(_, name) => {
                 write!(f, "Apply resource {}", name)
             }
+            Goal::RunState(_, name) => {
+                write!(f, "Run state provider resource {}", name)
+            }
         }
     }
 }
@@ -74,7 +79,8 @@ pub enum Outcome {
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
     ResourceOutputValue, /*Value ignored because passed eagerly before ResourceOutputs, a dependency of this.*/
-    ResourceOutputs(serde_json::Map<String, Value>),
+    ResourceOutputs(nixops4_resource::schema::v0::ExtantResource),
+    RunState(Arc<crate::state::StateHandle>),
 }
 
 pub struct WorkContext {
@@ -87,16 +93,44 @@ pub struct WorkContext {
 }
 pub struct WorkState {
     resource_ids: BTreeMap<String, Id<ResourceType>>,
+    cleanup_tasks:
+        Vec<Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>>,
 }
 impl Default for WorkState {
     fn default() -> Self {
         Self {
             resource_ids: BTreeMap::new(),
+            cleanup_tasks: Vec::new(),
         }
     }
 }
 
 impl WorkContext {
+    pub async fn clean_up_state_providers(&self) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let cleanup_tasks = std::mem::take(&mut state.cleanup_tasks);
+        drop(state); // Release lock before executing tasks
+
+        let mut errors = Vec::new();
+        for cleanup_task in cleanup_tasks {
+            let future = cleanup_task();
+            if let Err(e) = future.await {
+                errors.push(e);
+            }
+        }
+
+        if !errors.is_empty() {
+            let error_messages: Vec<String> = errors.iter().map(|e| format!("{:#}", e)).collect();
+            bail!(
+                "Failed to close {} state provider(s):\n\n{}",
+                errors.len(),
+                error_messages.join("\n\n======== NEXT PROVIDER FAILURE ========\n")
+            );
+        }
+
+        Ok(())
+    }
+
     async fn list_resources(&self, context: &TaskContext<Self>) -> Result<Vec<String>> {
         let r = context.require(Goal::ListResources()).await;
         let outcome = match r {
@@ -174,18 +208,16 @@ impl WorkContext {
 
         // This is of questionable value, and we should probably only print values that are explicitly requested.
         for (resource_name, resource_id) in resource_ids.iter() {
-            let empty = serde_json::Map::new();
-            let outputs = match resource_map.get(resource_id) {
-                Some(x) => x.clone(),
-                None => serde_json::Map::new(),
-            };
-            let inputs = resource_map.get(resource_id).unwrap_or(&empty);
-            eprintln!("  - resource {}", resource_name);
-            for (k, v) in inputs.iter() {
-                eprintln!("    - input {}: {}", k, indented_json(v));
-            }
-            for (k, v) in outputs.iter() {
-                eprintln!("    - output {}: {}", k, indented_json(v));
+            if let Some(resource) = resource_map.get(resource_id) {
+                eprintln!("  - resource {}", resource_name);
+                for (k, v) in resource.input_properties.iter() {
+                    eprintln!("    - input {}: {}", k, indented_json(v));
+                }
+                if let Some(output_properties) = &resource.output_properties {
+                    for (k, v) in output_properties.iter() {
+                        eprintln!("    - output {}: {}", k, indented_json(v));
+                    }
+                }
             }
         }
 
@@ -379,15 +411,19 @@ impl WorkContext {
             .await?;
         let outcome = clone_result(&r)?;
         match outcome {
-            Outcome::ResourceOutputs(outputs) => {
-                if let Some(_value) = outputs.get(&property) {
-                    Ok(Outcome::ResourceOutputValue)
+            Outcome::ResourceOutputs(extant_resource) => {
+                if let Some(output_properties) = &extant_resource.output_properties {
+                    if output_properties.contains_key(&property) {
+                        Ok(Outcome::ResourceOutputValue)
+                    } else {
+                        bail!(
+                            "Resource {} does not have output {}",
+                            resource_name,
+                            property
+                        )
+                    }
                 } else {
-                    bail!(
-                        "Resource {} does not have output {}",
-                        resource_name,
-                        property
-                    )
+                    bail!("Resource {} has no output properties", resource_name)
                 }
             }
             _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
@@ -441,6 +477,41 @@ impl WorkContext {
             }
         };
 
+        let state_provider = match &provider_info.state {
+            Some(state_resource_name) => {
+                let state_resource_id = self
+                    .state
+                    .lock()
+                    .await
+                    .resource_ids
+                    .get(state_resource_name)
+                    .unwrap()
+                    .clone();
+                let thunk = context
+                    .spawn(Goal::RunState(
+                        state_resource_id,
+                        state_resource_name.clone(),
+                    ))
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                    })?;
+                Some((state_resource_name, state_resource_id, thunk))
+            }
+            None => None,
+        };
+
+        let state = match state_provider {
+            Some((_state_resource_id, _state_resource_name, thunk)) => {
+                let outcome = clone_result(thunk.force().await.as_ref())?;
+                match outcome {
+                    Outcome::RunState(i) => Some(i),
+                    _ => panic!("Unexpected outcome from RunState: {:?}", outcome),
+                }
+            }
+            None => None,
+        };
+
         let inputs = {
             let mut inputs = serde_json::Map::new();
             for (input_name, input_thunk) in inputs_thunks {
@@ -473,14 +544,58 @@ impl WorkContext {
         })
         .await?;
 
-        let outputs = provider
-            .create(
-                provider_info.resource_type.as_str(),
-                &inputs,
-                false, /* TODO */
-            )
-            .await
-            .with_context(|| format!("Failed to create resource {}", name))?;
+        let outputs = match state {
+            None => provider
+                .create(provider_info.resource_type.as_str(), &inputs, false)
+                .await
+                .with_context(|| format!("Failed to create stateless resource {}", name))?,
+            Some(ref state_handle) => match state_handle.past.deployment.resources.get(&name) {
+                Some(past_resource) => {
+                    if past_resource.type_ != provider_info.resource_type {
+                        bail!(
+                            "Resource type change is not supported: {} != {}",
+                            past_resource.type_,
+                            provider_info.resource_type
+                        );
+                    }
+                    let outputs = provider
+                        .update(
+                            provider_info.resource_type.as_str(),
+                            &inputs,
+                            &past_resource.input_properties,
+                            &past_resource.output_properties,
+                        )
+                        .await
+                        .with_context(|| format!("Failed to update resource {}", name))?;
+                    let current_resource = crate::state::ResourceState {
+                        type_: provider_info.resource_type.clone(),
+                        input_properties: inputs.clone(),
+                        output_properties: outputs.clone(),
+                    };
+                    if &current_resource != past_resource {
+                        state_handle
+                            .resource_event(&name, "update", Some(past_resource), &current_resource)
+                            .await?;
+                    }
+                    outputs
+                }
+                None => {
+                    let outputs = provider
+                        .create(provider_info.resource_type.as_str(), &inputs, true)
+                        .await
+                        .with_context(|| format!("Failed to create resource {}", name))?;
+                    let current_resource = crate::state::ResourceState {
+                        type_: provider_info.resource_type.clone(),
+                        input_properties: inputs.clone(),
+                        output_properties: outputs.clone(),
+                    };
+                    state_handle
+                        .resource_event(&name, "create", None, &current_resource)
+                        .await?;
+                    outputs
+                }
+            },
+        };
 
         drop(span);
 
@@ -503,7 +618,18 @@ impl WorkContext {
                 .await?;
         }
 
-        Ok(Outcome::ResourceOutputs(outputs))
+        // Close the provider properly
+        // We might want to reuse them in the future, but for now we launch one
+        // per resource, except when it's a state provider (elsewhere).
+        provider.close_wait().await?;
+
+        let resource = nixops4_resource::schema::v0::ExtantResource {
+            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
+            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
+            type_: nixops4_resource::schema::v0::ResourceType(provider_info.resource_type),
+        };
+
+        Ok(Outcome::ResourceOutputs(resource))
     }
 }
 
@@ -577,6 +703,69 @@ impl TaskWork for WorkContext {
                 self.perform_apply_resource(context, id, name)
                     .instrument(info_span!("Applying resource", resource = name_2))
                     .await
+            }
+
+            Goal::RunState(id, name) => {
+                (async {
+                    // Apply the resource
+                    let r = context
+                        .require(Goal::ApplyResource(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+                    let resource = {
+                        let outcome = clone_result(r.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceOutputs(i) => i,
+                            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+                        }
+                    };
+
+                    // Get the provider info
+                    let provider_info_thunk = context
+                        .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Dependency cycle detected while applying resource: {}",
+                                e
+                            )
+                        })?;
+                    let provider_info = {
+                        let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
+                        match outcome {
+                            Outcome::ResourceProviderInfo(i) => i,
+                            _ => panic!(
+                                "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                                outcome
+                            ),
+                        }
+                    };
+
+                    let handle = crate::state::StateHandle::open(&provider_info, &resource).await?;
+
+                    // Register cleanup task for this state handle
+                    {
+                        let handle_for_cleanup = handle.clone();
+                        let cleanup_task = Box::new(
+                            move || -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+                                Box::pin(async move { handle_for_cleanup.close().await })
+                            },
+                        );
+                        self.state.lock().await.cleanup_tasks.push(cleanup_task);
+                    }
+
+                    Ok(Outcome::RunState(handle))
+                })
+                .instrument(info_span!(
+                    "Running state provider resource",
+                    resource = name
+                ))
+                .await
             }
         };
         Arc::new(r.map_err(Arc::new))
