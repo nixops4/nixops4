@@ -42,7 +42,7 @@ async fn async_main() -> Result<()> {
             let mut inputs = match input_properties_json {
                 Some(json_string) => serde_json::from_str(json_string.as_str())
                     .with_context(|| "failed to parse value of --inputs-json")?,
-                None => serde_json::Map::new(),
+                None {} => serde_json::Map::new(),
             };
 
             for pair in input_property_json.chunks(2) {

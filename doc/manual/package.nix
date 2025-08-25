@@ -1,5 +1,4 @@
 { cargo
-, fetchpatch2
 , jq
 , json-schema-catalog-rs
 , json-schema-for-humans
