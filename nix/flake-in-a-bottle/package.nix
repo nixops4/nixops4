@@ -1,9 +1,9 @@
-{ runCommand
-, nixops4Flake
-, stdenv
-, formats
-, nix
-,
+{
+  runCommand,
+  nixops4Flake,
+  stdenv,
+  formats,
+  nix,
 }:
 let
   inputs = nixops4Flake.inputs;
@@ -12,17 +12,17 @@ let
   };
 in
 runCommand "nixops4-flake-in-a-bottle"
-{
-  nativeBuildInputs = [ nix ];
-  meta.description = "The nixops4 flake, but suitable for offline use";
-  meta.longDescription = ''
-    This is a flake that is suitable for "offline" use in the Nix build sandbox.
-    This is therefore particularly useful for testing.
+  {
+    nativeBuildInputs = [ nix ];
+    meta.description = "The nixops4 flake, but suitable for offline use";
+    meta.longDescription = ''
+      This is a flake that is suitable for "offline" use in the Nix build sandbox.
+      This is therefore particularly useful for testing.
 
-    Such functionality is reminiscent of `nix flake archive`, but that command expects to run in a networked environment, whereas this is implemented in the Nix language.
-    Additionally, it can pre-build packages, so that this doesn't have to be done during the test.
-  '';
-}
+      Such functionality is reminiscent of `nix flake archive`, but that command expects to run in a networked environment, whereas this is implemented in the Nix language.
+      Additionally, it can pre-build packages, so that this doesn't have to be done during the test.
+    '';
+  }
   ''
     mkdir work store home
     store=$PWD/store

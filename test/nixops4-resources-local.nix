@@ -1,26 +1,26 @@
 # Run:
 #   nix build .#checks.<system>.nixops4-resources-local
-{ hello
-, jq
-, nixops4-resource-runner
-, nixops4-resources-local
-, runCommand
-, jsonschema
-, die
-,
+{
+  hello,
+  jq,
+  nixops4-resource-runner,
+  nixops4-resources-local,
+  runCommand,
+  jsonschema,
+  die,
 }:
 
 runCommand "check-nixops4-resources-local"
-{
-  nativeBuildInputs = [
-    nixops4-resource-runner
-    nixops4-resources-local
-    jq
-    hello
-    die
-    jsonschema
-  ];
-}
+  {
+    nativeBuildInputs = [
+      nixops4-resource-runner
+      nixops4-resources-local
+      jq
+      hello
+      die
+      jsonschema
+    ];
+  }
   ''
     # Test "file" resource
 

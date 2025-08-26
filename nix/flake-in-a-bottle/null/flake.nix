@@ -1,7 +1,9 @@
 {
-  outputs = { ... }: {
-    modules.flake-parts.default = { };
-    flakeModules.default = { };
-    flakeModule = { };
-  };
+  outputs =
+    { ... }:
+    {
+      modules.flake-parts.default = { };
+      flakeModules.default = { };
+      flakeModule = { };
+    };
 }

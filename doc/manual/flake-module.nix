@@ -5,10 +5,11 @@
     ../../nix/render-provider-docs/flake-module.nix
   ];
   perSystem =
-    { config
-    , pkgs
-    , inputs'
-    , ...
+    {
+      config,
+      pkgs,
+      inputs',
+      ...
     }:
     {
       apps.open-manual.program = pkgs.writeScriptBin "open-nixops4-manual" ''

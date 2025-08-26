@@ -1,21 +1,21 @@
 # Run with: nix build .#checks.x86_64-linux.json-schema
-{ runCommand
-, jsonschema
-, json-schema-catalog-rs
-, jsonSchemaCatalogs
-, jq
-,
+{
+  runCommand,
+  jsonschema,
+  json-schema-catalog-rs,
+  jsonSchemaCatalogs,
+  jq,
 }:
 
 runCommand "check-schemas"
-{
-  nativeBuildInputs = [
-    jsonschema
-    json-schema-catalog-rs
-    jsonSchemaCatalogs.json-patch-schemastore
-    jq
-  ];
-}
+  {
+    nativeBuildInputs = [
+      jsonschema
+      json-schema-catalog-rs
+      jsonSchemaCatalogs.json-patch-schemastore
+      jq
+    ];
+  }
   ''
     (
       set -x;

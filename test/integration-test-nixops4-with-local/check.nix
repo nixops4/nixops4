@@ -1,15 +1,16 @@
 # Run with:
 #   nix build .#checks.<system>.itest-nixops4-resources-local
-{ hello
-, jq
-, nixops4
-, runCommand
-, inputs
-, stdenv
-, nix
-, formats
-, flake-in-a-bottle
-, die
+{
+  hello,
+  jq,
+  nixops4,
+  runCommand,
+  inputs,
+  stdenv,
+  nix,
+  formats,
+  flake-in-a-bottle,
+  die,
 }:
 
 let
@@ -27,18 +28,18 @@ let
     outputs.nixops4Deployments.myDeployment;
 in
 runCommand "itest-nixops4-with-local"
-{
-  providers = preEval.getProviders {
-    system = stdenv.hostPlatform.system;
-  };
-  nativeBuildInputs = [
-    nixops4
-    jq
-    hello
-    nix
-    die
-  ];
-}
+  {
+    providers = preEval.getProviders {
+      system = stdenv.hostPlatform.system;
+    };
+    nativeBuildInputs = [
+      nixops4
+      jq
+      hello
+      nix
+      die
+    ];
+  }
   ''
     hr() {
       echo -----------------------------------------------------------------------

@@ -2,12 +2,14 @@
 {
   name = "nixops4";
 
-  nodes.deployer = { pkgs, ... }: {
-    # Uncomment if needed
-    # environment.systemPackages = [
-    #   pkgs.git
-    # ];
-  };
+  nodes.deployer =
+    { pkgs, ... }:
+    {
+      # Uncomment if needed
+      # environment.systemPackages = [
+      #   pkgs.git
+      # ];
+    };
 
   testScript = ''
     deployer.succeed("nixops4 --version");

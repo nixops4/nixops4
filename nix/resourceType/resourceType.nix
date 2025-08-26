@@ -2,16 +2,23 @@
   This type has a lot in common with the `resource.nix` module, but it only
   contains static "metadata", which is a significant difference
 */
-{ config, lib, provider, options, ... }:
+{
+  config,
+  lib,
+  provider,
+  options,
+  ...
+}:
 let
-  inherit (lib) mkOption replaceStrings showOption types;
+  inherit (lib)
+    mkOption
+    replaceStrings
+    showOption
+    types
+    ;
 
   # Polyfill https://github.com/NixOS/nixpkgs/pull/370558
-  dropEnd = lib.dropEnd or
-    (n: xs:
-      lib.lists.take
-        (lib.max 0 (lib.lists.length xs - n))
-        xs);
+  dropEnd = lib.dropEnd or (n: xs: lib.lists.take (lib.max 0 (lib.lists.length xs - n)) xs);
 
   moduleLoc = dropEnd 2 options.provider.executable.loc;
 
@@ -23,12 +30,9 @@ let
     ++ [ "resources" ];
 
   # Incomplete, but good enough for now
-  renderFragment = loc:
-    replaceStrings [ "<" ">" ] [ "_" "_" ]
-      (showOption loc);
+  renderFragment = loc: replaceStrings [ "<" ">" ] [ "_" "_" ] (showOption loc);
 
-  linkOptionLoc = loc:
-    "[`" + showOption loc + "`](#opt-" + renderFragment loc + ")";
+  linkOptionLoc = loc: "[`" + showOption loc + "`](#opt-" + renderFragment loc + ")";
 in
 {
   _class = "nixops4ResourceType";
@@ -47,7 +51,16 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "executable"])}.
+        Value to be used for ${
+          linkOptionLoc (
+            docResources
+            ++ [
+              "<name>"
+              "provider"
+              "executable"
+            ]
+          )
+        }.
       '';
     };
 
@@ -58,7 +71,16 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "args"])}.
+        Value to be used for ${
+          linkOptionLoc (
+            docResources
+            ++ [
+              "<name>"
+              "provider"
+              "args"
+            ]
+          )
+        }.
       '';
     };
 
@@ -69,7 +91,16 @@ in
         inherited from provider
       '';
       description = ''
-        Value to be used for ${linkOptionLoc (docResources ++ ["<name>" "provider" "type"])}.
+        Value to be used for ${
+          linkOptionLoc (
+            docResources
+            ++ [
+              "<name>"
+              "provider"
+              "type"
+            ]
+          )
+        }.
       '';
     };
 
@@ -128,14 +159,12 @@ in
     };
   };
   config = {
-    outputsSkeleton =
-      lib.mapAttrs
-        (name: opt: { })
-        (lib.removeAttrs
-          (lib.evalModules {
-            modules = [ config.outputs ];
-          }).options
-          [ "_module" ]
-        );
+    outputsSkeleton = lib.mapAttrs (name: opt: { }) (
+      lib.removeAttrs
+        (lib.evalModules {
+          modules = [ config.outputs ];
+        }).options
+        [ "_module" ]
+    );
   };
 }

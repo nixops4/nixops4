@@ -19,10 +19,11 @@
         systems = [ "@system@" ];
         nixops4Deployments = {
           myDeployment =
-            { providers
-            , withResourceProviderSystem
-            , resources
-            , ...
+            {
+              providers,
+              withResourceProviderSystem,
+              resources,
+              ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
@@ -52,10 +53,11 @@
             };
 
           failingDeployment =
-            { providers
-            , withResourceProviderSystem
-            , resources
-            , ...
+            {
+              providers,
+              withResourceProviderSystem,
+              resources,
+              ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
@@ -76,12 +78,13 @@
             };
 
           statefulDeployment =
-            { lib
-            , config
-            , providers
-            , withResourceProviderSystem
-            , resources
-            , ...
+            {
+              lib,
+              config,
+              providers,
+              withResourceProviderSystem,
+              resources,
+              ...
             }:
             {
               options = {

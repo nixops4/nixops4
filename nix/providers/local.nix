@@ -1,10 +1,11 @@
 thisFlake@{ withSystem }:
 
 # The actual module
-{ lib
-, resourceProviderSystem
-, withSystem
-, ...
+{
+  lib,
+  resourceProviderSystem,
+  withSystem,
+  ...
 }:
 let
   inherit (lib) mkOption types;
@@ -64,14 +65,11 @@ in
           };
           args = mkOption {
             type = types.listOf (
-              types.coercedTo
-                (types.oneOf [
-                  types.str
-                  types.path
-                  types.int
-                ])
-                (x: "${x}")
+              types.coercedTo (types.oneOf [
                 types.str
+                types.path
+                types.int
+              ]) (x: "${x}") types.str
             );
             default = [ ];
             description = ''

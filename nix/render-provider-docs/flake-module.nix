@@ -1,15 +1,16 @@
 { self, ... }:
 {
   perSystem =
-    { config
-    , pkgs
-    , ...
+    {
+      config,
+      pkgs,
+      ...
     }:
     {
       # Documentation: ../lib/lib.nix
       builders.renderProviderDocs =
-        { module
-        ,
+        {
+          module,
         }:
         pkgs.callPackage ./package.nix {
           inherit self;

@@ -1,18 +1,18 @@
-{ cargo
-, jq
-, json-schema-catalog-rs
-, json-schema-for-humans
-, jsonSchemaCatalogs
-, lib
-, manual-deployment-option-docs-md
-, manual-provider-option-docs-md-local
-, mdbook
-, mdbook-mermaid
-, nixdoc
-, nixops4
-, nixops4-resource-runner
-, stdenv
-,
+{
+  cargo,
+  jq,
+  json-schema-catalog-rs,
+  json-schema-for-humans,
+  jsonSchemaCatalogs,
+  lib,
+  manual-deployment-option-docs-md,
+  manual-provider-option-docs-md-local,
+  mdbook,
+  mdbook-mermaid,
+  nixdoc,
+  nixops4,
+  nixops4-resource-runner,
+  stdenv,
 }:
 let
   inherit (lib) fileset;
