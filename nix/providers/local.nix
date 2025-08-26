@@ -10,6 +10,14 @@ let
   inherit (lib) mkOption types;
 in
 {
+  name = "Local Provider";
+  description = ''
+    The local provider implements resources that operate on the local system.
+
+    They are atypical, as most resources represent a single real world entity that is reached over the network, but a resource like `file` is not singular like that, when NixOps4 is invoked from different environments.
+  '';
+  sourceBaseUrl = "https://github.com/nixops4/nixops4/tree/main";
+  sourceName = "nixops4";
   executable = thisFlake.withSystem resourceProviderSystem (
     { config, ... }: "${config.packages.nixops4-resources-local-release}/bin/nixops4-resources-local"
   );

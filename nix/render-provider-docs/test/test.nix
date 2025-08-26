@@ -1,11 +1,15 @@
+# Run with: nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).render-provider-docs
 { renderProviderDocs
 , lib
 , testers
-,
 }:
 let
   # Test provider module with various resource types
   testProviderModule = {
+    name = "Test Provider";
+    description = "A test provider for documentation generation testing";
+    sourceBaseUrl = "https://github.com/nixops4/nixops4/tree/main";
+    sourceName = "nixops4";
     resourceTypes = {
       # Simple resource with no inputs/outputs
       simple = {

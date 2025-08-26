@@ -184,6 +184,7 @@ in
 
       - `system`: The system string (e.g., "x86_64-linux")
       - `module`: A NixOps4 provider module containing resource type definitions
+        and documentation metadata ([`name`][name], [`description`][description], [`sourceBaseUrl`][sourceBaseUrl], [`sourceName`][sourceName])
 
       # Example
 
@@ -204,8 +205,13 @@ in
       ```
 
       The resulting derivation contains markdown files for each resource type
-      plus an index.md file. The files use mdBook-compatible includes for
-      option documentation.
+      plus an index.md file.
+      The files use mdBook-compatible includes for option documentation.
+
+      [name]: ../modules/index.md#opt-providers._name_.name
+      [description]: ../modules/index.md#opt-providers._name_.description
+      [sourceBaseUrl]: ../modules/index.md#opt-providers._name_.sourceBaseUrl
+      [sourceName]: ../modules/index.md#opt-providers._name_.sourceName
     */
   renderProviderDocs = { system, module }:
     selfWithSystem system ({ config, ... }:

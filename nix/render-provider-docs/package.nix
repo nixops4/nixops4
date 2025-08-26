@@ -9,7 +9,7 @@
 , ...
 }:
 let
-  # Evaluate the local provider module
+  # Evaluate the provider module
   providerEval = lib.evalModules {
     modules = [
       ../provider/provider.nix
@@ -55,8 +55,8 @@ let
   };
 
   sourcePathStr = "${self.outPath}";
-  baseUrl = "https://github.com/nixops4/nixops4/tree/main";
-  sourceName = "nixops4";
+  baseUrl = providerEval.config.sourceBaseUrl;
+  sourceName = providerEval.config.sourceName;
 
   transformOption =
     opt:
@@ -124,11 +124,9 @@ let
 
   # Render index page
   indexPage = writeText "index.md" ''
-    # Local Provider
+    # ${providerEval.config.name}
 
-    The local provider implements resources that operate on the local system.
-
-    They are atypical, as most resources represent a single real world entity that is reached over the network, but a resource like `file` is not singular like that, when NixOps4 is invoked from different environments.
+    ${providerEval.config.description}
 
     ## Resource Types
 
@@ -146,7 +144,7 @@ let
   ]
   ++ (lib.mapAttrsToList renderResourceTypePage resourceTypeDocs);
 
-  providerDocsDir = runCommand "local-provider-docs" { } ''
+  providerDocsDir = runCommand "provider-docs-${sourceName}" { } ''
     mkdir -p $out
     ${lib.concatMapStringsSep "\n" (page: "cp ${page.path} $out/${page.name}") allPages}
   '';

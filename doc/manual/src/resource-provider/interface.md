@@ -21,7 +21,12 @@ The interface between a resource provider and NixOps consist of expectations abo
 
 ## Nix Expression
 
-TODO
+Resource providers are defined as Nix modules that declare their resource types.
+The provider module should include metadata for documentation generation and specify the resource types it supports.
+
+For detailed information about all provider options, see the [Provider Configuration Reference](../modules/index.md#opt-providers).
+
+For rendering provider documentation, see [`lib.renderProviderDocs`](../lib/index.md#renderProviderDocs). 
 
 ## Process
 
@@ -30,7 +35,7 @@ NixOps launches the resource provider process built in the previous step.
 It communicates with the provider over the standard input and output streams using a JSON-lines protocol.
 Standard error is used for logging, and is line-buffered.
 
-TODO: exit behaviors
+Since the protocol is still in development, it is recommended to use the [../nixops4-resource crate](../architecture/nixops-components.md#nixops4-resource).
 
 ## Protocol
 
