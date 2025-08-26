@@ -11,32 +11,32 @@ license = "LGPL-2.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.79"
+anyhow = "1.0"
 nixops4-core = { path = "../nixops4-core" }
 # runtime dependency
 # nixops4-eval = { path = "../nixops4-eval" }
 nixops4-resource = { path = "../nixops4-resource" }
 nixops4-resource-runner = { path = "../nixops4-resource-runner" }
-clap = "4.5.4"
-clap_complete = "4.5.29"
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = "1.0.115"
-clap-markdown = "0.1.4"
-clap_mangen = "0.2.23"
-tracing = "0.1.40"
+clap = "4.5"
+clap_complete = "4.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap-markdown = "0.1"
+clap_mangen = "0.2"
+tracing = "0.1"
 tracing-tunnel = { git = "https://github.com/roberth/tracing-toolbox", tag = "0.1.99-fork-0", features = ["receiver"] }
-tracing-subscriber = { version = "0.3.18", features = ["registry"] }
-nix = "0.29.0"
-crossterm = "0.28.1"
-ansi-parser = "0.9.1"
-ctrlc = "3.4.5"
-tokio = { version = "1.45.0", features = ["macros", "sync", "test-util"] }
-async-trait = "0.1.88"
-pubsub-rs = "0.1.1"
-json-patch = "4.0.0"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+nix = "0.29"
+crossterm = "0.28"
+ansi-parser = "0.9"
+ctrlc = "3.4"
+tokio = { version = "1.45", features = ["macros", "sync", "test-util"] }
+async-trait = "0.1"
+pubsub-rs = "0.1"
+json-patch = "4.0"
 
 [dependencies.ratatui]
-version = "0.29.0"
+version = "0.29"
 features = ["unstable-rendered-line-info"]
 
 [[bin]]

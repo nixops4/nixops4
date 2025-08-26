@@ -8,11 +8,11 @@ license = "LGPL-2.1"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.79"
+anyhow = "1.0"
 nix-store = { path = "../nix-store" }
 nix-util = { path = "../nix-util" }
 nix-c-raw = { path = "../nix-c-raw" }
-lazy_static = "1.4.0"
-ctor = "0.2.7"
-tempfile = "3.10.1"
-cstr = "0.2.12"
+lazy_static = "1.4"
+ctor = "0.2"
+tempfile = "3.10"
+cstr = "0.2"

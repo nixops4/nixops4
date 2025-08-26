@@ -9,10 +9,10 @@ license = "LGPL-2.1"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.79"
+anyhow = "1.0"
 nix-util = { path = "../nix-util" }
 nix-c-raw = { path = "../nix-c-raw" }
-lazy_static = "1.4.0"
+lazy_static = "1.4"
 
 [build-dependencies]
-pkg-config = "0.3.30"
+pkg-config = "0.3"
