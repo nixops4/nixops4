@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use anyhow::Result;
-use nixops4_core::eval_api::ResourceProviderInfo;
+use nixops4_core::eval_api::{ResourcePath, ResourceProviderInfo};
 use nixops4_resource::schema::v0;
 use nixops4_resource::schema::v0::ExtantResource;
 use nixops4_resource_runner::ResourceProviderClient;
@@ -44,6 +44,12 @@ pub struct DeploymentState {
     pub resources: BTreeMap<String, ResourceState>,
     /// State of resources in nested deployments
     pub deployments: BTreeMap<String, DeploymentState>,
+}
+
+impl DeploymentState {
+    pub fn get_resource(&self, path: &ResourcePath) -> Option<&ResourceState> {
+        self.resources.get(&path.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -93,7 +99,7 @@ impl StateHandle {
 
     pub async fn resource_event(
         &self,
-        resource_name: &String,
+        resource_name: &ResourcePath,
         event: &str,
         past_resource: Option<&ResourceState>,
         current_resource: &ResourceState,
@@ -102,12 +108,12 @@ impl StateHandle {
         let current_json = serde_json::to_value(current_resource).with_context(|| {
             format!(
                 "Failed to serialize current resource state for '{}'",
-                resource_name
+                resource_name.0
             )
         })?;
         let current_json = serde_json::json!({
             "resources": {
-                resource_name: current_json
+                &resource_name.0: current_json
             }
         });
         let past_json = match past_resource {
@@ -118,12 +124,12 @@ impl StateHandle {
                 let past_json = serde_json::to_value(past).with_context(|| {
                     format!(
                         "Failed to serialize past resource state for '{}'",
-                        resource_name
+                        resource_name.0
                     )
                 })?;
                 serde_json::json!({
                     "resources": {
-                        resource_name: past_json
+                        &resource_name.0: past_json
                     }
                 })
             }
