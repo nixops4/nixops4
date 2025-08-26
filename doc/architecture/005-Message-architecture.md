@@ -2,9 +2,9 @@
 
 ## Status: DRAFT
 
-This is a proposal for the interprocess communication and deployment coordination in NixOps 4.
+This document outlines the conceptual approach to interprocess communication and deployment coordination in NixOps 4.
 
-It is incomplete and may contain inaccuracies.
+**Important**: The examples and implementation details in this document are illustrative and may not reflect the exact current implementation. The core architectural principles remain valid, but specific interfaces, message formats, and flake structures may have evolved.
 
 ## Context
 
@@ -14,9 +14,11 @@ For this purpose, we'll look into the process of deploying an application that u
 
 We'll assume that a deployment expression looks somewhat as follows, ignoring the possibility to use Nix to create conveniences and abstractions, and also ignoring proper flake authoring.
 
+**Note**: This example is conceptual and does not represent the current API. It serves to illustrate the message flow patterns rather than the exact implementation.
+
 In practice, almost all boilerplate will be reduced to a `flake-parts` module and/or helper functions.
 
-<details><summary>Abstraction-free `flake.nix` with example deployment</summary>
+<details><summary>Conceptual `flake.nix` example (not current API)</summary>
 
 ```nix
 {
@@ -102,7 +104,7 @@ In practice, almost all boilerplate will be reduced to a `flake-parts` module an
 
 ## Decision
 
-When the users calls `nix run .#nixops deploy`, the following takes place.
+The following describes the conceptual message flow when a user initiates deployment. The specific command syntax and implementation details may differ in practice.
 
 1. Nix builds NixOps4 and runs it.
 2. `nixops4` executable starts its subcommand `deploy`
@@ -158,3 +160,7 @@ When the users calls `nix run .#nixops deploy`, the following takes place.
         This would allow the advantage of caching the NixOS evaluation, at the cost of slightly reduced flexibility.
 
 6. Wrap-up. Now that all evaluation and deployment is done, the evaluator process is told to stop, and the `deploy` process reports the final results to the user.
+
+## Implementation Notes
+
+The core architectural principles of process separation, lazy evaluation, and dependency-driven resource coordination described in this document remain central to the current implementation. The main command is `nixops4 apply` rather than `nixops4 deploy`, and specific API details may vary, but the overall message flow and coordination patterns are accurately represented.
