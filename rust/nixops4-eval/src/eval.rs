@@ -337,7 +337,7 @@ fn perform_load_deployment<R: Respond>(
             let resource_name = es.require_string(resource_name)?;
             let attr_name = es.require_string(attr_name)?;
             let property = NamedProperty {
-                resource: resource_name.to_string(),
+                resource: nixops4_core::eval_api::ResourcePath(resource_name.to_string()),
                 name: attr_name.to_string(),
             };
             let val = { known_outputs.borrow().get(&property).cloned() };
@@ -352,7 +352,7 @@ fn perform_load_deployment<R: Respond>(
                         "__internal_exception_load_resource_property_#{}#",
                         base64::engine::general_purpose::STANDARD.encode(
                             serde_json::to_string(&NamedProperty {
-                                resource: resource_name,
+                                resource: nixops4_core::eval_api::ResourcePath(resource_name),
                                 name: attr_name
                             })
                             .unwrap()

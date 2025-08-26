@@ -93,6 +93,26 @@ pub struct DeploymentType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
 
+/// A resource path within a deployment
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ResourcePath(pub String);
+
+impl std::fmt::Display for ResourcePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl valuable::Valuable for ResourcePath {
+    fn as_value(&self) -> valuable::Value<'_> {
+        valuable::Value::String(&self.0)
+    }
+
+    fn visit(&self, visit: &mut dyn valuable::Visit) {
+        visit.visit_value(self.as_value())
+    }
+}
+
 /// This interface is internal to NixOps4. It is used to communicate between the CLI and the evaluator.
 /// Only matching CLI and evaluator versions are compatible.
 /// No promises are made about this interface.
@@ -190,7 +210,7 @@ pub struct ResourceInputDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
-    pub resource: String,
+    pub resource: ResourcePath,
     pub name: String,
 }
 
