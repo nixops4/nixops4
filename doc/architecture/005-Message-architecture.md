@@ -113,9 +113,10 @@ The following describes the conceptual message flow when a user initiates deploy
   - Tell the evaluator process to load the `default` project, causing it to evaluate that attribute
 4. `deploy` queries the evaluator for the resources
   - The evaluator invokes the `nixopsProjects.default` function, passing it the internally defined `__mkResource` function (a Nix "primop"), and a `resources` attribute set containing thunks that refer to unnamed primops.
+    - Note: The values in the `resources` attribute set are not representable as pure Nix values. They require execution of Rust code to produce the Nix primop values that will be accessible later, as demonstrated in the step-by-step example below.
   - The evaluator then forces the `resources` attribute set for its names only.
   - `deploy` receives `["bucket", "dns", "instance", "nixos"]` in the example above. Note that attributes are semantically unordered and returned alphabetically.
-5. `deploy` enters an event loop in which it tries to get as much information about the resources as possible, creates processes for the resources, waits for them to finish and reports the results to evaluator and to the user. We'll describe it using the example project, and in a more linear fashion than a typical execution would be. Where it says "Section", it's a grouping to help with reading, rather than actions that translate into actual code.
+5. `deploy` enters an event loop in which it tries to get as much information about the resources as possible, creates processes for the resources, waits for them to finish and reports the results to evaluator and to the user. This involves lazily evaluating resources, where some values require spawning I/O operations and interacting with the external world to resolve. When dependencies are unresolved, the system can backtrack and retry evaluation after the required information becomes available. We'll describe it using the example project, and in a more linear fashion than a typical execution would be. Where it says "Section", it's a grouping to help with reading, rather than actions that translate into actual code.
   - Section: Step 1
   - `deploy` queries each resource in no particular order, but perhaps in the order they were returned by the evaluator.
 
