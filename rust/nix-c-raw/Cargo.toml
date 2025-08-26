@@ -9,5 +9,5 @@ license = "LGPL-2.1"
 path = "src/lib.rs"
 
 [build-dependencies]
-bindgen = "0.69.4"
-pkg-config = "0.3.30"
+bindgen = "0.69"
+pkg-config = "0.3"

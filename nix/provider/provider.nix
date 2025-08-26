@@ -39,14 +39,21 @@ in
 
         The attribute name under `resourceTypes` is the resource type, and gives rise to `providers.<provider>.<resourceType>`.
       '';
-      type = types.lazyAttrsOf (types.submoduleWith {
-        specialArgs.provider = config;
-        class = "nixops4ResourceType";
-        modules = [
-          ../resourceType/resourceType.nix
-          ({ name, ... }: { type = name; })
-        ];
-      });
+      type = types.lazyAttrsOf (
+        types.submoduleWith {
+          specialArgs.provider = config;
+          class = "nixops4ResourceType";
+          modules = [
+            ../resourceType/resourceType.nix
+            (
+              { name, ... }:
+              {
+                type = name;
+              }
+            )
+          ];
+        }
+      );
     };
   };
 }

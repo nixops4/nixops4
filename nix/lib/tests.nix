@@ -1,8 +1,12 @@
 /**
   nix-unit tests for `nixops4.lib`
   nix-unit --flake .#tests
- */
-{ lib, self, system }:
+*/
+{
+  lib,
+  self,
+  system,
+}:
 let
   inherit (lib) mkOption types;
 in
@@ -18,15 +22,23 @@ in
         expected = "nixops4Deployment";
       };
       "test resource set" = {
-        expr = d.deploymentFunction { resources = { }; resourceProviderSystem = system; };
-        expected = { resources = { }; };
+        expr = d.deploymentFunction {
+          resources = { };
+          resourceProviderSystem = system;
+        };
+        expected = {
+          resources = { };
+        };
       };
     };
   "elaborate mkDeployment call" =
     let
       localProvider = {
         executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
-        args = [ "positively" "an argument" ];
+        args = [
+          "positively"
+          "an argument"
+        ];
         type = "stdio";
         resourceTypes = {
           exec = {
@@ -42,7 +54,10 @@ in
             };
             requireState = false;
           };
-          b = { type = "bee"; requireState = false; };
+          b = {
+            type = "bee";
+            requireState = false;
+          };
         };
       };
 
@@ -50,7 +65,16 @@ in
         modules = [
           { _module.args.foo = "bar"; }
           { _class = "nixops4Deployment"; }
-          ({ characteristic, config, foo, options, resources, providers, ... }:
+          (
+            {
+              characteristic,
+              config,
+              foo,
+              options,
+              resources,
+              providers,
+              ...
+            }:
             assert characteristic == "I'm a special snowflake";
 
             {
@@ -61,7 +85,13 @@ in
                 # `_module.args`.
                 assert foo == "bar";
                 # Similarly:
-                assert options._module.args.loc == [ "optionP" "ath" "_module" "args" ];
+                assert
+                  options._module.args.loc == [
+                    "optionP"
+                    "ath"
+                    "_module"
+                    "args"
+                  ];
                 {
                   resourceType = "aye";
                   provider = {
@@ -70,11 +100,13 @@ in
                     type = "stdio";
                   };
                   inputs = { };
-                  outputs = { ... }: {
-                    options.aResult = mkOption {
-                      type = types.str;
+                  outputs =
+                    { ... }:
+                    {
+                      options.aResult = mkOption {
+                        type = types.str;
+                      };
                     };
-                  };
                   outputsSkeleton.aResult = { };
                   requireState = false;
                 };
@@ -86,16 +118,18 @@ in
                   args = [ "buzz" ];
                   type = "stdio";
                 };
-                inputs = { ... }: {
-                  options.a = mkOption {
-                    type = types.str;
+                inputs =
+                  { ... }:
+                  {
+                    options.a = mkOption {
+                      type = types.str;
+                    };
+                    options.a2 = mkOption {
+                      type = types.str;
+                    };
+                    config.a = resources.a.aResult;
+                    config.a2 = config.resources.a.outputs.aResult;
                   };
-                  options.a2 = mkOption {
-                    type = types.str;
-                  };
-                  config.a = resources.a.aResult;
-                  config.a2 = config.resources.a.outputs.aResult;
-                };
                 outputs = { };
                 outputsSkeleton = { };
                 requireState = false;
@@ -105,12 +139,16 @@ in
                 type = providers.local.exec;
                 inputs.executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
               };
-            })
+            }
+          )
         ];
         specialArgs = {
           characteristic = "I'm a special snowflake";
         };
-        prefix = [ "optionP" "ath" ];
+        prefix = [
+          "optionP"
+          "ath"
+        ];
       };
 
       # What NixOps does is effectively:
@@ -149,7 +187,9 @@ in
                 type = "stdio";
               };
               type = "aye";
-              outputsSkeleton = { aResult = { }; };
+              outputsSkeleton = {
+                aResult = { };
+              };
               state = null;
             };
             b = {
@@ -171,12 +211,17 @@ in
                 executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
               };
               provider = {
-                args = [ "positively" "an argument" ];
+                args = [
+                  "positively"
+                  "an argument"
+                ];
                 executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
                 type = "stdio";
               };
               type = "exec";
-              outputsSkeleton = { stdout = { }; };
+              outputsSkeleton = {
+                stdout = { };
+              };
               state = null;
             };
           };
@@ -221,57 +266,84 @@ in
       # This should work - stateless resource without state
       validStateless = self.lib.mkDeployment {
         modules = [
-          ({ config, providers, ... }: {
-            providers.example = testProviderModule;
-            resources.myStateless = {
-              type = providers.example.stateless;
-              inputs.data = "hello";
-            };
-          })
+          (
+            { config, providers, ... }:
+            {
+              providers.example = testProviderModule;
+              resources.myStateless = {
+                type = providers.example.stateless;
+                inputs.data = "hello";
+              };
+            }
+          )
         ];
       };
 
       # This should work - stateful resource with state
       validStateful = self.lib.mkDeployment {
         modules = [
-          ({ config, providers, ... }: {
-            providers.example = testProviderModule;
-            resources.myStateful = {
-              type = providers.example.stateful;
-              state = "myStateHandler";
-              inputs.data = "world";
-            };
-          })
+          (
+            { config, providers, ... }:
+            {
+              providers.example = testProviderModule;
+              resources.myStateful = {
+                type = providers.example.stateful;
+                state = "myStateHandler";
+                inputs.data = "world";
+              };
+            }
+          )
         ];
       };
 
       # This should fail - stateful resource without state
       invalidStateful = self.lib.mkDeployment {
         modules = [
-          ({ config, providers, ... }: {
-            providers.example = testProviderModule;
-            resources.myStateful = {
-              type = providers.example.stateful;
-              inputs.data = "fail";
-              # state is missing - this should cause an error due to requireState = true
-            };
-          })
+          (
+            { config, providers, ... }:
+            {
+              providers.example = testProviderModule;
+              resources.myStateful = {
+                type = providers.example.stateful;
+                inputs.data = "fail";
+                # state is missing - this should cause an error due to requireState = true
+              };
+            }
+          )
         ];
       };
     in
     {
       "test stateless resource works without state" = {
-        expr = (validStateless.deploymentFunction { resources = { myStateless = { }; }; resourceProviderSystem = system; }).resources.myStateless.state;
+        expr =
+          (validStateless.deploymentFunction {
+            resources = {
+              myStateless = { };
+            };
+            resourceProviderSystem = system;
+          }).resources.myStateless.state;
         expected = null;
       };
 
       "test stateful resource works with state" = {
-        expr = (validStateful.deploymentFunction { resources = { myStateful = { }; }; resourceProviderSystem = system; }).resources.myStateful.state;
+        expr =
+          (validStateful.deploymentFunction {
+            resources = {
+              myStateful = { };
+            };
+            resourceProviderSystem = system;
+          }).resources.myStateful.state;
         expected = "myStateHandler";
       };
 
       "test stateful resource without state throws error" = {
-        expr = (invalidStateful.deploymentFunction { resources = { myStateful = { }; }; resourceProviderSystem = system; }).resources.myStateful.state;
+        expr =
+          (invalidStateful.deploymentFunction {
+            resources = {
+              myStateful = { };
+            };
+            resourceProviderSystem = system;
+          }).resources.myStateful.state;
         expectedError.type = "ThrownError";
         expectedError.msg = "resources\\.myStateful\\.state has not been defined";
       };

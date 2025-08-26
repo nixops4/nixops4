@@ -1,12 +1,13 @@
 # Documentation: ../lib/lib.nix
 # Tests: ./test/test.nix
-{ lib
-, self
-, providerModule
-, nixosOptionsDoc
-, runCommand
-, writeText
-, ...
+{
+  lib,
+  self,
+  providerModule,
+  nixosOptionsDoc,
+  runCommand,
+  writeText,
+  ...
 }:
 let
   # Evaluate the provider module
@@ -62,28 +63,26 @@ let
     opt:
     opt
     // {
-      declarations = lib.concatMap
-        (
-          decl:
+      declarations = lib.concatMap (
+        decl:
+        let
+          # Remove ", via ..." suffix that deferredModule adds
+          declStr = toString decl;
+          cleanDeclStr = lib.head (lib.splitString ", via " declStr);
+        in
+        if lib.hasPrefix sourcePathStr cleanDeclStr then
           let
-            # Remove ", via ..." suffix that deferredModule adds
-            declStr = toString decl;
-            cleanDeclStr = lib.head (lib.splitString ", via " declStr);
+            subpath = lib.removePrefix sourcePathStr cleanDeclStr;
           in
-          if lib.hasPrefix sourcePathStr cleanDeclStr then
-            let
-              subpath = lib.removePrefix sourcePathStr cleanDeclStr;
-            in
-            [
-              {
-                url = baseUrl + subpath;
-                name = sourceName + subpath;
-              }
-            ]
-          else
-            [ ]
-        )
-        opt.declarations;
+          [
+            {
+              url = baseUrl + subpath;
+              name = sourceName + subpath;
+            }
+          ]
+        else
+          [ ]
+      ) opt.declarations;
     };
 
   resourceTypeDocs = lib.mapAttrs evaluateResourceType providerEval.config.resourceTypes;

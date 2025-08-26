@@ -5,8 +5,8 @@
   #       for cross compilation) but considering that we need both in this final
   #       derivation, we should not merge the below behavior into the rust
   #       package as overrides.
-  nixops4-resource-runner
-, stdenv
+  nixops4-resource-runner,
+  stdenv,
 }:
 
 stdenv.mkDerivation {

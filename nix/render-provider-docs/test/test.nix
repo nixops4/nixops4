@@ -1,7 +1,8 @@
 # Run with: nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).render-provider-docs
-{ renderProviderDocs
-, lib
-, testers
+{
+  renderProviderDocs,
+  lib,
+  testers,
 }:
 let
   # Test provider module with various resource types
@@ -84,7 +85,7 @@ let
 
 in
 # TODO after https://github.com/NixOS/nixpkgs/pull/436528 add message to explain and carefully hint at ./adopt-all-changes.sh
-  #      - require thorough review of the diff
+#      - require thorough review of the diff
 testers.testEqualContents {
   assertion = "Rendered provider docs match expected golden output";
   expected = expectedDir;

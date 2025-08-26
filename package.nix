@@ -1,10 +1,10 @@
 {
   # local inputs
-  nixops4-cli-rust
-, nixops4-eval
-, # nixpkgs
-  makeBinaryWrapper
-, stdenv
+  nixops4-cli-rust,
+  nixops4-eval,
+  # nixpkgs
+  makeBinaryWrapper,
+  stdenv,
 }:
 
 stdenv.mkDerivation {

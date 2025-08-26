@@ -9,13 +9,12 @@
 #
 {
   # Nixpkgs lib
-  lib
-, # This nixops4 flake
-  self
-, # withSystem of the nixops4 flake
+  lib,
+  # This nixops4 flake
+  self,
+  # withSystem of the nixops4 flake
   # https://flake.parts/module-arguments#withsystem
-  selfWithSystem
-,
+  selfWithSystem,
 }:
 
 let
@@ -42,25 +41,26 @@ let
   evalDeployment =
     baseArgs:
     { resources, resourceProviderSystem, ... }:
-    lib.evalModules (baseArgs // {
-      specialArgs = baseArgs.specialArgs // {
-        inherit resources resourceProviderSystem;
-      };
-      class = "nixops4Deployment";
-    });
+    lib.evalModules (
+      baseArgs
+      // {
+        specialArgs = baseArgs.specialArgs // {
+          inherit resources resourceProviderSystem;
+        };
+        class = "nixops4Deployment";
+      }
+    );
 
   evalDeploymentForProviders =
     baseArgs:
     { system }:
-    evalDeployment
-      baseArgs
-      {
-        # Input for the provider definitions
-        resourceProviderSystem = system;
+    evalDeployment baseArgs {
+      # Input for the provider definitions
+      resourceProviderSystem = system;
 
-        # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
-        resources = throw "resource information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
-      };
+      # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
+      resources = throw "resource information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
+    };
 
 in
 {
@@ -102,8 +102,13 @@ in
       [**Output**]{#mkDeployment-output-getProviders-output}
 
       A derivation whose output references the providers for the deployment.
-   */
-  mkDeployment = { modules, specialArgs ? { }, prefix ? [ ] }:
+  */
+  mkDeployment =
+    {
+      modules,
+      specialArgs ? { },
+      prefix ? [ ],
+    }:
     let
       allModules = [ ../deployment/base-modules.nix ] ++ modules;
       baseArgs = {
@@ -115,14 +120,11 @@ in
       _type = "nixops4Deployment";
       /**
         Internal function for `nixops4` to invoke.
-       */
+      */
       deploymentFunction =
         args:
         let
-          configuration =
-            evalDeployment
-              baseArgs
-              args;
+          configuration = evalDeployment baseArgs args;
         in
         {
           resources = lib.mapAttrs (_: res: res._resourceForNixOps) configuration.config.resources;
@@ -142,37 +144,29 @@ in
         # Output
 
         A derivation whose output references the providers for the deployment.
-       */
-      getProviders = { system }:
+      */
+      getProviders =
+        { system }:
         let
-          configuration =
-            evalDeploymentForProviders
-              baseArgs
-              { inherit system; };
+          configuration = evalDeploymentForProviders baseArgs { inherit system; };
 
-          serializable =
-            lib.mapAttrs
-              (name: provider:
-                {
-                  executable = provider.executable;
-                  args = provider.args;
-                }
-              )
-              configuration.config.providers;
+          serializable = lib.mapAttrs (name: provider: {
+            executable = provider.executable;
+            args = provider.args;
+          }) configuration.config.providers;
 
         in
-        selfWithSystem system ({ pkgs, ... }:
-          (pkgs.writeText
-            "nixops-deployment-providers"
-            ''
-              Store path contents subject to change
-              ${builtins.toJSON serializable}
-            '').overrideAttrs {
-            passthru.config = configuration.config;
-          }
+        selfWithSystem system (
+          { pkgs, ... }:
+          (pkgs.writeText "nixops-deployment-providers" ''
+            Store path contents subject to change
+            ${builtins.toJSON serializable}
+          '').overrideAttrs
+            {
+              passthru.config = configuration.config;
+            }
         );
     };
-
 
   /**
       Generate documentation for a NixOps4 provider module.
@@ -212,9 +206,11 @@ in
       [description]: ../modules/index.md#opt-providers._name_.description
       [sourceBaseUrl]: ../modules/index.md#opt-providers._name_.sourceBaseUrl
       [sourceName]: ../modules/index.md#opt-providers._name_.sourceName
-    */
-  renderProviderDocs = { system, module }:
-    selfWithSystem system ({ config, ... }:
+  */
+  renderProviderDocs =
+    { system, module }:
+    selfWithSystem system (
+      { config, ... }:
       config.builders.renderProviderDocs {
         inherit module;
       }

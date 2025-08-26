@@ -1,7 +1,12 @@
 /**
   A reification of the resource interface between the language and nixops4.
- */
-{ config, lib, options, ... }:
+*/
+{
+  config,
+  lib,
+  options,
+  ...
+}:
 let
   inherit (lib) mkOption types;
 in
@@ -29,7 +34,13 @@ in
       '';
     };
     provider.args = mkOption {
-      type = types.listOf (types.coercedTo (types.oneOf [ types.str types.path types.int ]) (x: "${x}") types.str);
+      type = types.listOf (
+        types.coercedTo (types.oneOf [
+          types.str
+          types.path
+          types.int
+        ]) (x: "${x}") types.str
+      );
       default = [ ];
       description = ''
         Any command line arguments to pass to the executable.
@@ -80,12 +91,24 @@ in
         The state handler for the resource, if needed.
       '';
       default = null;
-      apply = x: lib.throwIf (config.requireState && x == null) "${options.state} ${if options.state.highestPrio >= lib.modules.defaultOverridePriority then "has not been defined" else "must not be null"}" x;
+      apply =
+        x:
+        lib.throwIf (config.requireState && x == null) "${options.state} ${
+          if options.state.highestPrio >= lib.modules.defaultOverridePriority then
+            "has not been defined"
+          else
+            "must not be null"
+        }" x;
     };
   };
   config = {
     _resourceForNixOps = {
-      inherit (config) provider inputs outputsSkeleton state;
+      inherit (config)
+        provider
+        inputs
+        outputsSkeleton
+        state
+        ;
       type = config.resourceType;
     };
   };
