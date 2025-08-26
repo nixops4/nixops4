@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/schema/resource-v0.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/schema/resource-v0.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -179,6 +179,7 @@
                 <div id="content" class="content">
                     <main>
                         <div class="schema-content">
+<h1 id="resource-protocol-schema"><a class="header" href="#resource-protocol-schema">Resource Protocol Schema</a></h1>
 <h2 id="raw-json-schema"><a class="header" href="#raw-json-schema">Raw JSON schema</a></h2>
 <p><a href="resource-schema-v0.json">Open JSON schema file</a></p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
@@ -188,7 +189,8 @@
   "inputProperties": {
     "path": "pubkey.txt",
     "content": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD"
-  }
+  },
+  "isStateful": false
 }
 </code></pre>
 <h3 id="createresourceresponse"><a class="header" href="#createresourceresponse">CreateResourceResponse</a></h3>
@@ -207,15 +209,119 @@
 <h2 id="nixops4-resource-protocol-schema"><a class="header" href="#nixops4-resource-protocol-schema">NixOps4 Resource Protocol Schema</a></h2>
 <p><a href="resource-schema-v0.json">Raw JSON schema</a></p>
 <ul>
-<li><a href="#oneOf_i0">1. Property <code>CreateResourceRequest</code></a>
+<li><a href="#oneOf_i0">1. Property <code>Request</code></a>
 <ul>
-<li><a href="#oneOf_i0_type">1.1. Property <code>type</code></a></li>
-<li><a href="#oneOf_i0_inputProperties">1.2. Property <code>inputProperties</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i0">1.1. Property <code>CreateResourceRequest</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i0_createResourceRequest">1.1.1. Property <code>createResourceRequest</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i0_createResourceRequest_type">1.1.1.1. Property <code>type</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i0_createResourceRequest_inputProperties">1.1.1.2. Property <code>inputProperties</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i0_createResourceRequest_isStateful">1.1.1.3. Property <code>isStateful</code></a></li>
 </ul>
 </li>
-<li><a href="#oneOf_i1">2. Property <code>CreateResourceResponse</code></a>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i1">1.2. Property <code>UpdateResourceRequest</code></a>
 <ul>
-<li><a href="#oneOf_i1_outputProperties">2.1. Property <code>outputProperties</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest">1.2.1. Property <code>updateResourceRequest</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource">1.2.1.1. Property <code>resource</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_type">1.2.1.1.1. Property <code>type</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_inputProperties">1.2.1.1.2. Property <code>inputProperties</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_outputProperties">1.2.1.1.3. Property <code>outputProperties</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_inputProperties">1.2.1.2. Property <code>inputProperties</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i2">1.3. Property <code>StateResourceEvent</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent">1.3.1. Property <code>stateResourceEvent</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_resource">1.3.1.1. Property <code>resource</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_event">1.3.1.2. Property <code>event</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_nixopsVersion">1.3.1.3. Property <code>nixopsVersion</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch">1.3.1.4. Property <code>patch</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items">1.3.1.4.1. patch items</a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0">1.3.1.4.1.1. Property <code>item 0</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_path">1.3.1.4.1.1.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_op">1.3.1.4.1.1.2. Property <code>op</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_value">1.3.1.4.1.1.3. Property <code>value</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1">1.3.1.4.1.2. Property <code>item 1</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_path">1.3.1.4.1.2.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_op">1.3.1.4.1.2.2. Property <code>op</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2">1.3.1.4.1.3. Property <code>item 2</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_path">1.3.1.4.1.3.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_op">1.3.1.4.1.3.2. Property <code>op</code></a></li>
+<li><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_from">1.3.1.4.1.3.3. Property <code>from</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_oneOf_i3">1.4. Property <code>StateResourceReadRequest</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i3_stateResourceReadRequest">1.4.1. Property <code>stateResourceReadRequest</code></a>
+<ul>
+<li><a href="#oneOf_i0_oneOf_i3_stateResourceReadRequest_resource">1.4.1.1. Property <code>resource</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i1">2. Property <code>Response</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i0">2.1. Property <code>CreateResourceResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i0_createResourceResponse">2.1.1. Property <code>createResourceResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i0_createResourceResponse_outputProperties">2.1.1.1. Property <code>outputProperties</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i1_oneOf_i1">2.2. Property <code>UpdateResourceResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i1_updateResourceResponse">2.2.1. Property <code>updateResourceResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i1_updateResourceResponse_outputProperties">2.2.1.1. Property <code>outputProperties</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i1_oneOf_i2">2.3. Property <code>StateResourceEventResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i2_stateResourceEventResponse">2.3.1. Property <code>stateResourceEventResponse</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i1_oneOf_i3">2.4. Property <code>StateResourceReadResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse">2.4.1. Property <code>stateResourceReadResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse_state">2.4.1.1. Property <code>state</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -228,36 +334,64 @@
 </div>
 <p><strong>Description:</strong> This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.</p>
 <div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
-<tr><td><a href="#oneOf_i0">CreateResourceRequest</a></td></tr>
-<tr><td><a href="#oneOf_i1">CreateResourceResponse</a></td></tr>
+<tr><td><a href="#oneOf_i0">Request</a></td></tr>
+<tr><td><a href="#oneOf_i1">Response</a></td></tr>
 </tbody></table>
 </div>
-<h3 id="1-property-createresourcerequest"><a class="header" href="#1-property-createresourcerequest"><a id="oneOf_i0"></a>1. Property <code>CreateResourceRequest</code></a></h3>
+<h3 id="1-property-request"><a class="header" href="#1-property-request"><a id="oneOf_i0"></a>1. Property <code>Request</code></a></h3>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>combining</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/Request</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0_oneOf_i0">CreateResourceRequest</a></td></tr>
+<tr><td><a href="#oneOf_i0_oneOf_i1">UpdateResourceRequest</a></td></tr>
+<tr><td><a href="#oneOf_i0_oneOf_i2">StateResourceEvent</a></td></tr>
+<tr><td><a href="#oneOf_i0_oneOf_i3">StateResourceReadRequest</a></td></tr>
+</tbody></table>
+</div>
+<h4 id="11-property-createresourcerequest"><a class="header" href="#11-property-createresourcerequest"><a id="oneOf_i0_oneOf_i0"></a>1.1. Property <code>CreateResourceRequest</code></a></h4>
+<p><strong>Title:</strong> CreateResourceRequest</p>
 <div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
 <tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
 <tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i0_createResourceRequest">createResourceRequest</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="111-property-createresourcerequest"><a class="header" href="#111-property-createresourcerequest"><a id="oneOf_i0_oneOf_i0_createResourceRequest"></a>1.1.1. Property <code>createResourceRequest</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
 <tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
 <tr><td><strong>Defined in</strong></td><td>#/definitions/CreateResourceRequest</td></tr>
 </tbody></table>
 </div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
-<tr><td>+ <a href="#oneOf_i0_type">type</a></td><td>string</td><td>No</td><td>Provider-defined resource type</td></tr>
-<tr><td>+ <a href="#oneOf_i0_inputProperties">inputProperties</a></td><td>object</td><td>No</td><td>Input properties</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i0_createResourceRequest_type">type</a></td><td>string</td><td>No</td><td>Provider-defined resource type</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i0_createResourceRequest_inputProperties">inputProperties</a></td><td>object</td><td>No</td><td>Input properties</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i0_createResourceRequest_isStateful">isStateful</a></td><td>boolean</td><td>No</td><td>Stateful resource</td></tr>
 </tbody></table>
 </div>
-<h4 id="11-property-type"><a class="header" href="#11-property-type"><a id="oneOf_i0_type"></a>1.1. Property <code>type</code></a></h4>
+<h6 id="1111-property-type"><a class="header" href="#1111-property-type"><a id="oneOf_i0_oneOf_i0_createResourceRequest_type"></a>1.1.1.1. Property <code>type</code></a></h6>
 <p><strong>Title:</strong> Provider-defined resource type</p>
 <div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
 <tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
 <tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/resourceType</td></tr>
 </tbody></table>
 </div>
-<p><strong>Description:</strong> The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user.</p>
-<h4 id="12-property-inputproperties"><a class="header" href="#12-property-inputproperties"><a id="oneOf_i0_inputProperties"></a>1.2. Property <code>inputProperties</code></a></h4>
+<p><strong>Description:</strong> The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user. The resource type is chosen by the deployment expression, but must be one of the types that the resource provider supports. The resource provider must not proceed if the type is not supported.</p>
+<h6 id="1112-property-inputproperties"><a class="header" href="#1112-property-inputproperties"><a id="oneOf_i0_oneOf_i0_createResourceRequest_inputProperties"></a>1.1.1.2. Property <code>inputProperties</code></a></h6>
 <p><strong>Title:</strong> Input properties</p>
 <div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
 <tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
 <tr><td><strong>Required</strong></td><td>Yes</td></tr>
 <tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/inputProperties</td></tr>
 </tbody></table>
 </div>
 <p><strong>Description:</strong> Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error.</p>
@@ -265,26 +399,457 @@
 <tr><td>-</td><td>object</td><td>No</td><td>-</td></tr>
 </tbody></table>
 </div>
-<h3 id="2-property-createresourceresponse"><a class="header" href="#2-property-createresourceresponse"><a id="oneOf_i1"></a>2. Property <code>CreateResourceResponse</code></a></h3>
+<h6 id="1113-property-isstateful"><a class="header" href="#1113-property-isstateful"><a id="oneOf_i0_oneOf_i0_createResourceRequest_isStateful"></a>1.1.1.3. Property <code>isStateful</code></a></h6>
+<p><strong>Title:</strong> Stateful resource</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>boolean</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> Whether the resource is declared to be stateful. If false, the response will not be persisted. If persistence is required, an error must be raised by the resource provider.</p>
+<h4 id="12-property-updateresourcerequest"><a class="header" href="#12-property-updateresourcerequest"><a id="oneOf_i0_oneOf_i1"></a>1.2. Property <code>UpdateResourceRequest</code></a></h4>
+<p><strong>Title:</strong> UpdateResourceRequest</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i1_updateResourceRequest">updateResourceRequest</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="121-property-updateresourcerequest"><a class="header" href="#121-property-updateresourcerequest"><a id="oneOf_i0_oneOf_i1_updateResourceRequest"></a>1.2.1. Property <code>updateResourceRequest</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/UpdateResourceRequest</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource">resource</a></td><td>object</td><td>No</td><td>-</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i1_updateResourceRequest_inputProperties">inputProperties</a></td><td>object</td><td>No</td><td>Input properties</td></tr>
+</tbody></table>
+</div>
+<h6 id="1211-property-resource"><a class="header" href="#1211-property-resource"><a id="oneOf_i0_oneOf_i1_updateResourceRequest_resource"></a>1.2.1.1. Property <code>resource</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/ExtantResource</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_type">type</a></td><td>string</td><td>No</td><td>Provider-defined resource type</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_inputProperties">inputProperties</a></td><td>object</td><td>No</td><td>Input properties</td></tr>
+<tr><td>- <a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_outputProperties">outputProperties</a></td><td>object</td><td>No</td><td>Output properties</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i1_updateResourceRequest_resource_type"></a>1.2.1.1.1. Property <code>type</code></p>
+<p><strong>Title:</strong> Provider-defined resource type</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i0_createResourceRequest_type">type</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user. The resource type is chosen by the deployment expression, but must be one of the types that the resource provider supports. The resource provider must not proceed if the type is not supported.</p>
+<p>####### <a id="oneOf_i0_oneOf_i1_updateResourceRequest_resource_inputProperties"></a>1.2.1.1.2. Property <code>inputProperties</code></p>
+<p><strong>Title:</strong> Input properties</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i0_createResourceRequest_inputProperties">inputProperties</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error.</p>
+<p>####### <a id="oneOf_i0_oneOf_i1_updateResourceRequest_resource_outputProperties"></a>1.2.1.1.3. Property <code>outputProperties</code></p>
+<p><strong>Title:</strong> Output properties</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/outputProperties</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions.</p>
+<div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>-</td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h6 id="1212-property-inputproperties"><a class="header" href="#1212-property-inputproperties"><a id="oneOf_i0_oneOf_i1_updateResourceRequest_inputProperties"></a>1.2.1.2. Property <code>inputProperties</code></a></h6>
+<p><strong>Title:</strong> Input properties</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i0_createResourceRequest_inputProperties">inputProperties</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error.</p>
+<h4 id="13-property-stateresourceevent"><a class="header" href="#13-property-stateresourceevent"><a id="oneOf_i0_oneOf_i2"></a>1.3. Property <code>StateResourceEvent</code></a></h4>
+<p><strong>Title:</strong> StateResourceEvent</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> <div class="warning">Only implemented by state provider resources</div></p>
+<div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent">stateResourceEvent</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="131-property-stateresourceevent"><a class="header" href="#131-property-stateresourceevent"><a id="oneOf_i0_oneOf_i2_stateResourceEvent"></a>1.3.1. Property <code>stateResourceEvent</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/StateResourceEvent</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_resource">resource</a></td><td>object</td><td>No</td><td>-</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_event">event</a></td><td>string</td><td>No</td><td>The operation that produced this change.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_nixopsVersion">nixopsVersion</a></td><td>string</td><td>No</td><td>The version of NixOps that produced this event.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch">patch</a></td><td>array</td><td>No</td><td>JSON Patch</td></tr>
+</tbody></table>
+</div>
+<h6 id="1311-property-resource"><a class="header" href="#1311-property-resource"><a id="oneOf_i0_oneOf_i2_stateResourceEvent_resource"></a>1.3.1.1. Property <code>resource</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource">resource</a></td></tr>
+</tbody></table>
+</div>
+<h6 id="1312-property-event"><a class="header" href="#1312-property-event"><a id="oneOf_i0_oneOf_i2_stateResourceEvent_event"></a>1.3.1.2. Property <code>event</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation that produced this change.</p>
+<h6 id="1313-property-nixopsversion"><a class="header" href="#1313-property-nixopsversion"><a id="oneOf_i0_oneOf_i2_stateResourceEvent_nixopsVersion"></a>1.3.1.3. Property <code>nixopsVersion</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The version of NixOps that produced this event.</p>
+<h6 id="1314-property-patch"><a class="header" href="#1314-property-patch"><a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch"></a>1.3.1.4. Property <code>patch</code></a></h6>
+<p><strong>Title:</strong> JSON Patch</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>array</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/Patch</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> JSON Patch operations to apply to the state.</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th>Array restrictions</th></tr></thead><tbody>
+<tr><td><strong>Min items</strong></td><td>N/A</td></tr>
+<tr><td><strong>Max items</strong></td><td>N/A</td></tr>
+<tr><td><strong>Items unicity</strong></td><td>False</td></tr>
+<tr><td><strong>Additional items</strong></td><td>False</td></tr>
+<tr><td><strong>Tuple validation</strong></td><td>See below</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Each item of this array must be</th><th>Description</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items">patch items</a></td><td>-</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items"></a>1.3.1.4.1. patch items</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>combining</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0">item 0</a></td></tr>
+<tr><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1">item 1</a></td></tr>
+<tr><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2">item 2</a></td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0"></a>1.3.1.4.1.1. Property <code>item 0</code></p>
 <div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
 <tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
 <tr><td><strong>Required</strong></td><td>No</td></tr>
 <tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
-<tr><td><strong>Defined in</strong></td><td>#/definitions/CreateResourceResponse</td></tr>
 </tbody></table>
 </div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
-<tr><td>+ <a href="#oneOf_i1_outputProperties">outputProperties</a></td><td>object</td><td>No</td><td>Output properties</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_value">value</a></td><td>object</td><td>No</td><td>The value to add, replace or test.</td></tr>
 </tbody></table>
 </div>
-<h4 id="21-property-outputproperties"><a class="header" href="#21-property-outputproperties"><a id="oneOf_i1_outputProperties"></a>2.1. Property <code>outputProperties</code></a></h4>
-<p><strong>Title:</strong> Output properties</p>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_path"></a>1.3.1.4.1.1.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/path</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<div class="table-wrapper"><table><thead><tr><th>Restrictions</th><th></th></tr></thead><tbody>
+<tr><td><strong>Must match regular expression</strong></td><td><code>^#?(|(/([^/~]|~[01])*)*)$</code> <a href="https://regex101.com/?regex=%5E%23%3F%28%7C%28%2F%28%5B%5E%2F~%5D%7C~%5B01%5D%29%2A%29%2A%29%24">Test</a></td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_op"></a>1.3.1.4.1.1.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"add"</li>
+<li>"replace"</li>
+<li>"test"</li>
+</ul>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_value"></a>1.3.1.4.1.1.3. Property <code>value</code></p>
 <div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
 <tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
 <tr><td><strong>Required</strong></td><td>Yes</td></tr>
 <tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
 </tbody></table>
 </div>
+<p><strong>Description:</strong> The value to add, replace or test.</p>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1"></a>1.3.1.4.1.2. Property <code>item 1</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_path"></a>1.3.1.4.1.2.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_path">path</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i1_op"></a>1.3.1.4.1.2.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"remove"</li>
+</ul>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2"></a>1.3.1.4.1.3. Property <code>item 2</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_from">from</a></td><td>string</td><td>No</td><td>A JSON Pointer path pointing to the location to move/copy from.</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_path"></a>1.3.1.4.1.3.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i0_path">path</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_op"></a>1.3.1.4.1.3.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"move"</li>
+<li>"copy"</li>
+</ul>
+<p>####### <a id="oneOf_i0_oneOf_i2_stateResourceEvent_patch_items_oneOf_i2_from"></a>1.3.1.4.1.3.3. Property <code>from</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/path</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path pointing to the location to move/copy from.</p>
+<div class="table-wrapper"><table><thead><tr><th>Restrictions</th><th></th></tr></thead><tbody>
+<tr><td><strong>Must match regular expression</strong></td><td><code>^#?(|(/([^/~]|~[01])*)*)$</code> <a href="https://regex101.com/?regex=%5E%23%3F%28%7C%28%2F%28%5B%5E%2F~%5D%7C~%5B01%5D%29%2A%29%2A%29%24">Test</a></td></tr>
+</tbody></table>
+</div>
+<h4 id="14-property-stateresourcereadrequest"><a class="header" href="#14-property-stateresourcereadrequest"><a id="oneOf_i0_oneOf_i3"></a>1.4. Property <code>StateResourceReadRequest</code></a></h4>
+<p><strong>Title:</strong> StateResourceReadRequest</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> <div class="warning">Only implemented by state provider resources</div></p>
+<div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i3_stateResourceReadRequest">stateResourceReadRequest</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="141-property-stateresourcereadrequest"><a class="header" href="#141-property-stateresourcereadrequest"><a id="oneOf_i0_oneOf_i3_stateResourceReadRequest"></a>1.4.1. Property <code>stateResourceReadRequest</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/StateResourceReadRequest</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_oneOf_i3_stateResourceReadRequest_resource">resource</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h6 id="1411-property-resource"><a class="header" href="#1411-property-resource"><a id="oneOf_i0_oneOf_i3_stateResourceReadRequest_resource"></a>1.4.1.1. Property <code>resource</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource">resource</a></td></tr>
+</tbody></table>
+</div>
+<h3 id="2-property-response"><a class="header" href="#2-property-response"><a id="oneOf_i1"></a>2. Property <code>Response</code></a></h3>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>combining</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/Response</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i1_oneOf_i0">CreateResourceResponse</a></td></tr>
+<tr><td><a href="#oneOf_i1_oneOf_i1">UpdateResourceResponse</a></td></tr>
+<tr><td><a href="#oneOf_i1_oneOf_i2">StateResourceEventResponse</a></td></tr>
+<tr><td><a href="#oneOf_i1_oneOf_i3">StateResourceReadResponse</a></td></tr>
+</tbody></table>
+</div>
+<h4 id="21-property-createresourceresponse"><a class="header" href="#21-property-createresourceresponse"><a id="oneOf_i1_oneOf_i0"></a>2.1. Property <code>CreateResourceResponse</code></a></h4>
+<p><strong>Title:</strong> CreateResourceResponse</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i0_createResourceResponse">createResourceResponse</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="211-property-createresourceresponse"><a class="header" href="#211-property-createresourceresponse"><a id="oneOf_i1_oneOf_i0_createResourceResponse"></a>2.1.1. Property <code>createResourceResponse</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/CreateResourceResponse</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i0_createResourceResponse_outputProperties">outputProperties</a></td><td>object</td><td>No</td><td>Output properties</td></tr>
+</tbody></table>
+</div>
+<h6 id="2111-property-outputproperties"><a class="header" href="#2111-property-outputproperties"><a id="oneOf_i1_oneOf_i0_createResourceResponse_outputProperties"></a>2.1.1.1. Property <code>outputProperties</code></a></h6>
+<p><strong>Title:</strong> Output properties</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_outputProperties">outputProperties</a></td></tr>
+</tbody></table>
+</div>
 <p><strong>Description:</strong> The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc.</p>
+<h4 id="22-property-updateresourceresponse"><a class="header" href="#22-property-updateresourceresponse"><a id="oneOf_i1_oneOf_i1"></a>2.2. Property <code>UpdateResourceResponse</code></a></h4>
+<p><strong>Title:</strong> UpdateResourceResponse</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i1_updateResourceResponse">updateResourceResponse</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="221-property-updateresourceresponse"><a class="header" href="#221-property-updateresourceresponse"><a id="oneOf_i1_oneOf_i1_updateResourceResponse"></a>2.2.1. Property <code>updateResourceResponse</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/UpdateResourceResponse</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i1_updateResourceResponse_outputProperties">outputProperties</a></td><td>object</td><td>No</td><td>Output properties</td></tr>
+</tbody></table>
+</div>
+<h6 id="2211-property-outputproperties"><a class="header" href="#2211-property-outputproperties"><a id="oneOf_i1_oneOf_i1_updateResourceResponse_outputProperties"></a>2.2.1.1. Property <code>outputProperties</code></a></h6>
+<p><strong>Title:</strong> Output properties</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_oneOf_i1_updateResourceRequest_resource_outputProperties">outputProperties</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions.</p>
+<h4 id="23-property-stateresourceeventresponse"><a class="header" href="#23-property-stateresourceeventresponse"><a id="oneOf_i1_oneOf_i2"></a>2.3. Property <code>StateResourceEventResponse</code></a></h4>
+<p><strong>Title:</strong> StateResourceEventResponse</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> <div class="warning">Only implemented by state provider resources</div></p>
+<div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i2_stateResourceEventResponse">stateResourceEventResponse</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="231-property-stateresourceeventresponse"><a class="header" href="#231-property-stateresourceeventresponse"><a id="oneOf_i1_oneOf_i2_stateResourceEventResponse"></a>2.3.1. Property <code>stateResourceEventResponse</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/StateResourceEventResponse</td></tr>
+</tbody></table>
+</div>
+<h4 id="24-property-stateresourcereadresponse"><a class="header" href="#24-property-stateresourcereadresponse"><a id="oneOf_i1_oneOf_i3"></a>2.4. Property <code>StateResourceReadResponse</code></a></h4>
+<p><strong>Title:</strong> StateResourceReadResponse</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> <div class="warning">Only implemented by state provider resources</div></p>
+<div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse">stateResourceReadResponse</a></td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="241-property-stateresourcereadresponse"><a class="header" href="#241-property-stateresourcereadresponse"><a id="oneOf_i1_oneOf_i3_stateResourceReadResponse"></a>2.4.1. Property <code>stateResourceReadResponse</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/StateResourceReadResponse</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse_state">state</a></td><td>object</td><td>No</td><td>State</td></tr>
+</tbody></table>
+</div>
+<h6 id="2411-property-state"><a class="header" href="#2411-property-state"><a id="oneOf_i1_oneOf_i3_stateResourceReadResponse_state"></a>2.4.1.1. Property <code>state</code></a></h6>
+<p><strong>Title:</strong> State</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The state of all the managed resources. This method is only implemented by resources that function as a state storage.</p>
 <div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
 <tr><td>-</td><td>object</td><td>No</td><td>-</td></tr>
 </tbody></table>
@@ -300,7 +865,7 @@
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../architecture/nixops-components.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../schema/state-v0.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -314,7 +879,7 @@
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../architecture/nixops-components.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../schema/state-v0.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

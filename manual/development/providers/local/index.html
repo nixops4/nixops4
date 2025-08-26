@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nixops4 - NixOps4 Reference Manual</title>
+        <title>Local Provider - NixOps4 Reference Manual</title>
 
 
         <!-- Custom HTML head -->
@@ -12,34 +12,34 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="../favicon.svg">
-        <link rel="shortcut icon" href="../favicon.png">
-        <link rel="stylesheet" href="../css/variables.css">
-        <link rel="stylesheet" href="../css/general.css">
-        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
-        <link rel="stylesheet" href="../fonts/fonts.css">
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
-        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
-        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+        <link rel="stylesheet" id="highlight-css" href="../../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../../ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../custom.css">
+        <link rel="stylesheet" href="../../custom.css">
 
 
         <!-- Provide site root and default themes to javascript -->
         <script>
-            const path_to_root = "../";
+            const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex.js";
+            window.path_to_searchindex_js = "../../searchindex.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc.js"></script>
+        <script src="../../toc.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -106,7 +106,7 @@
             <!-- populated by js -->
             <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
             <noscript>
-                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+                <iframe class="sidebar-iframe-outer" src="../../toc.html"></iframe>
             </noscript>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/cli/nixops4.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/providers/local/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -178,80 +178,26 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="command-line-help-for-nixops4"><a class="header" href="#command-line-help-for-nixops4">Command-Line Help for <code>nixops4</code></a></h1>
-<p>This document contains the help content for the <code>nixops4</code> command-line program.</p>
-<p><strong>Command Overview:</strong></p>
+                        <h1 id="local-provider"><a class="header" href="#local-provider">Local Provider</a></h1>
+<p>The local provider implements resources that operate on the local system.</p>
+<p>They are atypical, as most resources represent a single real world entity that is reached over the network, but a resource like <code>file</code> is not singular like that, when NixOps4 is invoked from different environments.</p>
+<h2 id="resource-types"><a class="header" href="#resource-types">Resource Types</a></h2>
 <ul>
-<li><a href="#nixops4"><code>nixops4</code>↴</a></li>
-<li><a href="#nixops4-apply"><code>nixops4 apply</code>↴</a></li>
-<li><a href="#nixops4-deployments"><code>nixops4 deployments</code>↴</a></li>
-<li><a href="#nixops4-deployments-list"><code>nixops4 deployments list</code>↴</a></li>
+<li><a href="./exec.html">exec</a> <!-- TODO: add shortDescription when implemented --></li>
+<li><a href="./file.html">file</a> <!-- TODO: add shortDescription when implemented --></li>
+<li><a href="./memo.html">memo</a> <!-- TODO: add shortDescription when implemented --></li>
+<li><a href="./state_file.html">state_file</a> <!-- TODO: add shortDescription when implemented --></li>
 </ul>
-<h2 id="nixops4"><a class="header" href="#nixops4"><code>nixops4</code></a></h2>
-<p>The <code>nixops4</code> command-line tool</p>
-<p><strong>Usage:</strong> <code>nixops4 [OPTIONS] &lt;COMMAND&gt;</code></p>
-<h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
-<ul>
-<li><code>apply</code> — Apply changes so that the resources are in the desired state</li>
-<li><code>deployments</code> — Commands that operate on all deployments</li>
-</ul>
-<h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
-<ul>
-<li>
-<p><code>-v</code>, <code>--verbose</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--color &lt;COLOR&gt;</code></p>
-<p>Default value: <code>auto</code></p>
-<p>Possible values: <code>auto</code>, <code>always</code>, <code>never</code></p>
-</li>
-<li>
-<p><code>--interactive</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--no-interactive</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--show-trace</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--override-input &lt;INPUT_ATTR_PATH&gt;</code> — Temporarily use a different flake input</p>
-</li>
-</ul>
-<h2 id="nixops4-apply"><a class="header" href="#nixops4-apply"><code>nixops4 apply</code></a></h2>
-<p>Apply changes so that the resources are in the desired state</p>
-<p><strong>Usage:</strong> <code>nixops4 apply [DEPLOYMENT]</code></p>
-<h6 id="arguments"><a class="header" href="#arguments"><strong>Arguments:</strong></a></h6>
-<ul>
-<li>
-<p><code>&lt;DEPLOYMENT&gt;</code></p>
-<p>Default value: <code>default</code></p>
-</li>
-</ul>
-<h2 id="nixops4-deployments"><a class="header" href="#nixops4-deployments"><code>nixops4 deployments</code></a></h2>
-<p>Commands that operate on all deployments</p>
-<p><strong>Usage:</strong> <code>nixops4 deployments &lt;COMMAND&gt;</code></p>
-<h6 id="subcommands-1"><a class="header" href="#subcommands-1"><strong>Subcommands:</strong></a></h6>
-<ul>
-<li><code>list</code> — List the deployments based on the expressions in the flake</li>
-</ul>
-<h2 id="nixops4-deployments-list"><a class="header" href="#nixops4-deployments-list"><code>nixops4 deployments list</code></a></h2>
-<p>List the deployments based on the expressions in the flake</p>
-<p><strong>Usage:</strong> <code>nixops4 deployments list</code></p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concept/resource.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../../state/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../../providers/local/file.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -261,11 +207,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concept/resource.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../../state/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../../providers/local/file.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
@@ -280,17 +226,17 @@
         </script>
 
 
-        <script src="../elasticlunr.min.js"></script>
-        <script src="../mark.min.js"></script>
-        <script src="../searcher.js"></script>
+        <script src="../../elasticlunr.min.js"></script>
+        <script src="../../mark.min.js"></script>
+        <script src="../../searcher.js"></script>
 
-        <script src="../clipboard.min.js"></script>
-        <script src="../highlight.js"></script>
-        <script src="../book.js"></script>
+        <script src="../../clipboard.min.js"></script>
+        <script src="../../highlight.js"></script>
+        <script src="../../book.js"></script>
 
         <!-- Custom JS scripts -->
-        <script src="../mermaid.min.js"></script>
-        <script src="../mermaid-init.js"></script>
+        <script src="../../mermaid.min.js"></script>
+        <script src="../../mermaid-init.js"></script>
 
 
 

@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/concept/resource.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/concept/resource.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -188,6 +188,19 @@ An output is accessed by referring to the resource's attribute in the deployment
 An input may depend on zero or more outputs, but the references between resources must not form a cycle.</p>
 <p>NixOps manages this data flow for you.</p>
 <p>A <a href="../resource-provider/index.html"><em>resource provider</em></a> implements the operations that create, update, and delete the real world entity that the resource represents.</p>
+<h2 id="state-management"><a class="header" href="#state-management">State Management</a></h2>
+<p>Some resources need to maintain state between deployments. For example, a resource that generates a unique ID or stores configuration that should persist across updates. Resource types can declare whether they require state management through the <code>requireState</code> field.</p>
+<p>When a resource type has <code>requireState = true</code>:</p>
+<ul>
+<li>The resource must specify a <code>state</code> handler (typically a reference to another resource that manages the state storage)</li>
+<li>NixOps will validate that the state handler is properly configured</li>
+<li>The resource provider can store and retrieve persistent state through this handler</li>
+</ul>
+<p>When a resource type has <code>requireState = false</code>:</p>
+<ul>
+<li>The resource does not need a state handler</li>
+<li>The resource is stateless and can be idempotently recreated from its inputs</li>
+</ul>
 
                     </main>
 

@@ -1,0 +1,544 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>State File Schema - NixOps4 Reference Manual</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">NixOps4 Reference Manual</h1>
+
+                    <div class="right-buttons">
+                        <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/schema/state-v0.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <div class="schema-content">
+<h1 id="state-file-schema"><a class="header" href="#state-file-schema">State File Schema</a></h1>
+<h2 id="raw-json-schema"><a class="header" href="#raw-json-schema">Raw JSON schema</a></h2>
+<p><a href="state-schema-v0.json">Open JSON schema file</a></p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="empty-state"><a class="header" href="#empty-state">Empty State</a></h3>
+<pre><code class="language-json">{
+  "_type": "nixopsState",
+  "resources": {},
+  "deployments": {}
+}
+</code></pre>
+<!-- Section ends. This generated file start withs its own header: -->
+<h2 id="nixops4-state-eventfile-schema"><a class="header" href="#nixops4-state-eventfile-schema">NixOps4 State Event/File Schema</a></h2>
+<p><a href="state-schema-v0.json">Raw JSON schema</a></p>
+<ul>
+<li><a href="#oneOf_i0">1. Property <code>StateEvent</code></a>
+<ul>
+<li><a href="#oneOf_i0_index">1.1. Property <code>index</code></a></li>
+<li><a href="#oneOf_i0_meta">1.2. Property <code>meta</code></a>
+<ul>
+<li><a href="#oneOf_i0_meta_time">1.2.1. Property <code>time</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_patch">1.3. Property <code>patch</code></a>
+<ul>
+<li><a href="#oneOf_i0_patch_items">1.3.1. patch items</a>
+<ul>
+<li><a href="#oneOf_i0_patch_items_oneOf_i0">1.3.1.1. Property <code>item 0</code></a>
+<ul>
+<li><a href="#oneOf_i0_patch_items_oneOf_i0_path">1.3.1.1.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i0_op">1.3.1.1.2. Property <code>op</code></a></li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i0_value">1.3.1.1.3. Property <code>value</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i1">1.3.1.2. Property <code>item 1</code></a>
+<ul>
+<li><a href="#oneOf_i0_patch_items_oneOf_i1_path">1.3.1.2.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i1_op">1.3.1.2.2. Property <code>op</code></a></li>
+</ul>
+</li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i2">1.3.1.3. Property <code>item 2</code></a>
+<ul>
+<li><a href="#oneOf_i0_patch_items_oneOf_i2_path">1.3.1.3.1. Property <code>path</code></a></li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i2_op">1.3.1.3.2. Property <code>op</code></a></li>
+<li><a href="#oneOf_i0_patch_items_oneOf_i2_from">1.3.1.3.3. Property <code>from</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i1">2. Property <code>State</code></a>
+<ul>
+<li><a href="#oneOf_i1__type">2.1. Property <code>_type</code></a></li>
+<li><a href="#oneOf_i1_resources">2.2. Property <code>resources</code></a></li>
+<li><a href="#oneOf_i1_deployments">2.3. Property <code>deployments</code></a></li>
+</ul>
+</li>
+</ul>
+<p><strong>Title:</strong> NixOps4 State Event/File Schema</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>combining</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> This schema describes the shape of state events and the cumulative state file. The state file is a JSON file that contains the current state of the NixOps4 deployment. The state events are a sequence of changes to the state file, and are used to track the history of the deployment.</p>
+<div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0">StateEvent</a></td></tr>
+<tr><td><a href="#oneOf_i1">State</a></td></tr>
+</tbody></table>
+</div>
+<h3 id="1-property-stateevent"><a class="header" href="#1-property-stateevent"><a id="oneOf_i0"></a>1. Property <code>StateEvent</code></a></h3>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/StateEvent</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_index">index</a></td><td>integer</td><td>No</td><td>The index of the event. This should be a monotonically increasing number that is used to order the events. A lack of monotonicity indicates concurrent operations that may need manual reconciliation.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_meta">meta</a></td><td>object</td><td>No</td><td>-</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch">patch</a></td><td>array</td><td>No</td><td>JSON Patch</td></tr>
+</tbody></table>
+</div>
+<h4 id="11-property-index"><a class="header" href="#11-property-index"><a id="oneOf_i0_index"></a>1.1. Property <code>index</code></a></h4>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>integer</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The index of the event. This should be a monotonically increasing number that is used to order the events. A lack of monotonicity indicates concurrent operations that may need manual reconciliation.</p>
+<h4 id="12-property-meta"><a class="header" href="#12-property-meta"><a id="oneOf_i0_meta"></a>1.2. Property <code>meta</code></a></h4>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_meta_time">time</a></td><td>string</td><td>No</td><td>The time at which the event occurred.</td></tr>
+<tr><td>-</td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="121-property-time"><a class="header" href="#121-property-time"><a id="oneOf_i0_meta_time"></a>1.2.1. Property <code>time</code></a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Format</strong></td><td><code>date-time</code></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The time at which the event occurred.</p>
+<h4 id="13-property-patch"><a class="header" href="#13-property-patch"><a id="oneOf_i0_patch"></a>1.3. Property <code>patch</code></a></h4>
+<p><strong>Title:</strong> JSON Patch</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>array</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/Patch</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> An RFC 6902 JSON Patch document. See <a href="https://tools.ietf.org/html/rfc6902">https://tools.ietf.org/html/rfc6902</a>, <a href="https://json.schemastore.org/json-patch.json">https://json.schemastore.org/json-patch.json</a></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th>Array restrictions</th></tr></thead><tbody>
+<tr><td><strong>Min items</strong></td><td>N/A</td></tr>
+<tr><td><strong>Max items</strong></td><td>N/A</td></tr>
+<tr><td><strong>Items unicity</strong></td><td>False</td></tr>
+<tr><td><strong>Additional items</strong></td><td>False</td></tr>
+<tr><td><strong>Tuple validation</strong></td><td>See below</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Each item of this array must be</th><th>Description</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0_patch_items">patch items</a></td><td>-</td></tr>
+</tbody></table>
+</div>
+<h5 id="131-patch-items"><a class="header" href="#131-patch-items"><a id="oneOf_i0_patch_items"></a>1.3.1. patch items</a></h5>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>combining</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>One of(Option)</th></tr></thead><tbody>
+<tr><td><a href="#oneOf_i0_patch_items_oneOf_i0">item 0</a></td></tr>
+<tr><td><a href="#oneOf_i0_patch_items_oneOf_i1">item 1</a></td></tr>
+<tr><td><a href="#oneOf_i0_patch_items_oneOf_i2">item 2</a></td></tr>
+</tbody></table>
+</div>
+<h6 id="1311-property-item-0"><a class="header" href="#1311-property-item-0"><a id="oneOf_i0_patch_items_oneOf_i0"></a>1.3.1.1. Property <code>item 0</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i0_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i0_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i0_value">value</a></td><td>object</td><td>No</td><td>The value to add, replace or test.</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i0_path"></a>1.3.1.1.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/path</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<div class="table-wrapper"><table><thead><tr><th>Restrictions</th><th></th></tr></thead><tbody>
+<tr><td><strong>Must match regular expression</strong></td><td><code>^#?(|(/([^/~]|~[01])*)*)$</code> <a href="https://regex101.com/?regex=%5E%23%3F%28%7C%28%2F%28%5B%5E%2F~%5D%7C~%5B01%5D%29%2A%29%2A%29%24">Test</a></td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i0_op"></a>1.3.1.1.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"add"</li>
+<li>"replace"</li>
+<li>"test"</li>
+</ul>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i0_value"></a>1.3.1.1.3. Property <code>value</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The value to add, replace or test.</p>
+<h6 id="1312-property-item-1"><a class="header" href="#1312-property-item-1"><a id="oneOf_i0_patch_items_oneOf_i1"></a>1.3.1.2. Property <code>item 1</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i1_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i1_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i1_path"></a>1.3.1.2.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_patch_items_oneOf_i0_path">path</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i1_op"></a>1.3.1.2.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"remove"</li>
+</ul>
+<h6 id="1313-property-item-2"><a class="header" href="#1313-property-item-2"><a id="oneOf_i0_patch_items_oneOf_i2"></a>1.3.1.3. Property <code>item 2</code></a></h6>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i2_path">path</a></td><td>string</td><td>No</td><td>A JSON Pointer path.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i2_op">op</a></td><td>enum (of string)</td><td>No</td><td>The operation to perform.</td></tr>
+<tr><td>+ <a href="#oneOf_i0_patch_items_oneOf_i2_from">from</a></td><td>string</td><td>No</td><td>A JSON Pointer path pointing to the location to move/copy from.</td></tr>
+</tbody></table>
+</div>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i2_path"></a>1.3.1.3.1. Property <code>path</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Same definition as</strong></td><td><a href="#oneOf_i0_patch_items_oneOf_i0_path">path</a></td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path.</p>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i2_op"></a>1.3.1.3.2. Property <code>op</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The operation to perform.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"move"</li>
+<li>"copy"</li>
+</ul>
+<p>####### <a id="oneOf_i0_patch_items_oneOf_i2_from"></a>1.3.1.3.3. Property <code>from</code></p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/path</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A JSON Pointer path pointing to the location to move/copy from.</p>
+<div class="table-wrapper"><table><thead><tr><th>Restrictions</th><th></th></tr></thead><tbody>
+<tr><td><strong>Must match regular expression</strong></td><td><code>^#?(|(/([^/~]|~[01])*)*)$</code> <a href="https://regex101.com/?regex=%5E%23%3F%28%7C%28%2F%28%5B%5E%2F~%5D%7C~%5B01%5D%29%2A%29%2A%29%24">Test</a></td></tr>
+</tbody></table>
+</div>
+<h3 id="2-property-state"><a class="header" href="#2-property-state"><a id="oneOf_i1"></a>2. Property <code>State</code></a></h3>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/State</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>+ <a href="#oneOf_i1__type">_type</a></td><td>enum (of string)</td><td>No</td><td>The type of the state. This is used to distinguish the format of the NixOps state. Currently only one type has been developed: `nixopsState`. Any code that reads the state should reject any other type.</td></tr>
+<tr><td>+ <a href="#oneOf_i1_resources">resources</a></td><td>object</td><td>No</td><td>-</td></tr>
+<tr><td>+ <a href="#oneOf_i1_deployments">deployments</a></td><td>object</td><td>No</td><td>A set of nested deployments, TBD</td></tr>
+</tbody></table>
+</div>
+<h4 id="21-property-_type"><a class="header" href="#21-property-_type"><a id="oneOf_i1__type"></a>2.1. Property <code>_type</code></a></h4>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>enum (of string)</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> The type of the state. This is used to distinguish the format of the NixOps state. Currently only one type has been developed: <code>nixopsState</code>. Any code that reads the state should reject any other type.</p>
+<p>Must be one of:</p>
+<ul>
+<li>"nixopsState"</li>
+</ul>
+<h4 id="22-property-resources"><a class="header" href="#22-property-resources"><a id="oneOf_i1_resources"></a>2.2. Property <code>resources</code></a></h4>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr></thead><tbody>
+<tr><td>-</td><td>object</td><td>No</td><td>-</td></tr>
+</tbody></table>
+</div>
+<h4 id="23-property-deployments"><a class="header" href="#23-property-deployments"><a id="oneOf_i1_deployments"></a>2.3. Property <code>deployments</code></a></h4>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody></table>
+</div>
+<p><strong>Description:</strong> A set of nested deployments, TBD</p>
+<hr />
+</div>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../schema/resource-v0.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../architecture/nixops-components.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../schema/resource-v0.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../architecture/nixops-components.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid.min.js"></script>
+        <script src="../mermaid-init.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

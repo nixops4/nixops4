@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nixops4 - NixOps4 Reference Manual</title>
+        <title>State - NixOps4 Reference Manual</title>
 
 
         <!-- Custom HTML head -->
@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/cli/nixops4.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/state/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -178,80 +178,119 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="command-line-help-for-nixops4"><a class="header" href="#command-line-help-for-nixops4">Command-Line Help for <code>nixops4</code></a></h1>
-<p>This document contains the help content for the <code>nixops4</code> command-line program.</p>
-<p><strong>Command Overview:</strong></p>
+                        <h1 id="state"><a class="header" href="#state">State</a></h1>
+<p>NixOps4 supports <a href="../concept/resource.html">resources</a> that are stateful. That is to say, they have outputs that need to be remembered.
+Furthermore, state helps with the removal of resources whose declaration was deleted, even if they were stateless in principle.</p>
+<p>The storage of state information is handled by specialized resources that implement some extra operations.
+We refer to these as state provider resources.
+State provider resources implement additional operations (<a href="../resource-provider/interface.html#state-operations"><code>state_read</code> and <code>state_event</code></a>) beyond the standard create/update operations.</p>
+<p>A state provider resource, like any other resource, may be stateful or stateless in terms of their own lifecycle.</p>
+<p>For instance, the "local" provider has a <code>state_file</code> resource type, which is stateless, because all identifying information is provided as inputs, and its creation does not produce any identifiers or other significant information that is suitable for use in a declarative deployment expression.
+This makes it suitable for bootstrapping your deployment state.
+You can use it to store connection details for a more sophisticated state provider resource (like a cloud service) that your team can access. <!-- to be proven out --></p>
+<p>For the rest of this page, we'll focus on <code>state_file</code>. Other state providers provide compatible behavior, but have unique approaches to storage.</p>
+<h2 id="state-file-structure"><a class="header" href="#state-file-structure">State file structure</a></h2>
+<p>The state file contains a sequence of JSON objects, each representing a state event:</p>
+<!-- Tested in ../../../../test/json-schema.nix -->
+<!-- Tested in ../../../../test/nixops4-resources-local.nix -->
+<pre><code class="language-json">{
+  "index": 0,
+  "meta": {
+    "time": "2024-01-01T00:00:00Z"
+  },
+  "patch": [
+    {
+      "op": "add",
+      "path": "",
+      "value": {
+        "_type": "nixopsState",
+        "resources": {},
+        "deployments": {}
+      }
+    }
+  ]
+}
+{
+  "index": 1,
+  "meta": {
+    "time": "2024-01-01T00:01:00Z",
+    "event": "create"
+  },
+  "patch": [
+    {
+      "op": "add",
+      "path": "/resources/myfile",
+      "value": {
+        "type": "file",
+        "inputProperties": {"name": "test.txt", "contents": "hello"},
+        "outputProperties": {}
+      }
+    }
+  ]
+}
+</code></pre>
+<p>Each event includes:</p>
 <ul>
-<li><a href="#nixops4"><code>nixops4</code>↴</a></li>
-<li><a href="#nixops4-apply"><code>nixops4 apply</code>↴</a></li>
-<li><a href="#nixops4-deployments"><code>nixops4 deployments</code>↴</a></li>
-<li><a href="#nixops4-deployments-list"><code>nixops4 deployments list</code>↴</a></li>
+<li><code>index</code>: Sequential event number starting from 0</li>
+<li><code>meta</code>: Event metadata including timestamp and operation details</li>
+<li><code>patch</code>: JSON Patch operations to apply to reconstruct the state</li>
 </ul>
-<h2 id="nixops4"><a class="header" href="#nixops4"><code>nixops4</code></a></h2>
-<p>The <code>nixops4</code> command-line tool</p>
-<p><strong>Usage:</strong> <code>nixops4 [OPTIONS] &lt;COMMAND&gt;</code></p>
-<h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
-<ul>
-<li><code>apply</code> — Apply changes so that the resources are in the desired state</li>
-<li><code>deployments</code> — Commands that operate on all deployments</li>
-</ul>
-<h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
-<ul>
-<li>
-<p><code>-v</code>, <code>--verbose</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--color &lt;COLOR&gt;</code></p>
-<p>Default value: <code>auto</code></p>
-<p>Possible values: <code>auto</code>, <code>always</code>, <code>never</code></p>
-</li>
-<li>
-<p><code>--interactive</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--no-interactive</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--show-trace</code></p>
-<p>Default value: <code>false</code></p>
-</li>
-<li>
-<p><code>--override-input &lt;INPUT_ATTR_PATH&gt;</code> — Temporarily use a different flake input</p>
-</li>
-</ul>
-<h2 id="nixops4-apply"><a class="header" href="#nixops4-apply"><code>nixops4 apply</code></a></h2>
-<p>Apply changes so that the resources are in the desired state</p>
-<p><strong>Usage:</strong> <code>nixops4 apply [DEPLOYMENT]</code></p>
-<h6 id="arguments"><a class="header" href="#arguments"><strong>Arguments:</strong></a></h6>
-<ul>
-<li>
-<p><code>&lt;DEPLOYMENT&gt;</code></p>
-<p>Default value: <code>default</code></p>
-</li>
-</ul>
-<h2 id="nixops4-deployments"><a class="header" href="#nixops4-deployments"><code>nixops4 deployments</code></a></h2>
-<p>Commands that operate on all deployments</p>
-<p><strong>Usage:</strong> <code>nixops4 deployments &lt;COMMAND&gt;</code></p>
-<h6 id="subcommands-1"><a class="header" href="#subcommands-1"><strong>Subcommands:</strong></a></h6>
-<ul>
-<li><code>list</code> — List the deployments based on the expressions in the flake</li>
-</ul>
-<h2 id="nixops4-deployments-list"><a class="header" href="#nixops4-deployments-list"><code>nixops4 deployments list</code></a></h2>
-<p>List the deployments based on the expressions in the flake</p>
-<p><strong>Usage:</strong> <code>nixops4 deployments list</code></p>
+<p>State events use <a href="https://tools.ietf.org/html/rfc6902">JSON Patch (RFC 6902)</a> operations to record incremental changes to the state. This enables efficient state updates and provides an audit trail of all state modifications.</p>
+<p>The first event, index 0, always initializes the state structure, as a matter of separation of concerns, and perhaps as a recognizable "file type marker", although we don't make exact promises about the precise contents of this first object.</p>
+<p>After adding resources to the state, reading and resolving the state would return something like:</p>
+<!-- Tested in ../../../../test/json-schema.nix -->
+<!-- Tested in ../../../../test/nixops4-resources-local.nix -->
+<pre><code class="language-json">{
+  "_type": "nixopsState",
+  "resources": {
+    "myfile": {
+      "type": "file",
+      "inputProperties": {
+        "name": "test.txt",
+        "contents": "hello"
+      },
+      "outputProperties": {}
+    }
+  },
+  "deployments": {}
+}
+</code></pre>
+<p>The state structure follows the <a href="../schema/state-v0.html">NixOps4 state schema</a>.</p>
+<h2 id="using-state-providers"><a class="header" href="#using-state-providers">Using state providers</a></h2>
+<p>State providers are configured in your deployment using the <code>state</code> attribute on stateful resources:</p>
+<!-- TODO: put a piece of real world deployment here -->
+<pre><code class="language-nix">{
+  # Define the state provider resource
+  resources.myStateFile = {
+    type = providers.local.state_file;
+    inputs.name = "deployment-state.json";
+  };
+
+  # Use it for a stateful resource.
+  # A generated unique ID (for example) will be stored in myStateFile.
+  resources.myReverseProxy = {
+    type = providers.cloud.reverse_proxy;
+    state = "myStateFile"; # References the state provider resource above
+    inputs = {
+      rules = [
+        # ...
+      ];
+    };
+  };
+}
+</code></pre>
+<p>For testing state provider resources, see <a href="../resource-provider/testing.html#example-testing-state-resources">Testing State Resources</a>.
+For implementation details, see the <a href="../resource-provider/interface.html#state-operations">Resource Provider Interface</a>.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concept/resource.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../resource-provider/testing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../providers/local/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -261,11 +300,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concept/resource.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../resource-provider/testing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../cli/nixops4-resource-runner.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../providers/local/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

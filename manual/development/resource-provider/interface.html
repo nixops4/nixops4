@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/resource-provider/interface.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/resource-provider/interface.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -178,7 +178,18 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="resource-provider-interface"><a class="header" href="#resource-provider-interface">Resource Provider Interface</a></h1>
+                        <!--
+  Context:
+    - Concepts have already been outlined in ../concepts/resource.md
+    - A generated schema reference documentation is available in
+      - wrapper: schema/resource-v0.md
+      - generated: doc/manual/src/schema/resource-schema-v0.gen.md
+  Purpose of this page:
+    - Describe the technical details of the interface transport
+    - Provide a readable, high level description of the protocol, as the schema page is extremely verbose
+    - "Link" the concepts to the schema
+-->
+<h1 id="resource-provider-interface"><a class="header" href="#resource-provider-interface">Resource Provider Interface</a></h1>
 <p>Note that the resource provider interface is still in development.</p>
 <p>The interface between a resource provider and NixOps consist of expectations about:</p>
 <ul>
@@ -187,20 +198,79 @@
 <li>A JSON-lines protocol between the provider and NixOps</li>
 </ul>
 <h2 id="nix-expression"><a class="header" href="#nix-expression">Nix Expression</a></h2>
-<p>TODO</p>
+<p>Resource providers are defined as Nix modules that declare their resource types.
+The provider module should include metadata for documentation generation and specify the resource types it supports.</p>
+<p>For detailed information about all provider options, see the <a href="../modules/index.html#opt-providers">Provider Configuration Reference</a>.</p>
+<p>For rendering provider documentation, see <a href="../lib/index.html#renderProviderDocs"><code>lib.renderProviderDocs</code></a>.</p>
 <h2 id="process"><a class="header" href="#process">Process</a></h2>
 <p>NixOps launches the resource provider process built in the previous step.</p>
 <p>It communicates with the provider over the standard input and output streams using a JSON-lines protocol.
 Standard error is used for logging, and is line-buffered.</p>
-<p>TODO: exit behaviors</p>
+<p>Since the protocol is still in development, it is recommended to use the <a href="../architecture/nixops-components.html#nixops4-resource">../nixops4-resource crate</a>.</p>
 <h2 id="protocol"><a class="header" href="#protocol">Protocol</a></h2>
 <p>JSON-lines is a textual protocol where each line is a JSON value that is rendered without line breaks.
 Each line must contain a single JSON value, and be terminated with a newline character.</p>
 <p>We will refer to the JSON value that takes the line as a <em>message</em>.</p>
 <p>Messages going from NixOps to the provider are <em>requests</em>, and messages going from the provider to NixOps are <em>responses</em>.</p>
-<p>The content of the messages is specified in <a href="https://github.com/nixops4/nixops4/blob/main/rust/nixops4-resources/resource-provider-schema.json"><code>resource-provider-schema.json</code></a>.</p>
-<!-- TODO: describe handshake -->
-<!-- TODO: describe how the message types relate -->
+<p>The content of the messages is specified in the <a href="../schema/resource-v0.html">resource schema</a>.</p>
+<h3 id="message-flow"><a class="header" href="#message-flow">Message Flow</a></h3>
+<p>Each request-response exchange follows this pattern:</p>
+<ol>
+<li>NixOps sends a single request message to the provider's stdin</li>
+<li>The provider processes the request and sends a single response message to stdout</li>
+</ol>
+<p>The provider may write diagnostic messages to stderr at any time.</p>
+<h3 id="request-and-response-structure"><a class="header" href="#request-and-response-structure">Request and Response Structure</a></h3>
+<p>Both requests and responses use a wrapper object where the key indicates the message type (see <a href="../schema/resource-v0.html#1-property-request"><code>Request</code></a> and <a href="../schema/resource-v0.html#2-property-response"><code>Response</code></a>):</p>
+<pre><code class="language-json">// Request
+{
+  "createResourceRequest": {
+    "type": "memo",
+    "inputProperties": { "initialize_with": "hello" },
+    "isStateful": true
+  }
+}
+
+// Response
+{
+  "createResourceResponse": {
+    "outputProperties": { "value": "hello" }
+  }
+}
+</code></pre>
+<h3 id="operations"><a class="header" href="#operations">Operations</a></h3>
+<p>The protocol supports the following operations:</p>
+<p><strong>Create</strong>: Provisions a new resource. The request includes:</p>
+<ul>
+<li><code>type</code>: The resource type identifier</li>
+<li><code>inputProperties</code>: Configuration values for the resource</li>
+<li><code>isStateful</code>: Whether state persistence will be provided</li>
+</ul>
+<p>See <a href="../schema/resource-v0.html#11-property-createresourcerequest"><code>CreateResourceRequest</code></a> and <a href="../schema/resource-v0.html#21-property-createresourceresponse"><code>CreateResourceResponse</code></a> in the schema documentation.</p>
+<p><strong>Update</strong>: Modifies an existing stateful resource. The request includes:</p>
+<ul>
+<li><code>resource</code>: The current resource state (type, input properties, and output properties)</li>
+<li><code>inputProperties</code>: New configuration values</li>
+</ul>
+<p>See <a href="../schema/resource-v0.html#12-property-updateresourcerequest"><code>UpdateResourceRequest</code></a> and <a href="../schema/resource-v0.html#22-property-updateresourceresponse"><code>UpdateResourceResponse</code></a> in the schema documentation.</p>
+<h3 id="state-operations"><a class="header" href="#state-operations">State Operations</a></h3>
+<p>Resources that provide state storage implement additional operations:</p>
+<p><strong>State Read</strong>: Retrieves the complete state managed by a state resource. The request includes:</p>
+<ul>
+<li><code>resource</code>: The state resource (type, input properties, and output properties)</li>
+</ul>
+<p>The response contains the full state as a JSON object representing all managed resources.</p>
+<p><strong>State Event</strong>: Records a change event to the state. The request includes:</p>
+<ul>
+<li><code>resource</code>: The state resource</li>
+<li><code>event</code>: The operation that produced this change (e.g., "create", "update", "destroy")</li>
+<li><code>nixopsVersion</code>: The version of NixOps that produced this event</li>
+<li><code>patch</code>: JSON Patch operations to apply to the state</li>
+</ul>
+<p>These operations use JSON Patch (<a href="https://tools.ietf.org/html/rfc6902">RFC 6902</a>) to track incremental state changes, enabling efficient state updates and historical tracking.</p>
+<h3 id="state-persistence"><a class="header" href="#state-persistence">State Persistence</a></h3>
+<p>The <code>isStateful</code> flag in create requests indicates whether the resource will have access to persistent state storage. Resource types that require state must validate this flag and fail if state persistence is not available.</p>
+<p>State resources manage the persistence layer for stateful resources, providing operations to read the current state and record state changes as JSON Patch events.</p>
 
                     </main>
 

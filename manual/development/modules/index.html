@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/modules/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/modules/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -218,6 +218,15 @@ list of string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
+<h2 id="opt-providers._name_.description"><a class="header" href="#opt-providers._name_.description">providers.&lt;name&gt;.description</a></h2>
+<p>A description of what the resource provider does.
+This will be displayed on the provider’s documentation index page.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider-doc.nix">nixops4/nix/provider/provider-doc.nix</a></li>
+</ul>
 <h2 id="opt-providers._name_.executable"><a class="header" href="#opt-providers._name_.executable">providers.&lt;name&gt;.executable</a></h2>
 <p>The path to the executable that implements the resource operations.</p>
 <p><em>Type:</em>
@@ -225,6 +234,14 @@ string</p>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
+</ul>
+<h2 id="opt-providers._name_.name"><a class="header" href="#opt-providers._name_.name">providers.&lt;name&gt;.name</a></h2>
+<p>The display name of the resource provider.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider-doc.nix">nixops4/nix/provider/provider-doc.nix</a></li>
 </ul>
 <h2 id="opt-providers._name_.resourceTypes"><a class="header" href="#opt-providers._name_.resourceTypes">providers.&lt;name&gt;.resourceTypes</a></h2>
 <p>The types of resources that this provider can create.</p>
@@ -235,6 +252,14 @@ lazy attribute set of (submodule)</p>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
+</ul>
+<h2 id="opt-providers._name_.resourceTypes._name_.description"><a class="header" href="#opt-providers._name_.resourceTypes._name_.description">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.description</a></h2>
+<p>A description of what this resource type represents.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
 <h2 id="opt-providers._name_.resourceTypes._name_.inputs"><a class="header" href="#opt-providers._name_.resourceTypes._name_.inputs">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.inputs</a></h2>
 <p>A module that declares the inputs to the resource using its options.</p>
@@ -282,6 +307,14 @@ inherited from provider</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
 </ul>
+<h2 id="opt-providers._name_.resourceTypes._name_.requireState"><a class="header" href="#opt-providers._name_.resourceTypes._name_.requireState">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.requireState</a></h2>
+<p>Whether the resource requires state to be stored.</p>
+<p><em>Type:</em>
+boolean</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
+</ul>
 <h2 id="opt-providers._name_.resourceTypes._name_.type"><a class="header" href="#opt-providers._name_.resourceTypes._name_.type">providers.&lt;name&gt;.resourceTypes.&lt;name&gt;.type</a></h2>
 <p>The type of resource to create. Most resource providers will have some fixed set of resource types.
 This selects one of them.</p>
@@ -293,6 +326,24 @@ inherited attribute name</p>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/resourceType/resourceType.nix">nixops4/nix/resourceType/resourceType.nix</a></li>
+</ul>
+<h2 id="opt-providers._name_.sourceBaseUrl"><a class="header" href="#opt-providers._name_.sourceBaseUrl">providers.&lt;name&gt;.sourceBaseUrl</a></h2>
+<p>Base URL for linking to the provider’s source code.
+Used in generated documentation to create links to option declarations.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider-doc.nix">nixops4/nix/provider/provider-doc.nix</a></li>
+</ul>
+<h2 id="opt-providers._name_.sourceName"><a class="header" href="#opt-providers._name_.sourceName">providers.&lt;name&gt;.sourceName</a></h2>
+<p>Name of the source repository or project.
+Used in generated documentation link display text.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider-doc.nix">nixops4/nix/provider/provider-doc.nix</a></li>
 </ul>
 <h2 id="opt-providers._name_.type"><a class="header" href="#opt-providers._name_.type">providers.&lt;name&gt;.type</a></h2>
 <p>The type of communication to use with the resource provider executable.</p>
@@ -363,10 +414,28 @@ value “stdio” (singular enum)</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
 </ul>
+<h2 id="opt-resources._name_.requireState"><a class="header" href="#opt-resources._name_.requireState">resources.&lt;name&gt;.requireState</a></h2>
+<p>Whether the resource requires state to be stored.</p>
+<p><em>Type:</em>
+boolean</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
+</ul>
 <h2 id="opt-resources._name_.resourceType"><a class="header" href="#opt-resources._name_.resourceType">resources.&lt;name&gt;.resourceType</a></h2>
 <p>The type of resource to create. Most resource providers will have some fixed set of resource types.</p>
 <p><em>Type:</em>
 string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
+</ul>
+<h2 id="opt-resources._name_.state"><a class="header" href="#opt-resources._name_.state">resources.&lt;name&gt;.state</a></h2>
+<p>The state handler for the resource, if needed.</p>
+<p><em>Type:</em>
+null or string</p>
+<p><em>Default:</em>
+<code>null</code></p>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>

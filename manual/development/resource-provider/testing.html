@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/resource-provider/testing.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/resource-provider/testing.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -193,7 +193,7 @@
 🍏🧑‍💻: Can a macOS user test with it?</p>
 <!-- | Environment | Test runner | Hermetic | Network access | Can build | Can use cache | Tests macOS build | Runs on macOS | Status / notes | -->
 <div class="table-wrapper"><table><thead><tr><th>Environment</th><th>Runner</th><th>📦</th><th>❄️</th><th>☁️</th><th>🏗️</th><th>🚚</th><th>🍏📦</th><th>🍏🧑‍💻</th><th>notes</th></tr></thead><tbody>
-<tr><td>Nix sandbox</td><td><a href="../cli/nixops4-resource-runner.html"><code>nixops4-resource-runner</code></a></td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td><td></td></tr>
+<tr><td>Nix sandbox</td><td><a href="#nixops4-resource-runner"><code>nixops4-resource-runner</code></a></td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td><td></td></tr>
 <tr><td>Nix sandbox with different storeDir</td><td><code>nixops4</code></td><td>✅</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td><td>Impractical</td></tr>
 <tr><td>Nix sandbox with relocated store</td><td><code>nixops4</code></td><td>✅</td><td>❌</td><td>❌</td><td>✅</td><td>✅¹</td><td>❌</td><td>❌</td><td>🚧 Untested</td></tr>
 <tr><td>Nix sandbox with recursive nix</td><td><code>nixops4</code></td><td>⚠️³</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>⚠️³</td></tr>
@@ -202,7 +202,7 @@
 </tbody></table>
 </div>
 <p>¹: Make sure to add expected build inputs to the check derivation or <a href="https://search.nixos.org/options?show=system.extraDependencies&amp;sort=relevance&amp;query=extraDependencies"><code>system.extraDependencies</code></a></p>
-<p>²: Requires a "remote" builder, which can be provided by <a href="https://daiderd.com/nix-darwin/">nix-darwin</a>'s <a href="https://daiderd.com/nix-darwin/manual/index.html#opt-nix.linux-builder.enable"><code>nix.linux-builder.enable</code></a></p>
+<p>²: Requires a "remote" builder, which can be provided by <a href="https://github.com/nix-darwin/nix-darwin#readme">nix-darwin</a>'s <a href="https://nix-darwin.github.io/nix-darwin/manual/index.html#opt-nix.linux-builder.enable"><code>nix.linux-builder.enable</code></a></p>
 <p>³: The <a href="https://nix.dev/manual/nix/latest/development/experimental-features#xp-feature-recursive-nix"><code>recursive-nix</code></a> experimental feature is not planned to be supported in the long term and <a href="https://github.com/NixOS/nix/labels/recursive-nix">has problems</a>.</p>
 <h3 id="environment"><a class="header" href="#environment">Environment</a></h3>
 <p>The main differentiator is the environment. The benefits of picking a more restrictive environment include</p>
@@ -222,6 +222,108 @@
 <h3 id="macos-support"><a class="header" href="#macos-support">MacOS support</a></h3>
 <p>We can distinguish between the ability to test a provider that is built for macOS, versus the ability to test using macOS at all.</p>
 <p>A NixOS VM test can be run on a macOS host, but it will not test the provider on macOS.</p>
+<h2 id="nixops4-resource-runner"><a class="header" href="#nixops4-resource-runner">Testing with nixops4-resource-runner</a></h2>
+<p>The <a href="../cli/nixops4-resource-runner.html"><code>nixops4-resource-runner</code></a> tool provides a simple way to test resource providers by invoking all provider operations directly. See the <a href="./interface.html">resource provider interface</a> for details about the protocol.</p>
+<h3 id="example-testing-a-stateless-resource"><a class="header" href="#example-testing-a-stateless-resource">Example: Testing a stateless resource</a></h3>
+<pre><code class="language-bash">nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type file \
+  --input-str name test.txt \
+  --input-str contents "Hello, world!"
+</code></pre>
+<p>See <a href="../cli/nixops4-resource-runner.html#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code></a>.</p>
+<h3 id="example-testing-a-stateful-resource"><a class="header" href="#example-testing-a-stateful-resource">Example: Testing a stateful resource</a></h3>
+<pre><code class="language-bash"># Create with state persistence
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --stateful \
+  --input-json initialize_with '"initial value"'
+
+# Update the stateful resource
+nixops4-resource-runner update \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --inputs-json '{"initialize_with": "new value"}' \
+  --previous-inputs-json '{"initialize_with": "initial value"}' \
+  --previous-outputs-json '{"value": "initial value"}'
+</code></pre>
+<p>The <code>--stateful</code> flag indicates that state persistence will be provided to the resource. Resources that require state must fail if this flag is not set.</p>
+<p>See <a href="../cli/nixops4-resource-runner.html#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code></a> and <a href="../cli/nixops4-resource-runner.html#nixops4-resource-runner-update"><code>nixops4-resource-runner update</code></a>.</p>
+<h3 id="example-testing-state-resources"><a class="header" href="#example-testing-state-resources">Example: Testing state resources</a></h3>
+<p>State resources provide persistent storage for resource state using JSON files and incremental updates via JSON Patch operations.</p>
+<h4 id="creating-a-state-file-resource"><a class="header" href="#creating-a-state-file-resource">Creating a state file resource</a></h4>
+<pre><code class="language-bash"># Create a new state file
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --input-str name "deployment-state.json"
+</code></pre>
+<p>This creates a JSON file with the initial state structure containing empty resources and deployments.</p>
+<h4 id="reading-state-from-a-state-resource"><a class="header" href="#reading-state-from-a-state-resource">Reading state from a state resource</a></h4>
+<pre><code class="language-bash"># Read the current state
+nixops4-resource-runner state-read \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}'
+</code></pre>
+<p>This returns the complete current state as reconstructed from all recorded events. Initially, this will show an empty state with no resources.</p>
+<h4 id="recording-state-changes"><a class="header" href="#recording-state-changes">Recording state changes</a></h4>
+<pre><code class="language-bash"># Add a resource to the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "create" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "add",
+      "path": "/resources/myfile",
+      "value": {
+        "type": "file",
+        "inputProperties": {"name": "test.txt", "contents": "hello"},
+        "outputProperties": {}
+      }
+    }
+  ]'
+
+# Update a resource in the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "update" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "replace",
+      "path": "/resources/myfile/inputProperties/contents",
+      "value": "updated content"
+    }
+  ]'
+
+# Remove a resource from the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "destroy" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "remove",
+      "path": "/resources/myfile"
+    }
+  ]'
+</code></pre>
+<p>State events use <a href="https://tools.ietf.org/html/rfc6902">JSON Patch (RFC 6902)</a> operations to record incremental changes to the state. This enables efficient state updates and provides a complete audit trail of all state modifications.</p>
+<p>For details about the state file format and structure, see <a href="../state/index.html">State</a>.</p>
+<p>See <a href="../cli/nixops4-resource-runner.html#nixops4-resource-runner-state-read"><code>nixops4-resource-runner state-read</code></a> and <a href="../cli/nixops4-resource-runner.html#nixops4-resource-runner-state-event"><code>nixops4-resource-runner state-event</code></a>.</p>
 
                     </main>
 
@@ -231,7 +333,7 @@
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../lib/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../state/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -245,7 +347,7 @@
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../lib/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../state/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

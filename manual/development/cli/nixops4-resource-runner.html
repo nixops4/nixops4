@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/cli/nixops4-resource-runner.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/cli/nixops4-resource-runner.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -184,6 +184,9 @@
 <ul>
 <li><a href="#nixops4-resource-runner"><code>nixops4-resource-runner</code>↴</a></li>
 <li><a href="#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code>↴</a></li>
+<li><a href="#nixops4-resource-runner-update"><code>nixops4-resource-runner update</code>↴</a></li>
+<li><a href="#nixops4-resource-runner-state-read"><code>nixops4-resource-runner state-read</code>↴</a></li>
+<li><a href="#nixops4-resource-runner-state-event"><code>nixops4-resource-runner state-event</code>↴</a></li>
 </ul>
 <h2 id="nixops4-resource-runner"><a class="header" href="#nixops4-resource-runner"><code>nixops4-resource-runner</code></a></h2>
 <p>A utility to run resource providers without expressions, and without <code>nixops4</code>, primarily for testing</p>
@@ -191,6 +194,9 @@
 <h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
 <ul>
 <li><code>create</code> — Create a resource</li>
+<li><code>update</code> — Update a stateful resource</li>
+<li><code>state-read</code> — Read state from a state resource</li>
+<li><code>state-event</code> — Send a state event to a state resource</li>
 </ul>
 <h2 id="nixops4-resource-runner-create"><a class="header" href="#nixops4-resource-runner-create"><code>nixops4-resource-runner create</code></a></h2>
 <p>Create a resource</p>
@@ -214,6 +220,54 @@
 <p><code>-s</code>, <code>--input-str &lt;NAME&gt;</code> — An individual input property for the resource, as a raw string.</p>
 <p>This is equivalent to <code>--input-json NAME JSON</code> if JSON is the JSON string formatting of STR.</p>
 </li>
+<li>
+<p><code>--stateful</code> — Whether state persistence will be provided to the resource</p>
+</li>
+</ul>
+<h2 id="nixops4-resource-runner-update"><a class="header" href="#nixops4-resource-runner-update"><code>nixops4-resource-runner update</code></a></h2>
+<p>Update a stateful resource</p>
+<p><strong>Usage:</strong> <code>nixops4-resource-runner update --provider-exe &lt;PROVIDER_EXE&gt; --type &lt;RESOURCE_TYPE&gt; --inputs-json &lt;INPUT_PROPERTIES_JSON&gt; --previous-inputs-json &lt;PREVIOUS_INPUT_PROPERTIES_JSON&gt; --previous-outputs-json &lt;PREVIOUS_OUTPUT_PROPERTIES_JSON&gt;</code></p>
+<h6 id="options-1"><a class="header" href="#options-1"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--provider-exe &lt;PROVIDER_EXE&gt;</code> — The executable that implements the resource operations</p>
+</li>
+<li>
+<p><code>--type &lt;RESOURCE_TYPE&gt;</code> — The type of resource to update: an identifier recognized by the resource provider</p>
+</li>
+<li>
+<p><code>--inputs-json &lt;INPUT_PROPERTIES_JSON&gt;</code> — The new JSON input properties for the resource</p>
+<p>This is a JSON object with the values needed to update the resource. The structure of this object is defined by the resource provider behavior.</p>
+</li>
+<li>
+<p><code>--previous-inputs-json &lt;PREVIOUS_INPUT_PROPERTIES_JSON&gt;</code> — The previous JSON input properties for the resource, as recorded in the state</p>
+</li>
+<li>
+<p><code>--previous-outputs-json &lt;PREVIOUS_OUTPUT_PROPERTIES_JSON&gt;</code> — The previous JSON output properties for the resource, as recorded in the state</p>
+</li>
+</ul>
+<h2 id="nixops4-resource-runner-state-read"><a class="header" href="#nixops4-resource-runner-state-read"><code>nixops4-resource-runner state-read</code></a></h2>
+<p>Read state from a state resource</p>
+<p><strong>Usage:</strong> <code>nixops4-resource-runner state-read --provider-exe &lt;PROVIDER_EXE&gt; --type &lt;RESOURCE_TYPE&gt; --inputs-json &lt;INPUT_PROPERTIES_JSON&gt; --outputs-json &lt;OUTPUT_PROPERTIES_JSON&gt;</code></p>
+<h6 id="options-2"><a class="header" href="#options-2"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--provider-exe &lt;PROVIDER_EXE&gt;</code> — The executable that implements the resource operations</li>
+<li><code>--type &lt;RESOURCE_TYPE&gt;</code> — The type of resource to read state from: an identifier recognized by the resource provider</li>
+<li><code>--inputs-json &lt;INPUT_PROPERTIES_JSON&gt;</code> — The JSON input properties for the resource</li>
+<li><code>--outputs-json &lt;OUTPUT_PROPERTIES_JSON&gt;</code> — The JSON output properties for the resource</li>
+</ul>
+<h2 id="nixops4-resource-runner-state-event"><a class="header" href="#nixops4-resource-runner-state-event"><code>nixops4-resource-runner state-event</code></a></h2>
+<p>Send a state event to a state resource</p>
+<p><strong>Usage:</strong> <code>nixops4-resource-runner state-event --provider-exe &lt;PROVIDER_EXE&gt; --type &lt;RESOURCE_TYPE&gt; --inputs-json &lt;INPUT_PROPERTIES_JSON&gt; --outputs-json &lt;OUTPUT_PROPERTIES_JSON&gt; --event &lt;EVENT&gt; --nixops-version &lt;NIXOPS_VERSION&gt; --patch-json &lt;PATCH_JSON&gt;</code></p>
+<h6 id="options-3"><a class="header" href="#options-3"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--provider-exe &lt;PROVIDER_EXE&gt;</code> — The executable that implements the resource operations</li>
+<li><code>--type &lt;RESOURCE_TYPE&gt;</code> — The type of resource to send the event to: an identifier recognized by the resource provider</li>
+<li><code>--inputs-json &lt;INPUT_PROPERTIES_JSON&gt;</code> — The JSON input properties for the resource</li>
+<li><code>--outputs-json &lt;OUTPUT_PROPERTIES_JSON&gt;</code> — The JSON output properties for the resource</li>
+<li><code>--event &lt;EVENT&gt;</code> — The operation that produced this change</li>
+<li><code>--nixops-version &lt;NIXOPS_VERSION&gt;</code> — The version of NixOps that produced this event</li>
+<li><code>--patch-json &lt;PATCH_JSON&gt;</code> — JSON Patch operations to apply to the state</li>
 </ul>
 
                     </main>

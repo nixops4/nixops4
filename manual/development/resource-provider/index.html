@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/resource-provider/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/resource-provider/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -183,6 +183,36 @@
 <p>This section of the manual focuses on the implementation of resource providers.
 It is intended for developers who need to write custom resource providers for NixOps4.
 This is not always necessary, as a suitable resource provider may already exist, or in other cases it is possible to build a module that achieves the desired effect using existing resource providers.</p>
+<h2 id="resource-type-declaration"><a class="header" href="#resource-type-declaration">Resource Type Declaration</a></h2>
+<p>When implementing a resource provider, you define resource types that specify:</p>
+<ul>
+<li><strong>inputs</strong>: The configuration options that users provide</li>
+<li><strong>outputs</strong>: The values that the resource exposes to other resources</li>
+<li><strong>requireState</strong>: Whether the resource needs persistent state management</li>
+</ul>
+<h3 id="state-requirements"><a class="header" href="#state-requirements">State Requirements</a></h3>
+<p>The <code>requireState</code> field in a resource type declaration indicates whether resources of this type need to maintain state between deployments:</p>
+<p>Example stateless resource:</p>
+<pre><code class="language-nix">{
+  resourceTypes.file = {
+    description = "File on the local file system";
+    requireState = false;
+    inputs = { /* ... (options) */ };
+    outputs = { /* ... (options) */ };
+  };
+}
+</code></pre>
+<p>Example stateful resource:</p>
+<pre><code class="language-nix">{
+  resourceTypes.reverse_proxy = {
+    description = "Instance of a CloudTM managed reverse proxy";
+    requireState = true;
+    inputs = { /* ... (options) */ };
+    outputs = { /* ... (options) */ };
+  };
+}
+</code></pre>
+<p>When <code>requireState = true</code>, users must configure a <code>state</code> handler for the resource, referencing a state storage resource. NixOps will validate this requirement at evaluation time.</p>
 
                     </main>
 

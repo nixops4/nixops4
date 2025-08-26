@@ -144,7 +144,7 @@
                         <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/nixops4/nixops4/tree/master/doc/manual/src/lib/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/nixops4/nixops4/tree/main/doc/manual/src/lib/index.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -240,12 +240,37 @@ Examples:
 <p>A derivation whose output references the providers for the deployment.</p>
 </li>
 </ul>
+<h2 id="renderProviderDocs"><a class="header" href="#renderProviderDocs"><code>renderProviderDocs</code></a></h2>
+<p>Generate documentation for a NixOps4 provider module.</p>
+<p>This function renders markdown documentation for all resource types
+defined in a provider module, including their inputs and outputs.</p>
+<h3 id="arguments"><a class="header" href="#arguments">Arguments</a></h3>
+<ul>
+<li><code>system</code>: The system string (e.g., "x86_64-linux")</li>
+<li><code>module</code>: A NixOps4 provider module containing resource type definitions
+and documentation metadata (<a href="../modules/index.html#opt-providers._name_.name"><code>name</code></a>, <a href="../modules/index.html#opt-providers._name_.description"><code>description</code></a>, <a href="../modules/index.html#opt-providers._name_.sourceBaseUrl"><code>sourceBaseUrl</code></a>, <a href="../modules/index.html#opt-providers._name_.sourceName"><code>sourceName</code></a>)</li>
+</ul>
+<h3 id="example"><a class="header" href="#example">Example</a></h3>
+<pre><code class="language-nix">renderProviderDocs {
+  system = "x86_64-linux";
+  module = self.modules.nixops4Provider.local;
+}
+</code></pre>
+<h3 id="type"><a class="header" href="#type">Type</a></h3>
+<pre><code>renderProviderDocs :: {
+  system :: String,
+  module :: NixModule
+} -&gt; Derivation
+</code></pre>
+<p>The resulting derivation contains markdown files for each resource type
+plus an index.md file.
+The files use mdBook-compatible includes for option documentation.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../resource-provider/testing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../providers/local/state_file.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
@@ -259,7 +284,7 @@ Examples:
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../resource-provider/testing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../providers/local/state_file.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
