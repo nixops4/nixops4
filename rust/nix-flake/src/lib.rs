@@ -259,9 +259,16 @@ mod tests {
     use nix_store::store::Store;
 
     use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
 
     fn init() {
-        nix_util::settings::set("experimental-features", "flakes").unwrap();
+        // Only set experimental-features once to minimize the window where
+        // concurrent Nix operations might read the setting while it's being modified
+        INIT.call_once(|| {
+            nix_util::settings::set("experimental-features", "flakes").unwrap();
+        });
     }
 
     #[test]
