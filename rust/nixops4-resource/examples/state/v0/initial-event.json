@@ -1,0 +1,17 @@
+{
+  "index": 0,
+  "meta": {
+    "time": "2025-04-15T11:48:06.434450914+00:00"
+  },
+  "patch": [
+    {
+      "op": "add",
+      "path": "",
+      "value": {
+        "_type": "nixopsState",
+        "deployments": {},
+        "resources": {}
+      }
+    }
+  ]
+}

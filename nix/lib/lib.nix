@@ -173,4 +173,51 @@ in
         );
     };
 
+
+  /**
+      Generate documentation for a NixOps4 provider module.
+
+      This function renders markdown documentation for all resource types
+      defined in a provider module, including their inputs and outputs.
+
+      # Arguments
+
+      - `system`: The system string (e.g., "x86_64-linux")
+      - `module`: A NixOps4 provider module containing resource type definitions
+        and documentation metadata ([`name`][name], [`description`][description], [`sourceBaseUrl`][sourceBaseUrl], [`sourceName`][sourceName])
+
+      # Example
+
+      ```nix
+      renderProviderDocs {
+        system = "x86_64-linux";
+        module = self.modules.nixops4Provider.local;
+      }
+      ```
+
+      # Type
+
+      ```
+      renderProviderDocs :: {
+        system :: String,
+        module :: NixModule
+      } -> Derivation
+      ```
+
+      The resulting derivation contains markdown files for each resource type
+      plus an index.md file.
+      The files use mdBook-compatible includes for option documentation.
+
+      [name]: ../modules/index.md#opt-providers._name_.name
+      [description]: ../modules/index.md#opt-providers._name_.description
+      [sourceBaseUrl]: ../modules/index.md#opt-providers._name_.sourceBaseUrl
+      [sourceName]: ../modules/index.md#opt-providers._name_.sourceName
+    */
+  renderProviderDocs = { system, module }:
+    selfWithSystem system ({ config, ... }:
+      config.builders.renderProviderDocs {
+        inherit module;
+      }
+    );
+
 }

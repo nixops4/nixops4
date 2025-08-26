@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
@@ -7,7 +7,7 @@ use cstr::cstr;
 use nix_expr::{
     eval_state::EvalState,
     primop::{PrimOp, PrimOpMeta},
-    value::Value,
+    value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
     AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
@@ -15,8 +15,6 @@ use nixops4_core::eval_api::{
     ResourceProviderInfo, ResourceType,
 };
 use std::sync::{Arc, Mutex};
-
-type AsyncResult<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
 #[async_trait]
 pub trait Respond {
@@ -27,7 +25,7 @@ pub struct EvaluationDriver {
     eval_state: EvalState,
     fetch_settings: nix_fetchers::FetchersSettings,
     flake_settings: nix_flake::FlakeSettings,
-    values: HashMap<IdNum, Value>,
+    values: HashMap<IdNum, Result<Value, String>>,
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
     resource_names: HashMap<Id<ResourceType>, String>,
@@ -52,21 +50,6 @@ impl EvaluationDriver {
 
     async fn respond(&mut self, response: EvalResponse) -> Result<()> {
         self.respond.call(response).await
-    }
-
-    fn assign_value<T: 'static>(&mut self, id: Id<T>, value: Value) -> AsyncResult<'_, ()> {
-        if let Some(_value) = self.values.get(&id.num()) {
-            return Box::pin(async move {
-                self.respond(EvalResponse::Error(
-                    id.any(),
-                    "id already used: ".to_string() + &id.num().to_string(),
-                ))
-                .await?;
-                Ok(())
-            });
-        }
-        self.values.insert(id.num(), value);
-        Box::pin(async { Ok(()) })
     }
 
     fn get_flake(
@@ -129,24 +112,36 @@ impl EvaluationDriver {
         flake.outputs(&self.flake_settings, &mut self.eval_state)
     }
 
-    /// Helper function that helps with error handling and saving the result.
+    /// Helper function for assignment requests that handles error propagation.
     ///
     /// # Parameters:
-    /// - handler: do the work. Errors are reported to the client.
-    /// - save: save the result. Errors terminate the evaluator process.
+    /// - handler: Performs the work and returns a Value. Errors are stored and reported to the client.
     ///
     // We may need more of these helper functions for different types of requests.
-    async fn handle_assign_request<'a, R: RequestIdType, A>(
+    async fn handle_assign_request<'a, R: RequestIdType>(
         &'a mut self,
         request: &AssignRequest<R>,
-        handler: impl FnOnce(&mut Self, &R) -> Result<A>,
-        save: impl FnOnce(&'a mut Self, Id<R::IdType>, A) -> AsyncResult<'a, ()>,
+        handler: impl FnOnce(&mut Self, &R) -> Result<Value>,
     ) -> Result<()> {
+        // Check for duplicate ID assignment
+        if let Some(_value) = self.values.get(&request.assign_to.num()) {
+            let error_msg = format!("id already used: {}", request.assign_to.num());
+            self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
+                .await?;
+            return Ok(());
+        }
+
         let r = handler(self, &request.payload);
         match r {
-            Ok(a) => save(self, request.assign_to, a).await,
+            Ok(value) => {
+                self.values.insert(request.assign_to.num(), Ok(value));
+                Ok(())
+            }
             Err(e) => {
-                self.respond(EvalResponse::Error(request.assign_to.any(), e.to_string()))
+                let error_msg = e.to_string();
+                self.values
+                    .insert(request.assign_to.num(), Err(error_msg.clone()));
+                self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
                     .await
             }
         }
@@ -176,9 +171,11 @@ impl EvaluationDriver {
     }
 
     fn get_value<T>(&self, id: Id<T>) -> Result<&Value> {
-        self.values
-            .get(&id.num())
-            .ok_or_else(|| anyhow::anyhow!("id not found: {}", id.num().to_string()))
+        match self.values.get(&id.num()) {
+            Some(Ok(value)) => Ok(value),
+            Some(Err(error)) => Err(anyhow::anyhow!("{}", error)),
+            None => Err(anyhow::anyhow!("id not found: {}", id.num().to_string())),
+        }
     }
 
     fn get_flake_deployments_value(&mut self, flake: Id<FlakeType>) -> Result<Value> {
@@ -193,11 +190,9 @@ impl EvaluationDriver {
     pub async fn perform_request(&mut self, request: &EvalRequest) -> Result<()> {
         match request {
             EvalRequest::LoadFlake(req) => {
-                self.handle_assign_request(
-                    req,
-                    |this, req| this.get_flake(req.abspath.as_str(), &req.input_overrides),
-                    EvaluationDriver::assign_value,
-                )
+                self.handle_assign_request(req, |this, req| {
+                    this.get_flake(req.abspath.as_str(), &req.input_overrides)
+                })
                 .await
             }
             EvalRequest::ListDeployments(req) => {
@@ -215,11 +210,9 @@ impl EvaluationDriver {
             }
             EvalRequest::LoadDeployment(req) => {
                 let known_outputs = Arc::clone(&self.known_outputs);
-                self.handle_assign_request(
-                    req,
-                    |this, req| perform_load_deployment(this, req, known_outputs),
-                    EvaluationDriver::assign_value,
-                )
+                self.handle_assign_request(req, |this, req| {
+                    perform_load_deployment(this, req, known_outputs)
+                })
                 .await
             }
             EvalRequest::ListResources(req) => {
@@ -234,21 +227,17 @@ impl EvaluationDriver {
                 .await
             }
             EvalRequest::LoadResource(areq) => {
-                self.handle_assign_request(
-                    areq,
-                    |this, req| {
-                        let deployment = this.get_value(req.deployment)?.clone();
-                        let resources_attrset = this
-                            .eval_state
-                            .require_attrs_select(&deployment, "resources")?;
-                        let resource = this
-                            .eval_state
-                            .require_attrs_select(&resources_attrset, &req.name)?;
-                        this.resource_names.insert(areq.assign_to, req.name.clone());
-                        Ok(resource)
-                    },
-                    EvaluationDriver::assign_value,
-                )
+                self.handle_assign_request(areq, |this, req| {
+                    let deployment = this.get_value(req.deployment)?.clone();
+                    let resources_attrset = this
+                        .eval_state
+                        .require_attrs_select(&deployment, "resources")?;
+                    let resource = this
+                        .eval_state
+                        .require_attrs_select(&resources_attrset, &req.name)?;
+                    this.resource_names.insert(areq.assign_to, req.name.clone());
+                    Ok(resource)
+                })
                 .await
             }
             EvalRequest::GetResource(req) => {
@@ -393,28 +382,43 @@ fn perform_load_deployment(
 fn perform_get_resource(
     this: &mut EvaluationDriver,
     req: &Id<nixops4_core::eval_api::ResourceType>,
-) -> std::result::Result<ResourceProviderInfo, anyhow::Error> {
+) -> Result<ResourceProviderInfo> {
     let resource = this.get_value(req.to_owned())?.clone();
+    let resource_name = this.resource_names.get(req).unwrap();
     // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
-    let provider_value = this
-        .eval_state
-        .require_attrs_select(&resource, "provider")?;
+    parse_resource(req, &mut this.eval_state, resource_name, resource)
+}
+
+fn parse_resource(
+    req: &Id<nixops4_core::eval_api::ResourceType>,
+    eval_state: &mut EvalState,
+    resource_name: &String,
+    resource: Value,
+) -> Result<ResourceProviderInfo> {
+    let provider_value = eval_state.require_attrs_select(&resource, "provider")?;
     let provider_json = {
-        let resource_name = this.resource_names.get(req).unwrap();
         let span = tracing::info_span!(
             "evaluating and realising provider",
             resource_name = resource_name
         );
-        let r = value_to_json(&mut this.eval_state, &provider_value)?;
+        let r = value_to_json(eval_state, &provider_value)?;
         drop(span);
         r
     };
-    let resource_type_value = this.eval_state.require_attrs_select(&resource, "type")?;
-    let resource_type_str = this.eval_state.require_string(&resource_type_value)?;
+    let resource_type_value = eval_state.require_attrs_select(&resource, "type")?;
+    let resource_type_str = eval_state.require_string(&resource_type_value)?;
+    let resource_state_value = eval_state.require_attrs_select(&resource, "state")?;
+    let resource_state_value_type = eval_state.value_type(&resource_state_value)?;
+    let resource_state_opt_str = match resource_state_value_type {
+        ValueType::Null => None,
+        ValueType::String => Some(eval_state.require_string(&resource_state_value)?),
+        _ => bail!("expected state to be a string or null"),
+    };
     Ok(ResourceProviderInfo {
         id: req.to_owned(),
         provider: provider_json,
         resource_type: resource_type_str,
+        state: resource_state_opt_str,
     })
 }
 
@@ -892,5 +896,73 @@ mod tests {
             };
             drop(guard);
         }
+    }
+
+    #[test]
+    fn test_parse_resource() {
+        let ids = Ids::new();
+        let guard = gc_register_my_thread().unwrap();
+        let (mut eval_state, _fetch_settings, _flake_settings) = new_eval_state().unwrap();
+
+        // Test parsing a resource with state
+        let resource_with_state = eval_state
+            .eval_from_string(
+                r#"{
+                provider = { example = "config"; };
+                type = "example";
+                state = "stateful";
+            }"#,
+                "<test-resource-with-state>",
+            )
+            .unwrap();
+
+        let req_id = ids.next();
+        let resource_name = "myResource".to_string();
+
+        let result = parse_resource(
+            &req_id,
+            &mut eval_state,
+            &resource_name,
+            resource_with_state,
+        )
+        .unwrap();
+
+        assert_eq!(result.id, req_id);
+        assert_eq!(result.resource_type, "example");
+        assert_eq!(result.state, Some("stateful".to_string()));
+        assert_eq!(
+            result.provider.get("example").unwrap().as_str().unwrap(),
+            "config"
+        );
+
+        // Test parsing a resource without state (null)
+        let resource_without_state = eval_state
+            .eval_from_string(
+                r#"{
+                provider = { another = "value"; };
+                type = "another-type";
+                state = null;
+            }"#,
+                "<test-resource-without-state>",
+            )
+            .unwrap();
+
+        let result2 = parse_resource(
+            &req_id,
+            &mut eval_state,
+            &resource_name,
+            resource_without_state,
+        )
+        .unwrap();
+
+        assert_eq!(result2.id, req_id);
+        assert_eq!(result2.resource_type, "another-type");
+        assert_eq!(result2.state, None);
+        assert_eq!(
+            result2.provider.get("another").unwrap().as_str().unwrap(),
+            "value"
+        );
+
+        drop(guard);
     }
 }

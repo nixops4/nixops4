@@ -1,21 +1,46 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://nixops.dev/manual/development/schema/resource-schema-v0.json",
   "title": "NixOps4 Resource Protocol Schema",
   "description": "This schema describes the protocol between NixOps4 and a resource provider. See doc/developing-resources.md for more information.",
   "definitions": {
-    "CreateResourceRequest": {
+    "Patch": {
+      "description": "An RFC 6902 JSON Patch document. See <https://tools.ietf.org/html/rfc6902>, <https://json.schemastore.org/json-patch.json>",
+      "$ref": "https://json.schemastore.org/json-patch.json#",
+      "x-rust-type": {
+        "crate": "json_patch",
+        "version": "4.0.0",
+        "path": "json_patch::Patch"
+      }
+    },
+    "resourceType": {
+      "type": "string",
+      "title": "Provider-defined resource type",
+      "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user. The resource type is chosen by the deployment expression, but must be one of the types that the resource provider supports. The resource provider must not proceed if the type is not supported."
+    },
+    "inputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Input properties",
+      "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+    },
+    "outputProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Output properties",
+      "description": "Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions."
+    },
+    "ExtantResource": {
       "type": "object",
       "properties": {
         "type": {
-          "type": "string",
-          "title": "Provider-defined resource type",
-          "description": "The type of the resource to create. The resource provider uses this to distinguish between different types of resources that it manages. Furthermore, the type will be shown to the user."
+          "$ref": "#/definitions/resourceType"
         },
         "inputProperties": {
-          "type": "object",
-          "additionalProperties": true,
-          "title": "Input properties",
-          "description": "Arbitrary fields that make up the input properties. The set of valid fields is determined by the resource provider implementation. If any unrecognized fields are present, the resource provider must not proceed and return an error."
+          "$ref": "#/definitions/inputProperties"
+        },
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
         }
       },
       "required": [
@@ -24,13 +49,33 @@
       ],
       "additionalProperties": false
     },
+    "CreateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/resourceType"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        },
+        "isStateful": {
+          "type": "boolean",
+          "title": "Stateful resource",
+          "description": "Whether the resource is declared to be stateful. If false, the response will not be persisted. If persistence is required, an error must be raised by the resource provider."
+        }
+      },
+      "required": [
+        "type",
+        "inputProperties",
+        "isStateful"
+      ],
+      "additionalProperties": false
+    },
     "CreateResourceResponse": {
       "type": "object",
       "properties": {
         "outputProperties": {
-          "type": "object",
-          "additionalProperties": true,
-          "title": "Output properties",
+          "$ref": "#/definitions/outputProperties",
           "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
         }
       },
@@ -38,11 +83,211 @@
         "outputProperties"
       ],
       "additionalProperties": false
+    },
+    "UpdateResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "inputProperties": {
+          "$ref": "#/definitions/inputProperties"
+        }
+      },
+      "required": [
+        "resource",
+        "inputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceReadRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceReadResponse": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "State",
+          "description": "The state of all the managed resources. This method is only implemented by resources that function as a state storage."
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceEvent": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        },
+        "event": {
+          "type": "string",
+          "description": "The operation that produced this change."
+        },
+        "nixopsVersion": {
+          "type": "string",
+          "description": "The version of NixOps that produced this event."
+        },
+        "patch": {
+          "$ref": "#/definitions/Patch",
+          "title": "JSON Patch",
+          "description": "JSON Patch operations to apply to the state."
+        }
+      },
+      "required": [
+        "resource",
+        "event",
+        "nixopsVersion",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "StateResourceEventResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceRequest",
+          "properties": {
+            "createResourceRequest": {
+              "$ref": "#/definitions/CreateResourceRequest"
+            }
+          },
+          "required": [
+            "createResourceRequest"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceRequest",
+          "properties": {
+            "updateResourceRequest": {
+              "$ref": "#/definitions/UpdateResourceRequest"
+            }
+          },
+          "required": [
+            "updateResourceRequest"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEvent",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceEvent": {
+              "$ref": "#/definitions/StateResourceEvent"
+            }
+          },
+          "required": [
+            "stateResourceEvent"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadRequest",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceReadRequest": {
+              "$ref": "#/definitions/StateResourceReadRequest"
+            }
+          },
+          "required": [
+            "stateResourceReadRequest"
+          ]
+        }
+      ]
+    },
+    "Response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "CreateResourceResponse",
+          "properties": {
+            "createResourceResponse": {
+              "$ref": "#/definitions/CreateResourceResponse"
+            }
+          },
+          "required": [
+            "createResourceResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "UpdateResourceResponse",
+          "properties": {
+            "updateResourceResponse": {
+              "$ref": "#/definitions/UpdateResourceResponse"
+            }
+          },
+          "required": [
+            "updateResourceResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceEventResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceEventResponse": {
+              "$ref": "#/definitions/StateResourceEventResponse"
+            }
+          },
+          "required": [
+            "stateResourceEventResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "StateResourceReadResponse",
+          "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
+          "properties": {
+            "stateResourceReadResponse": {
+              "$ref": "#/definitions/StateResourceReadResponse"
+            }
+          },
+          "required": [
+            "stateResourceReadResponse"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
-    { "$ref": "#/definitions/CreateResourceRequest" },
-    { "$ref": "#/definitions/CreateResourceResponse" }
+    {
+      "$ref": "#/definitions/Request"
+    },
+    {
+      "$ref": "#/definitions/Response"
+    }
   ],
   "additionalProperties": false
 }

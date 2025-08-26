@@ -3,6 +3,9 @@ let
   inherit (lib) mkOption types;
 in
 {
+  imports = [
+    ./provider-doc.nix
+  ];
   _class = "nixops4Provider";
   options = {
     executable = mkOption {

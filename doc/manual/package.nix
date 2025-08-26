@@ -1,15 +1,18 @@
-{ json-schema-for-humans
-, cargo
-, fetchpatch2
+{ cargo
 , jq
+, json-schema-catalog-rs
+, json-schema-for-humans
+, jsonSchemaCatalogs
 , lib
+, manual-deployment-option-docs-md
+, manual-provider-option-docs-md-local
 , mdbook
 , mdbook-mermaid
 , nixdoc
 , nixops4
 , nixops4-resource-runner
-, manual-deployment-option-docs-md
 , stdenv
+,
 }:
 let
   inherit (lib) fileset;
@@ -22,6 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
       ../../nix/lib/lib.nix
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
+      ../../rust/nixops4-resource/state-schema-v0.json
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
       ./book.toml
       ./cargo-deps.sh
@@ -57,18 +61,23 @@ stdenv.mkDerivation (finalAttrs: {
   allowedReferences = [ ];
   env = {
     NIXOPS_DEPLOYMENT_OPTION_DOCS_MD = manual-deployment-option-docs-md;
+    NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL = manual-provider-option-docs-md-local;
   };
 
   passthru = {
     html = finalAttrs.finalPackage.out + "/share/doc/nixops4/manual/html";
     index = finalAttrs.passthru.html + "/index.html";
-    /** To add to the project-wide dev shell */
+    /**
+      To add to the project-wide dev shell
+    */
     externalBuildTools = [
       mdbook
       mdbook-mermaid
       nixdoc
       json-schema-for-humans
       jq
+      json-schema-catalog-rs
+      jsonSchemaCatalogs.json-patch-schemastore
     ];
   };
 })

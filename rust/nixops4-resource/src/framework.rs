@@ -6,14 +6,36 @@ use std::{
 use anyhow::{Context, Result};
 use nix::unistd::{dup, dup2};
 
-use crate::schema::v0::{CreateResourceRequest, CreateResourceResponse};
+use crate::schema::v0;
 
 pub trait ResourceProvider {
-    fn create(&self, request: CreateResourceRequest) -> Result<CreateResourceResponse>;
-    // TODO:
-    // fn check(&self) -> Result<()>;
-    // fn destroy(&self) -> Result<()>;
-    // fn update(&self) -> Result<()>;
+    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse>;
+    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse>;
+    fn state_read(
+        &self,
+        request: v0::StateResourceReadRequest,
+    ) -> Result<v0::StateResourceReadResponse> {
+        let _ = request;
+        anyhow::bail!("State read operation not implemented by resource provider")
+    }
+    fn state_event(
+        &self,
+        request: v0::StateResourceEvent,
+    ) -> Result<v0::StateResourceEventResponse> {
+        let _ = request;
+        anyhow::bail!("State event not implemented by resource provider")
+    }
+}
+
+fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
+    out.write_all(
+        serde_json::to_string(resp)
+            .with_context(|| "Could not serialize response")
+            .unwrap()
+            .as_bytes(),
+    )?;
+    out.write_all(b"\n").context("writing newline")?;
+    out.flush().context("flushing response")
 }
 
 pub fn run_main(provider: impl ResourceProvider) {
@@ -26,24 +48,66 @@ pub fn run_main(provider: impl ResourceProvider) {
 
     let mut in_ = BufReader::new(pipe.in_);
 
-    let request = {
-        let mut line = String::new();
-        in_.read_line(&mut line)
-            .with_context(|| "Could not read line for request message")
-            .unwrap_or_exit();
-        serde_json::from_str(&line)
-            .with_context(|| "Could not parse request message")
-            .unwrap_or_exit()
-    };
+    let mut out = pipe.out;
 
-    // Call the provider
-    let resp = provider
-        .create(request)
-        .with_context(|| "Could not create resource")
-        .unwrap_or_exit();
+    // Loop to handle multiple requests
+    loop {
+        let request: v0::Request = {
+            let mut line = String::new();
+            match in_.read_line(&mut line) {
+                Ok(0) => {
+                    // EOF - client closed stdin, exit gracefully
+                    break;
+                }
+                Ok(_) => serde_json::from_str(&line)
+                    .with_context(|| "Could not parse request message")
+                    .unwrap_or_exit(),
+                Err(e) => {
+                    eprintln!("Error reading request: {}", e);
+                    break;
+                }
+            }
+        };
 
-    // Write the response to the output
-    serde_json::to_writer(pipe.out, &resp).unwrap();
+        match request {
+            v0::Request::CreateResourceRequest(r) => {
+                let resp = provider
+                    .create(r)
+                    .with_context(|| "Could not create resource")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::UpdateResourceRequest(r) => {
+                let resp = provider
+                    .update(r)
+                    .with_context(|| "Could not update resource")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::StateResourceEvent(r) => {
+                let resp = provider
+                    .state_event(r)
+                    .with_context(|| "Could not handle state event")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::StateResourceReadRequest(r) => {
+                let resp = provider
+                    .state_read(r)
+                    .with_context(|| "Could not read state")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+        }
+    }
 }
 
 /// A pair of `T` values: one for input and one for output.

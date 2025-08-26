@@ -12,3 +12,16 @@ An input may depend on zero or more outputs, but the references between resource
 NixOps manages this data flow for you.
 
 A [_resource provider_](../resource-provider/index.md) implements the operations that create, update, and delete the real world entity that the resource represents.
+
+## State Management
+
+Some resources need to maintain state between deployments. For example, a resource that generates a unique ID or stores configuration that should persist across updates. Resource types can declare whether they require state management through the `requireState` field.
+
+When a resource type has `requireState = true`:
+- The resource must specify a `state` handler (typically a reference to another resource that manages the state storage)
+- NixOps will validate that the state handler is properly configured
+- The resource provider can store and retrieve persistent state through this handler
+
+When a resource type has `requireState = false`:
+- The resource does not need a state handler
+- The resource is stateless and can be idempotently recreated from its inputs

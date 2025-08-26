@@ -33,6 +33,13 @@ in
 {
   _class = "nixops4ResourceType";
   options = {
+    description = mkOption {
+      type = types.str;
+      description = ''
+        A description of what this resource type represents.
+      '';
+    };
+
     provider.executable = mkOption {
       type = types.str;
       default = provider.executable;
@@ -97,6 +104,13 @@ in
       internal = true;
       description = ''
         The skeleton of the outputs of the resource - just attribute names.
+      '';
+    };
+
+    requireState = mkOption {
+      type = types.bool;
+      description = ''
+        Whether the resource requires state to be stored.
       '';
     };
 

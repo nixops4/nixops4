@@ -14,11 +14,14 @@ open: book
 	fi
 
 GENERATED = src/schema/resource-schema-v0.gen.md \
+	src/schema/state-schema-v0.gen.md \
 	src/cli/nixops4-resource-runner.md \
 	src/cli/nixops4.md \
 	src/modules/option-docs.gen.md \
+	src/providers/local \
 	src/schema/resource-v0/examples/CreateResourceRequest.json \
 	src/schema/resource-v0/examples/CreateResourceResponse.json \
+	src/schema/state-v0/examples/empty.json \
 	src/architecture/cargo-deps.gen.md \
 	src/lib/lib.gen.md
 
@@ -34,18 +37,29 @@ src/schema/resource-schema-v0.json: ../../rust/nixops4-resource/resource-schema-
 	@mkdir -p $(dir $@)
 	@cp $< $@
 
+src/schema/state-schema-v0.json: ../../rust/nixops4-resource/state-schema-v0.json
+	@echo "        COPY" $@
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+# Generate markdown documentation from JSON schema files
 # package: json-schema-for-humans
 %.gen.md: %.json json-schema-for-humans-config.yaml
 	@echo " JSON SCHEMA" $@
-	@generate-schema-doc --config-file json-schema-for-humans-config.yaml $< $@.tmp
+	# Resolve external schema references for offline processing and pin exact schema contents
+	@cp $< $@.tmp.json
+	@x="https://json.schemastore.org/json-patch.json"; y="file://$$(json-schema-catalog lookup "$$x" )"; sed -i -e "s!$$x!$$y!" $@.tmp.json
+	# Generate documentation
+	@generate-schema-doc --config-file json-schema-for-humans-config.yaml $@.tmp.json $@.tmp
+	# Post-process: add raw schema link and fix formatting
+	# FIXME: #oneOf_i0_patch_items: known broken link
 	@(head -n 1 $@.tmp; echo "[Raw JSON schema]($(shell basename $<))"; tail -n +2 $@.tmp) \
 	  | sed -e 's!a name=!a id=!g' \
 		    -e 's!\[\](#[^)]*)!!g' \
 				-e 's!^#!##!g' \
-				-e 's!\[\[Any type: allowed\]\](# "Additional Properties of any type are allowed\.")!Any type allowed!g' \
-				-e 's!\[\[Not allowed\]\](# "Additional Properties not allowed.")!Not allowed!g' \
+				-e "s!\(file://\)*$$(json-schema-catalog lookup "https://json.schemastore.org/json-patch.json")!https://json.schemastore.org/json-patch.json!g" \
 				> $@
-	@rm $@.tmp
+	@rm $@.tmp $@.tmp.json
 
 # sets
 # - NIXOPS4_RESOURCE_RUNNER_CMD
@@ -58,6 +72,11 @@ src/cli/nixops4-resource-runner.md: $(NIXOPS4_RESOURCE_RUNNER_EXE)
 	@$(NIXOPS4_RESOURCE_RUNNER_CMD) generate-markdown > $@
 
 src/schema/resource-v0/examples/%.json: ../../rust/nixops4-resource/examples/v0/%.json
+	@echo "        COPY" $@
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+src/schema/state-v0/examples/%.json: ../../rust/nixops4-resource/examples/state/v0/%.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@
@@ -101,4 +120,28 @@ src/modules/option-docs.gen.md: $(shell if [[ -z "$$NIXOPS_DEPLOYMENT_OPTION_DOC
 		else \
 			echo "        COPY" $@; \
 			cp $$NIXOPS_DEPLOYMENT_OPTION_DOCS_MD $@; \
+		fi
+
+src/providers/local: $(shell if [[ -z "$$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL" ]]; then \
+			find ../../nix/render-provider-docs -name '*.nix'; \
+			echo ../../flake.lock; \
+			find ../../nix/providers -name '*.nix'; \
+		fi)
+	@if [[ -z "$$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL" ]]; then \
+	    if type -p nix >/dev/null; then \
+				rm -rf $@; \
+				echo "         NIX" $@; \
+				nix build --extra-experimental-features 'nix-command flakes' \
+				  .#manual-provider-option-docs-md-local --out-link $@.tmp; \
+				mkdir -p $@; \
+				cp -r $@.tmp/* $@/; \
+				rm $@.tmp; \
+			else \
+				echo "Nix not found and NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL not set. Can't build provider docs."; \
+				exit 1; \
+			fi; \
+		else \
+			echo "        COPY" $@; \
+			mkdir -p $@; \
+			cp -r $$NIXOPS_PROVIDER_OPTION_DOCS_MD_FOR_LOCAL/* $@/; \
 		fi

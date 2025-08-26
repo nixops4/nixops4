@@ -22,7 +22,7 @@ Criteria:
 <!-- | Environment | Test runner | Hermetic | Network access | Can build | Can use cache | Tests macOS build | Runs on macOS | Status / notes | -->
 | Environment                         | Runner                 | 📦 | ❄️  | ☁️  | 🏗️ | 🚚 | 🍏📦 | 🍏🧑‍💻 | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Nix sandbox                         | [`nixops4-resource-runner`] | ✅ | ❌ | ❌ | ❌ | ❌  | ✅ | ✅  | |
+| Nix sandbox                         | [`nixops4-resource-runner`](#nixops4-resource-runner) | ✅ | ❌ | ❌ | ❌ | ❌  | ✅ | ✅  | |
 | Nix sandbox with different storeDir | `nixops4`                   | ✅ | ❌ | ❌ | ✅ | ❌  | ✅ | ✅  | Impractical |
 | Nix sandbox with relocated store    | `nixops4`                   | ✅ | ❌ | ❌ | ✅ | ✅¹ | ❌ | ❌  | 🚧 Untested |
 | Nix sandbox with recursive nix      | `nixops4`                   | ⚠️³ | ❌ | ❌ | ✅ | ✅  | ✅ | ✅  | ⚠️³ |
@@ -31,7 +31,7 @@ Criteria:
 
 ¹: Make sure to add expected build inputs to the check derivation or [`system.extraDependencies`][nixos-extraDependencies]
 
-²: Requires a "remote" builder, which can be provided by [nix-darwin]'s [`nix.linux-builder.enable`](https://daiderd.com/nix-darwin/manual/index.html#opt-nix.linux-builder.enable)
+²: Requires a "remote" builder, which can be provided by [nix-darwin]'s [`nix.linux-builder.enable`](https://nix-darwin.github.io/nix-darwin/manual/index.html#opt-nix.linux-builder.enable)
 
 ³: The [`recursive-nix`][recursive-nix] experimental feature is not planned to be supported in the long term and [has problems](https://github.com/NixOS/nix/labels/recursive-nix).
 
@@ -66,6 +66,135 @@ We can distinguish between the ability to test a provider that is built for macO
 A NixOS VM test can be run on a macOS host, but it will not test the provider on macOS.
 
 [recursive-nix]: https://nix.dev/manual/nix/latest/development/experimental-features#xp-feature-recursive-nix
-[nix-darwin]: https://daiderd.com/nix-darwin/
+[nix-darwin]: https://github.com/nix-darwin/nix-darwin#readme
 [nixos-extraDependencies]: https://search.nixos.org/options?show=system.extraDependencies&sort=relevance&query=extraDependencies
 [`nixops4-resource-runner`]: ../cli/nixops4-resource-runner.md
+
+## Testing with nixops4-resource-runner {#nixops4-resource-runner}
+
+The [`nixops4-resource-runner`] tool provides a simple way to test resource providers by invoking all provider operations directly. See the [resource provider interface](./interface.md) for details about the protocol.
+
+### Example: Testing a stateless resource
+
+```bash
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type file \
+  --input-str name test.txt \
+  --input-str contents "Hello, world!"
+```
+
+See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create).
+
+### Example: Testing a stateful resource
+
+```bash
+# Create with state persistence
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --stateful \
+  --input-json initialize_with '"initial value"'
+
+# Update the stateful resource
+nixops4-resource-runner update \
+  --provider-exe nixops4-resources-local \
+  --type memo \
+  --inputs-json '{"initialize_with": "new value"}' \
+  --previous-inputs-json '{"initialize_with": "initial value"}' \
+  --previous-outputs-json '{"value": "initial value"}'
+```
+
+The `--stateful` flag indicates that state persistence will be provided to the resource. Resources that require state must fail if this flag is not set.
+
+See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create) and [`nixops4-resource-runner update`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-update).
+
+### Example: Testing state resources
+
+State resources provide persistent storage for resource state using JSON files and incremental updates via JSON Patch operations.
+
+#### Creating a state file resource
+
+```bash
+# Create a new state file
+nixops4-resource-runner create \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --input-str name "deployment-state.json"
+```
+
+This creates a JSON file with the initial state structure containing empty resources and deployments.
+
+#### Reading state from a state resource
+
+```bash
+# Read the current state
+nixops4-resource-runner state-read \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}'
+```
+
+This returns the complete current state as reconstructed from all recorded events. Initially, this will show an empty state with no resources.
+
+#### Recording state changes
+
+```bash
+# Add a resource to the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "create" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "add",
+      "path": "/resources/myfile",
+      "value": {
+        "type": "file",
+        "inputProperties": {"name": "test.txt", "contents": "hello"},
+        "outputProperties": {}
+      }
+    }
+  ]'
+
+# Update a resource in the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "update" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "replace",
+      "path": "/resources/myfile/inputProperties/contents",
+      "value": "updated content"
+    }
+  ]'
+
+# Remove a resource from the state
+nixops4-resource-runner state-event \
+  --provider-exe nixops4-resources-local \
+  --type state_file \
+  --inputs-json '{"name": "deployment-state.json"}' \
+  --outputs-json '{}' \
+  --event "destroy" \
+  --nixops-version "4.0.0" \
+  --patch-json '[
+    {
+      "op": "remove",
+      "path": "/resources/myfile"
+    }
+  ]'
+```
+
+State events use [JSON Patch (RFC 6902)](https://tools.ietf.org/html/rfc6902) operations to record incremental changes to the state. This enables efficient state updates and provides a complete audit trail of all state modifications.
+
+For details about the state file format and structure, see [State](../state/index.md).
+
+See [`nixops4-resource-runner state-read`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-state-read) and [`nixops4-resource-runner state-event`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-state-event).

@@ -1,14 +1,14 @@
-use std::{
-    collections::HashMap,
-    io::{BufRead, Write},
+use std::sync::Arc;
+
+use anyhow::{bail, Context, Result};
+use nixops4_core::eval_api::{self, EvalRequest, Id, Ids, MessageType, QueryRequest};
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::Mutex;
+use tokio::{
+    io::{AsyncBufReadExt as _, AsyncWriteExt as _},
     process::ChildStdout,
 };
-
-use anyhow::{Context, Result};
-use nixops4_core::eval_api::{
-    self, DeploymentType, EvalRequest, EvalResponse, FlakeType, Id, IdNum, Ids, MessageType,
-    QueryRequest,
-};
+use tracing::debug;
 
 #[derive(Clone)]
 pub(crate) struct Options {
@@ -17,26 +17,26 @@ pub(crate) struct Options {
     pub(crate) flake_input_overrides: Vec<(String, String)>,
 }
 
-pub struct EvalClient {
-    options: Options,
-
-    response_bufreader: std::io::BufReader<ChildStdout>,
-    command_handle: std::process::ChildStdin,
-    tracing_event_receiver: tracing_tunnel::TracingEventReceiver,
-
+#[derive(Clone)]
+pub struct EvalSender {
+    sender: Arc<Mutex<Option<Sender<EvalRequest>>>>,
     ids: Ids,
-    deployments: HashMap<Id<FlakeType>, Vec<String>>,
-    resources: HashMap<Id<DeploymentType>, Vec<String>>,
-    errors: HashMap<IdNum, String>,
 }
-impl EvalClient {
-    pub fn with<T>(options: &Options, f: impl FnOnce(EvalClient) -> Result<T>) -> Result<T> {
+
+type EvalReceiver = tokio::sync::mpsc::Receiver<eval_api::EvalResponse>;
+
+impl EvalSender {
+    pub async fn with<T, F, Fut>(options: &Options, f: F) -> Result<T>
+    where
+        F: FnOnce(EvalSender, EvalReceiver) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
         let exe = std::env::var("_NIXOPS4_EVAL").unwrap_or("nixops4-eval".to_string());
         let mut nix_config = std::env::var("NIX_CONFIG").unwrap_or("".to_string());
         if options.show_trace {
             nix_config.push_str("\nshow-trace = true\n");
         }
-        let mut process = std::process::Command::new(exe)
+        let mut process = tokio::process::Command::new(exe)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .arg("<subprocess>")
@@ -44,129 +44,157 @@ impl EvalClient {
             .spawn()
             .context("while starting the nixops4 evaluator process")?;
 
-        if options.verbose {
-            eprintln!("started nixops4-eval process: {}", process.id());
-        }
-
         let r;
         {
-            let c: EvalClient = EvalClient {
-                options: options.clone(),
-                response_bufreader: std::io::BufReader::new(process.stdout.take().unwrap()),
-                command_handle: process.stdin.take().unwrap(),
-                tracing_event_receiver: tracing_tunnel::TracingEventReceiver::default(),
-                ids: Ids::new(),
-                deployments: HashMap::new(),
-                resources: HashMap::new(),
-                errors: HashMap::new(),
+            let response_bufreader = tokio::io::BufReader::new(process.stdout.take().unwrap());
+            let command_handle = process.stdin.take().unwrap();
+            let tracing_event_receiver = tracing_tunnel::TracingEventReceiver::default();
+            let ids = Ids::new();
+            let verbose = options.verbose;
+
+            let (command_sender, command_receiver) = channel::<EvalRequest>(128);
+
+            let writer = tokio::spawn(forward_eval_commands(
+                command_handle,
+                verbose,
+                command_receiver,
+            ));
+
+            let (response_sender, response_receiver) = channel::<eval_api::EvalResponse>(128);
+
+            let reader = tokio::spawn(forward_eval_responses(
+                verbose,
+                response_sender,
+                response_bufreader,
+                tracing_event_receiver,
+            ));
+
+            let eval_sender = EvalSender {
+                sender: Arc::new(Mutex::new(Some(command_sender))),
+                ids: ids.clone(),
             };
 
-            r = f(c)
+            r = f(eval_sender, response_receiver).await;
+
+            writer.await??;
+            reader.await??;
         }
         // Wait for the process to exit, giving it a chance to flush its output
         // TODO (tokio): add timeout
-        process.wait()?;
+        process.wait().await?;
 
         r
     }
-    pub fn send(&mut self, request: &EvalRequest) -> Result<()> {
-        let json = eval_api::eval_request_to_json(request)?;
-        if self.options.verbose {
-            eprintln!("\x1b[35msending: {}\x1b[0m", json);
-        }
-        self.command_handle.write_all(json.as_bytes())?;
-        self.command_handle.write_all(b"\n")?;
-        self.command_handle.flush()?;
-        Ok(())
-    }
-    pub fn query<P, R>(
-        &mut self,
-        f: impl FnOnce(QueryRequest<P, R>) -> EvalRequest,
-        payload: P,
-    ) -> Result<Id<MessageType>> {
-        let msg_id = self.next_id();
-        self.send(&f(QueryRequest::new(msg_id, payload)))?;
-        Ok(msg_id)
-    }
-    fn receive(&mut self) -> Result<eval_api::EvalResponse> {
-        let mut line = String::new();
-        let n = self.response_bufreader.read_line(&mut line);
-        match n {
-            Err(e) => {
-                Err(e).context("error reading from nixops4-eval process stdout")?;
-            }
-            Ok(0) => {
-                Err(anyhow::anyhow!("nixops4-eval process closed its stdout"))?;
-            }
-            Ok(_) => {}
-        }
-        if self.options.verbose {
-            eprintln!("\x1b[32mreceived: {}\x1b[0m", line.trim_end());
-        }
-        let response = eval_api::eval_response_from_json(line.as_str())?;
-        Ok(response)
-    }
-    pub fn receive_until<T>(
-        &mut self,
-        cond: impl Fn(&mut EvalClient, &EvalResponse) -> Result<Option<T>>,
-    ) -> Result<T> {
-        loop {
-            let response = self.receive()?;
-            self.handle_response(&response)?;
-            let r = cond(self, &response)?;
-            match r {
-                Some(r) => return Ok(r),
-                None => continue,
-            }
-        }
-    }
 
-    pub fn next_id<T>(&mut self) -> Id<T> {
+    pub fn next_id<T>(&self) -> eval_api::Id<T> {
         self.ids.next()
     }
 
-    pub fn get_error<T>(&self, id: Id<T>) -> Option<&String> {
-        self.errors.get(&id.num())
-    }
-
-    pub fn check_error<T>(&self, id: Id<T>) -> Result<()> {
-        if let Some(e) = self.get_error(id) {
-            Err(anyhow::anyhow!("evaluation: {}", e))
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn get_deployments(&self, id: Id<FlakeType>) -> Option<&Vec<String>> {
-        self.deployments.get(&id)
-    }
-
-    pub fn get_resources(&self, id: Id<DeploymentType>) -> Option<&Vec<String>> {
-        self.resources.get(&id)
-    }
-
-    fn handle_response(&mut self, response: &eval_api::EvalResponse) -> Result<()> {
-        match response {
-            eval_api::EvalResponse::Error(id, error) => {
-                self.errors.insert(id.num(), error.clone());
+    pub async fn send(&self, request: &EvalRequest) -> Result<()> {
+        let mut sender = self.sender.lock().await;
+        match sender.as_mut() {
+            Some(sender) => {
+                if let Err(e) = sender.send(request.clone()).await {
+                    bail!("error sending eval request: {}", e);
+                }
+                Ok(())
             }
-            eval_api::EvalResponse::QueryResponse(_id, value) => match value {
-                eval_api::QueryResponseValue::ListDeployments((flake_id, deployments)) => {
-                    self.deployments.insert(*flake_id, deployments.clone());
-                }
-                eval_api::QueryResponseValue::ListResources((deployment_id, resources)) => {
-                    self.resources.insert(*deployment_id, resources.clone());
-                }
-                _ => {}
-            },
-            eval_api::EvalResponse::TracingEvent(v) => {
-                let event =
-                    serde_json::from_value(v.clone()).context("while parsing tracing event")?;
-                if let Err(e) = self.tracing_event_receiver.try_receive(event) {
-                    eprintln!("error handling tracing event: {}", e);
-                }
+            None => {
+                bail!("refusing to send eval request as eval process is exiting");
             }
         }
-        Ok(())
     }
+
+    pub async fn close(&self) {
+        let mut sender = self.sender.lock().await;
+        *sender = None;
+    }
+
+    pub async fn query<P, R>(
+        &self,
+        id: Id<MessageType>,
+        f: impl FnOnce(QueryRequest<P, R>) -> EvalRequest,
+        payload: P,
+    ) -> Result<()> {
+        self.send(&f(QueryRequest::new(id, payload))).await
+    }
+}
+
+async fn forward_eval_responses(
+    verbose: bool,
+    response_sender: Sender<eval_api::EvalResponse>,
+    response_bufreader: tokio::io::BufReader<ChildStdout>,
+    mut tracing_event_receiver: tracing_tunnel::TracingEventReceiver,
+) -> Result<()> {
+    let mut lines = response_bufreader.lines();
+    loop {
+        let line_result = lines.next_line().await;
+        match line_result {
+            Ok(Some(line)) => {
+                if let Ok(response) = eval_api::eval_response_from_json(line.as_str()) {
+                    if verbose {
+                        eprintln!("\x1b[32mreceived: {}\x1b[0m", line.trim_end());
+                    }
+
+                    if let eval_api::EvalResponse::TracingEvent(v) = response {
+                        let event =
+                            serde_json::from_value(v).context("while parsing tracing event")?;
+                        if let Err(e) = tracing_event_receiver.try_receive(event) {
+                            eprintln!("error handling tracing event: {}", e);
+                        }
+                    } else if let Err(e) = response_sender.send(response).await {
+                        // Presumably the main program has produced an error, or has terminated correctly, and we can just ignore any extra messages?
+                        debug!("error sending response to channel: {}", e);
+                        // continue processing tracing events
+                    }
+                } else {
+                    bail!("error parsing response: {}", line);
+                }
+            }
+            Ok(None) => break,
+            Err(e) => {
+                bail!("error reading from nixops4-eval process stdout: {}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn forward_eval_commands(
+    mut command_handle: tokio::process::ChildStdin,
+    verbose: bool,
+    mut command_receiver: tokio::sync::mpsc::Receiver<EvalRequest>,
+) -> Result<()> {
+    loop {
+        let request = command_receiver.recv().await;
+        match request {
+            Some(request) => {
+                let r = write_eval_request(verbose, &mut command_handle, &request).await;
+                match r {
+                    Ok(()) => {}
+                    Err(e) => {
+                        eprintln!("error writing to nixops4-eval process stdin: {}", e);
+                        break;
+                    }
+                }
+            }
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+async fn write_eval_request(
+    verbose: bool,
+    command_handle: &mut tokio::process::ChildStdin,
+    request: &EvalRequest,
+) -> Result<()> {
+    let json = eval_api::eval_request_to_json(&request)?;
+    if verbose {
+        eprintln!("\x1b[35msending: {}\x1b[0m", json);
+    }
+    command_handle.write_all(json.as_bytes()).await?;
+    command_handle.write_all(b"\n").await?;
+    command_handle.flush().await?;
+    Ok(())
 }
