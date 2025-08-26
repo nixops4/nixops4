@@ -30,6 +30,7 @@ type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> +
 pub enum Goal {
     Apply(),
     ListResources(),
+    AssignResourceId(String),
     GetResourceProviderInfo(Id<ResourceType>, String),
     ListResourceInputs(Id<ResourceType>, String),
     GetResourceInputValue(Id<ResourceType>, String, String),
@@ -43,6 +44,7 @@ impl Display for Goal {
         match self {
             Goal::Apply() => write!(f, "Apply"),
             Goal::ListResources() => write!(f, "List resources"),
+            Goal::AssignResourceId(name) => write!(f, "Assign resource ID to {}", name),
             Goal::GetResourceProviderInfo(_, name) => {
                 write!(f, "Get resource provider info for {}", name)
             }
@@ -77,6 +79,7 @@ impl Display for Goal {
 pub enum Outcome {
     Done(),
     ResourcesListed(Vec<String>),
+    ResourceId(Id<ResourceType>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
@@ -95,7 +98,6 @@ pub struct WorkContext {
 }
 #[derive(Default)]
 pub struct WorkState {
-    resource_ids: BTreeMap<String, Id<ResourceType>>,
     cleanup_tasks: Vec<CleanupTask>,
 }
 
@@ -160,24 +162,27 @@ impl WorkContext {
         }
         self.interrupt_state.check_interrupted()?;
 
-        // Assign ids to the resources
-
-        let resource_ids: BTreeMap<String, Id<ResourceType>> = resources
-            .iter()
-            .map(|name| (name.clone(), self.eval_sender.next_id()))
-            .collect();
-        for (r, id) in resource_ids.iter() {
-            self.eval_sender
-                .send(&EvalRequest::LoadResource(AssignRequest {
-                    assign_to: *id,
-                    payload: ResourceRequest {
-                        deployment: self.deployment_id,
-                        name: r.clone(),
-                    },
-                }))
+        // Get resource IDs using the task tracker
+        let mut resource_id_thunks = BTreeMap::new();
+        for resource_name in &resources {
+            let thunk = context
+                .spawn(Goal::AssignResourceId(resource_name.clone()))
                 .await?;
-            self.state.lock().await.resource_ids.insert(r.clone(), *id);
+            resource_id_thunks.insert(resource_name.clone(), thunk);
         }
+
+        // Force all resource IDs and collect the mapping
+        let resource_ids: BTreeMap<String, Id<ResourceType>> =
+            Thunk::force_into_map(resource_id_thunks)
+                .await
+                .into_iter()
+                .map(|(name, outcome)| {
+                    match clone_result(&outcome).expect("Resource ID assignment failed") {
+                        Outcome::ResourceId(id) => (name, id),
+                        _ => panic!("Unexpected outcome from AssignResourceId"),
+                    }
+                })
+                .collect();
 
         let mut resource_thunk_map = BTreeMap::new();
         for (resource_name, id) in resource_ids.iter() {
@@ -246,6 +251,24 @@ impl WorkContext {
                 EvalResponse::TracingEvent(_) => {}
             }
         }
+    }
+
+    async fn perform_get_resource_id(
+        &self,
+        _context: TaskContext<Self>,
+        name: String,
+    ) -> Result<Outcome> {
+        let id = self.eval_sender.next_id();
+        self.eval_sender
+            .send(&EvalRequest::LoadResource(AssignRequest {
+                assign_to: id,
+                payload: ResourceRequest {
+                    deployment: self.deployment_id,
+                    name: name.clone(),
+                },
+            }))
+            .await?;
+        Ok(Outcome::ResourceId(id))
     }
 
     async fn perform_get_resource_provider_info(
@@ -352,13 +375,24 @@ impl WorkContext {
                                     break Ok(Outcome::ResourceInputValue(value))
                                 }
                                 ResourceInputState::ResourceInputDependency(x) => {
-                                    let dep_id = *self
-                                        .state
-                                        .lock()
+                                    // Get the resource ID using the task tracker
+                                    let dep_id_thunk = context
+                                        .require(Goal::AssignResourceId(
+                                            x.dependency.resource.clone(),
+                                        ))
                                         .await
-                                        .resource_ids
-                                        .get(&x.dependency.resource)
-                                        .unwrap();
+                                        .with_context(|| {
+                                            format!(
+                                                "while getting resource ID for dependency: {}",
+                                                &x.dependency.resource
+                                            )
+                                        })?;
+
+                                    let dep_id = match clone_result(&dep_id_thunk)? {
+                                        Outcome::ResourceId(id) => id,
+                                        _ => panic!("Unexpected outcome from AssignResourceId"),
+                                    };
+
                                     let property = x.dependency.name.clone();
                                     let resource = x.dependency.resource.clone();
                                     let r = context
@@ -472,13 +506,19 @@ impl WorkContext {
 
         let state_provider = match &provider_info.state {
             Some(state_resource_name) => {
-                let state_resource_id = *self
-                    .state
-                    .lock()
+                // Get the state resource ID using the task tracker
+                let state_id_thunk = context
+                    .require(Goal::AssignResourceId(state_resource_name.clone()))
                     .await
-                    .resource_ids
-                    .get(state_resource_name)
-                    .unwrap();
+                    .map_err(|e| {
+                        anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                    })?;
+
+                let state_resource_id = match clone_result(&state_id_thunk)? {
+                    Outcome::ResourceId(id) => id,
+                    _ => panic!("Unexpected outcome from AssignResourceId"),
+                };
+
                 let thunk = context
                     .spawn(Goal::RunState(
                         state_resource_id,
@@ -647,6 +687,10 @@ impl TaskWork for WorkContext {
                 self.perform_list_resources(context)
                     .instrument(info_span!("Listing resources"))
                     .await
+            }
+            Goal::AssignResourceId(name) => {
+                // trivial computation - no `instrument` call needed
+                self.perform_get_resource_id(context, name).await
             }
 
             Goal::GetResourceProviderInfo(id, resource_name) => {
