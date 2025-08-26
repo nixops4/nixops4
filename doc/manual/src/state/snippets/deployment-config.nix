@@ -6,14 +6,14 @@
   };
 
   # Use it for a stateful resource.
-  # A generated database URL and such will be stored in myStateFile.
-  resources.myDatabase = {
-    type = providers.cloud.database;
+  # A generated unique ID (for example) will be stored in myStateFile.
+  resources.myReverseProxy = {
+    type = providers.cloud.reverse_proxy;
     state = "myStateFile"; # References the state provider resource above
     inputs = {
-      size = "db.t3.micro";
-      engine = "postgres";
-      # ... other database configuration
+      rules = [
+        # ...
+      ];
     };
   };
 }

@@ -32,8 +32,8 @@ Example stateless resource:
 Example stateful resource:
 ```nix
 {
-  resourceTypes.database = {
-    description = "Instance of a CloudTM managed database";
+  resourceTypes.reverse_proxy = {
+    description = "Instance of a CloudTM managed reverse proxy";
     requireState = true;
     inputs = { /* ... (options) */ };
     outputs = { /* ... (options) */ };

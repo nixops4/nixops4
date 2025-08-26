@@ -11,7 +11,7 @@ A state provider resource, like any other resource, may be stateful or stateless
 
 For instance, the "local" provider has a `state_file` resource type, which is stateless, because all identifying information is provided as inputs, and its creation does not produce any identifiers or other significant information that is suitable for use in a declarative deployment expression.
 This makes it suitable for bootstrapping your deployment state.
-You can use it to store connection details for a more sophisticated state provider resource (like a database) that your team can access. <!-- to be proven out -->
+You can use it to store connection details for a more sophisticated state provider resource (like a cloud service) that your team can access. <!-- to be proven out -->
 
 For the rest of this page, we'll focus on `state_file`. Other state providers provide compatible behavior, but have unique approaches to storage.
 
