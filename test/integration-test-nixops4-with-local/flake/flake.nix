@@ -107,7 +107,7 @@
 
                 resources.initial_version = {
                   type = providers.local.memo;
-                  state = "state";
+                  state = [ "state" ];
                   inputs.initialize_with = config.currentVersion;
                 };
 
@@ -127,6 +127,114 @@
                     We're now at version ${toString config.currentVersion}.
                   '';
                 };
+              };
+            };
+
+          # This is a comprehensive nested deployment test
+          # It demonstrates resources with cross-deployment dependencies
+          # and complex state management across multiple deployment levels
+          nestedDeployment =
+            {
+              lib,
+              config,
+              providers,
+              withResourceProviderSystem,
+              resources,
+              deployments,
+              ...
+            }:
+            {
+              # Parent deployment creates a state file and some config values
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              resources.parentState = {
+                type = providers.local.state_file;
+                inputs.name = "nested-parent-state.json";
+              };
+
+              resources.parentVersion = {
+                type = providers.local.memo;
+                state = [ "parentState" ];
+                inputs.initialize_with = "v1.0.0";
+              };
+
+              resources.parentConfig = {
+                type = providers.local.memo;
+                state = [ "parentState" ];
+                inputs.initialize_with = "production";
+              };
+
+              # Child deployment 1 - frontend
+              deployments.frontend = {
+                resources.webVersion = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "frontend-${resources.parentVersion.value}";
+                };
+
+                resources.webConfig = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "web-${resources.parentConfig.value}";
+                };
+
+                # Nested deployment within frontend
+                deployments.assets = {
+                  resources.assetVersion = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "assets-${deployments.frontend.resources.webVersion.value}";
+                  };
+
+                  resources.assetConfig = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "cdn-config-${deployments.frontend.resources.webConfig.value}";
+                  };
+                };
+              };
+
+              # Child deployment 2 - backend
+              deployments.backend = {
+                resources.apiVersion = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "api-${resources.parentVersion.value}";
+                };
+
+                resources.apiConfig = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "backend-${resources.parentConfig.value}-frontend-${deployments.frontend.resources.webVersion.value}";
+                };
+
+                # Database deployment nested in backend
+                deployments.database = {
+                  resources.dbVersion = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "db-${deployments.backend.resources.apiVersion.value}";
+                  };
+
+                  resources.dbConfig = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "postgres-${deployments.backend.resources.apiConfig.value}";
+                  };
+                };
+              };
+
+              # Parent resource that depends on child deployments
+              resources.deploymentSummary = {
+                type = providers.local.memo;
+                state = [ "parentState" ];
+                inputs.initialize_with = lib.concatStringsSep "|" [
+                  "parent:${resources.parentVersion.value}"
+                  "frontend:${deployments.frontend.resources.webVersion.value}"
+                  "backend:${deployments.backend.resources.apiVersion.value}"
+                  "assets:${deployments.frontend.deployments.assets.resources.assetVersion.value}"
+                  "db:${deployments.backend.deployments.database.resources.dbVersion.value}"
+                ];
               };
             };
         };

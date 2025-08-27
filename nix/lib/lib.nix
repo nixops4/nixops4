@@ -40,12 +40,17 @@ let
   */
   evalDeployment =
     baseArgs:
-    { resources, resourceProviderSystem, ... }:
+    {
+      resources,
+      resourceProviderSystem,
+      deployments,
+      ...
+    }@args:
     lib.evalModules (
       baseArgs
       // {
         specialArgs = baseArgs.specialArgs // {
-          inherit resources resourceProviderSystem;
+          inherit resources resourceProviderSystem deployments;
         };
         class = "nixops4Deployment";
       }
@@ -60,6 +65,10 @@ let
 
       # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
       resources = throw "resource information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
+
+      # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
+      # FIXME: this should probably just be implemented, TBD
+      deployments = throw "sub-deployment information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
     };
 
 in
@@ -126,9 +135,7 @@ in
         let
           configuration = evalDeployment baseArgs args;
         in
-        {
-          resources = lib.mapAttrs (_: res: res._resourceForNixOps) configuration.config.resources;
-        };
+        configuration.config._export;
 
       # NOTE: not rendered! Update the `mkDeployment` docstring above!
       /**

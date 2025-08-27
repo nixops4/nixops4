@@ -204,7 +204,7 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     file_contents.as_bytes(),
                 ))?;
                 let mut state = serde_json::json!({});
-                state::apply_state_events(&mut state, stream).unwrap();
+                state::apply_state_events(&mut state, stream)?;
                 Ok(v0::StateResourceReadResponse {
                     state: serde_json::from_value(state)?,
                 })

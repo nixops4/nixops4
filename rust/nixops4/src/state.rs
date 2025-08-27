@@ -39,16 +39,18 @@ where
 }
 
 /// The state of a set of resources
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct DeploymentState {
+    #[serde(default)]
     pub resources: BTreeMap<String, ResourceState>,
     /// State of resources in nested deployments
+    #[serde(default)]
     pub deployments: BTreeMap<String, DeploymentState>,
 }
 
 impl DeploymentState {
     pub fn get_resource(&self, path: &ResourcePath) -> Option<&ResourceState> {
-        self.resources.get(&path.0)
+        self.resources.get(&path.resource_name)
     }
 }
 
@@ -64,7 +66,7 @@ pub struct ResourceState {
 }
 
 pub struct StateHandle {
-    pub past: State,
+    pub current: Mutex<State>,
     pub state_provider_resource: v0::ExtantResource,
     pub state_provider: Arc<Mutex<ResourceProviderClient>>,
 }
@@ -91,7 +93,7 @@ impl StateHandle {
             .map_err(|e| anyhow::anyhow!("Failed to parse state: {}", e))?;
 
         Ok(Arc::new(StateHandle {
-            past: state,
+            current: Mutex::new(state),
             state_provider: Arc::new(Mutex::new(provider)),
             state_provider_resource: resource.clone(),
         }))
@@ -99,43 +101,24 @@ impl StateHandle {
 
     pub async fn resource_event(
         &self,
-        resource_name: &ResourcePath,
+        resource_path: &ResourcePath,
         event: &str,
         past_resource: Option<&ResourceState>,
         current_resource: &ResourceState,
     ) -> Result<()> {
-        // Patch does not have a prefixing operation, so we reconstruct the relevant part of the state file for this
-        let current_json = serde_json::to_value(current_resource).with_context(|| {
-            format!(
-                "Failed to serialize current resource state for '{}'",
-                resource_name.0
-            )
-        })?;
-        let current_json = serde_json::json!({
-            "resources": {
-                &resource_name.0: current_json
-            }
-        });
-        let past_json = match past_resource {
-            None => serde_json::json!({
-                "resources": {}
-            }),
-            Some(past) => {
-                let past_json = serde_json::to_value(past).with_context(|| {
-                    format!(
-                        "Failed to serialize past resource state for '{}'",
-                        resource_name.0
-                    )
-                })?;
-                serde_json::json!({
-                    "resources": {
-                        &resource_name.0: past_json
-                    }
-                })
-            }
-        };
+        // Use whole-state diff approach for reliability
+        let mut current_state = self.current.lock().await;
 
-        let patch = json_patch::diff(&past_json, &current_json);
+        // Convert current deployment state to JSON
+        let old_state = serde_json::to_value(&current_state.deployment)
+            .with_context(|| "Failed to serialize current deployment state")?;
+
+        // Create new state with the resource updated
+        let mut new_state = old_state.clone();
+        update_resource_in_deployment_state(&mut new_state, resource_path, current_resource)?;
+
+        // TODO: this is expensive for large states, O(n^2)
+        let patch = json_patch::diff(&old_state, &new_state);
         // If there are no changes, don't send an event
         if patch.0.is_empty() {
             return Ok(());
@@ -147,7 +130,7 @@ impl StateHandle {
             resource: self.state_provider_resource.clone(),
             event: event.to_string(),
             nixops_version: "0.1.0".to_string(),
-            patch: patch,
+            patch: patch.clone(),
         };
 
         self.state_provider
@@ -160,9 +143,14 @@ impl StateHandle {
                 // to help with debugging while maintaining security. E.g. "resource.input_properties.password changed"
                 format!(
                     "Failed to update state for resource '{}' (type: {}) - {} field(s) changed",
-                    resource_name, current_resource.type_, patch_count
+                    resource_path, current_resource.type_, patch_count
                 )
             })?;
+
+        // Update current state after successful patch application
+        let new_deployment_state: DeploymentState = serde_json::from_value(new_state)
+            .with_context(|| "Failed to deserialize updated deployment state")?;
+        current_state.deployment = new_deployment_state;
 
         Ok(())
     }
@@ -180,5 +168,334 @@ impl StateHandle {
 impl std::fmt::Debug for StateHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State {{ ... }}")
+    }
+}
+
+/// Update a resource in a complete deployment state JSON structure.
+/// This modifies the deployment state JSON in-place to set the resource at the given path.
+fn update_resource_in_deployment_state(
+    deployment_state: &mut serde_json::Value,
+    resource_path: &ResourcePath,
+    resource_state: &ResourceState,
+) -> Result<()> {
+    let resource_json = serde_json::to_value(resource_state)
+        .with_context(|| "Failed to serialize resource state")?;
+
+    // Navigate to the correct deployment
+    let mut current = deployment_state;
+    for deployment_name in &resource_path.deployment_path.0 {
+        // Ensure deployments object exists
+        if !current.get("deployments").is_some() {
+            current["deployments"] = serde_json::json!({});
+        }
+        current = &mut current["deployments"];
+
+        // Ensure this specific deployment exists with proper structure
+        if !current.get(deployment_name).is_some() {
+            current[deployment_name] = serde_json::json!({
+                "resources": {},
+                "deployments": {}
+            });
+        }
+        current = &mut current[deployment_name];
+    }
+
+    // Ensure resources object exists at final level
+    if !current.get("resources").is_some() {
+        current["resources"] = serde_json::json!({});
+    }
+
+    // Set the resource
+    current["resources"][&resource_path.resource_name] = resource_json;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_resource_in_state_root() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {}
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath::root(),
+            resource_name: "myresource".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "test".to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        assert_eq!(state["resources"]["myresource"]["type"], "test");
+    }
+
+    #[test]
+    fn test_update_resource_in_state_nested() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {}
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
+            resource_name: "myresource".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "test".to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "myresource": {
+                            "type": "test",
+                            "input_properties": {},
+                            "output_properties": {}
+                        }
+                    },
+                    "deployments": {}
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_update_resource_with_existing_siblings() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {
+                "existing_root": {"type": "existing"}
+            },
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "existing_nested": {"type": "existing"}
+                    }
+                },
+                "deploy2": {
+                    "resources": {
+                        "sibling_resource": {"type": "sibling"}
+                    }
+                }
+            }
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
+            resource_name: "new_resource".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "new".to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {
+                "existing_root": {"type": "existing"}
+            },
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "existing_nested": {"type": "existing"},
+                        "new_resource": {
+                            "type": "new",
+                            "input_properties": {},
+                            "output_properties": {}
+                        }
+                    }
+                },
+                "deploy2": {
+                    "resources": {
+                        "sibling_resource": {"type": "sibling"}
+                    }
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_update_resource_deep_nested_existing_partial_path() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "level1": {
+                    "resources": {"existing": {"type": "existing"}},
+                    "deployments": {
+                        "level2": {
+                            "resources": {"deep_existing": {"type": "deep"}}
+                        }
+                    }
+                }
+            }
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath(vec![
+                "level1".to_string(),
+                "level2".to_string(),
+                "level3".to_string(),
+            ]),
+            resource_name: "deep_new".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "deep_new".to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "level1": {
+                    "resources": {"existing": {"type": "existing"}},
+                    "deployments": {
+                        "level2": {
+                            "resources": {"deep_existing": {"type": "deep"}},
+                            "deployments": {
+                                "level3": {
+                                    "resources": {
+                                        "deep_new": {
+                                            "type": "deep_new",
+                                            "input_properties": {},
+                                            "output_properties": {}
+                                        }
+                                    },
+                                    "deployments": {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_update_resource_completely_new_path() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {"root_resource": {"type": "root"}}
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath(vec![
+                "new_branch".to_string(),
+                "new_subbranch".to_string(),
+            ]),
+            resource_name: "new_resource".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "brand_new".to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {"root_resource": {"type": "root"}},
+            "deployments": {
+                "new_branch": {
+                    "resources": {},
+                    "deployments": {
+                        "new_subbranch": {
+                            "resources": {
+                                "new_resource": {
+                                    "type": "brand_new",
+                                    "input_properties": {},
+                                    "output_properties": {}
+                                }
+                            },
+                            "deployments": {}
+                        }
+                    }
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_update_resource_overwrites_existing() {
+        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
+
+        let mut state = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "target_resource": {"type": "old_type", "data": "old"}
+                    }
+                }
+            }
+        });
+
+        let resource_path = ResourcePath {
+            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
+            resource_name: "target_resource".to_string(),
+        };
+
+        let resource_state = ResourceState {
+            type_: "new_type".to_string(),
+            input_properties: {
+                let mut map = serde_json::Map::new();
+                map.insert("new_input".to_string(), serde_json::json!("new_value"));
+                map
+            },
+            output_properties: serde_json::Map::new(),
+        };
+
+        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "target_resource": {
+                            "type": "new_type",
+                            "input_properties": {
+                                "new_input": "new_value"
+                            },
+                            "output_properties": {}
+                        }
+                    }
+                }
+            }
+        });
+        assert_eq!(state, expected);
     }
 }

@@ -215,6 +215,19 @@ impl EvaluationDriver {
                 })
                 .await
             }
+            EvalRequest::LoadNestedDeployment(req) => {
+                self.handle_assign_request(req, |this, req| {
+                    let parent_deployment = this.get_value(req.parent_deployment)?.clone();
+                    let deployments_attrset = this
+                        .eval_state
+                        .require_attrs_select(&parent_deployment, "deployments")?;
+                    let deployment = this
+                        .eval_state
+                        .require_attrs_select(&deployments_attrset, &req.name)?;
+                    Ok(deployment)
+                })
+                .await
+            }
             EvalRequest::ListResources(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
@@ -306,20 +319,27 @@ fn perform_load_deployment(
                         # other args, such as resourceProviderSystem
                         extraArgs:
                         let
-                          arg = {
-                            inherit resources;
-                          } // extraArgs;
-                          resources =
-                            builtins.mapAttrs
-                              (name: value:
-                                builtins.mapAttrs
-                                  (loadResourceAttr name)
-                                  (value.outputsSkeleton
-                                    or value.provider.types.${value.type}.outputs
-                                    or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
-                              )
-                              fixpoint.resources;
-                          fixpoint = deploymentFunction arg;
+                          inherit (builtins) mapAttrs;
+
+                          makeArguments = subdeploymentPath: declarations:
+                            extraArgs // {
+                              resources =
+                                mapAttrs
+                                  (name: value:
+                                    mapAttrs
+                                      (loadResourceAttr subdeploymentPath name)
+                                      (value.outputsSkeleton
+                                        or value.provider.types.${value.type}.outputs
+                                        or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
+                                  )
+                                  declarations.resources or {};
+                              deployments =
+                                mapAttrs
+                                  (name: value:
+                                    makeArguments (subdeploymentPath ++ [name]) value)
+                                  declarations.deployments or {};
+                            };
+                          fixpoint = deploymentFunction (makeArguments [] fixpoint);
                         in
                           fixpoint
                     "#;
@@ -329,13 +349,30 @@ fn perform_load_deployment(
         PrimOpMeta {
             name: cstr!("nixopsLoadResourceAttr"),
             doc: cstr!("Internal function that loads a resource attribute."),
-            args: [cstr!("resourceName"), cstr!("attrName"), cstr!("ignored")],
+            args: [
+                cstr!("deploymentNestingPath"),
+                cstr!("resourceName"),
+                cstr!("attrName"),
+                cstr!("ignored"),
+            ],
         },
-        Box::new(move |es, [resource_name, attr_name, _]| {
+        Box::new(move |es, [deployment_path, resource_name, attr_name, _]| {
+            let deployment_path = {
+                let value_list = es.require_list_strict(deployment_path)?;
+                let mut path = Vec::new();
+                for value in value_list {
+                    let deployment_name = es.require_string(&value)?;
+                    path.push(deployment_name);
+                }
+                path
+            };
             let resource_name = es.require_string(resource_name)?;
             let attr_name = es.require_string(attr_name)?;
             let property = NamedProperty {
-                resource: nixops4_core::eval_api::ResourcePath(resource_name.to_string()),
+                resource: nixops4_core::eval_api::ResourcePath {
+                    deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
+                    resource_name: resource_name.to_string(),
+                },
                 name: attr_name.to_string(),
             };
             let val = {
@@ -351,13 +388,8 @@ fn perform_load_deployment(
                 {
                     Err(anyhow::anyhow!(
                         "__internal_exception_load_resource_property_#{}#",
-                        base64::engine::general_purpose::STANDARD.encode(
-                            serde_json::to_string(&NamedProperty {
-                                resource: nixops4_core::eval_api::ResourcePath(resource_name),
-                                name: attr_name
-                            })
-                            .unwrap()
-                        ),
+                        base64::engine::general_purpose::STANDARD
+                            .encode(serde_json::to_string(&property).unwrap()),
                     ))
                 }
             }
@@ -409,16 +441,30 @@ fn parse_resource(
     let resource_type_str = eval_state.require_string(&resource_type_value)?;
     let resource_state_value = eval_state.require_attrs_select(&resource, "state")?;
     let resource_state_value_type = eval_state.value_type(&resource_state_value)?;
-    let resource_state_opt_str = match resource_state_value_type {
+    let resource_state_opt = match resource_state_value_type {
         ValueType::Null => None,
-        ValueType::String => Some(eval_state.require_string(&resource_state_value)?),
-        _ => bail!("expected state to be a string or null"),
+        ValueType::List => {
+            let state_list = eval_state.require_list_strict(&resource_state_value)?;
+            if state_list.is_empty() {
+                bail!("expected state list to be non-empty");
+            }
+            let mut deployment_path = Vec::new();
+            for value in &state_list[..state_list.len() - 1] {
+                deployment_path.push(eval_state.require_string(value)?);
+            }
+            let resource_name = eval_state.require_string(&state_list[state_list.len() - 1])?;
+            Some(nixops4_core::eval_api::ResourcePath {
+                deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
+                resource_name,
+            })
+        }
+        _ => bail!("expected state to be a list of strings or null"),
     };
     Ok(ResourceProviderInfo {
         id: req.to_owned(),
         provider: provider_json,
         resource_type: resource_type_str,
-        state: resource_state_opt_str,
+        state: resource_state_opt,
     })
 }
 
@@ -820,7 +866,7 @@ mod tests {
                     nixops4Deployments = {
                         example = {
                             _type = "nixops4Deployment";
-                            deploymentFunction = { resources, resourceProviderSystem }:
+                            deploymentFunction = { resources, resourceProviderSystem, deployments, ... }:
                             assert resourceProviderSystem == builtins.currentSystem;
                             {
                                 resources = {
@@ -910,7 +956,7 @@ mod tests {
                 r#"{
                 provider = { example = "config"; };
                 type = "example";
-                state = "stateful";
+                state = ["stateful"];
             }"#,
                 "<test-resource-with-state>",
             )
@@ -929,7 +975,13 @@ mod tests {
 
         assert_eq!(result.id, req_id);
         assert_eq!(result.resource_type, "example");
-        assert_eq!(result.state, Some("stateful".to_string()));
+        assert_eq!(
+            result.state,
+            Some(nixops4_core::eval_api::ResourcePath {
+                deployment_path: nixops4_core::eval_api::DeploymentPath::root(),
+                resource_name: "stateful".to_string(),
+            })
+        );
         assert_eq!(
             result.provider.get("example").unwrap().as_str().unwrap(),
             "config"

@@ -53,7 +53,7 @@ pub(crate) async fn apply(
         .await?;
 
         let work_context = WorkContext {
-            deployment_id,
+            root_deployment_id: deployment_id,
             options: options.clone(),
             interrupt_state: interrupt_state.clone(),
             eval_sender: s.clone(),
@@ -82,7 +82,9 @@ pub(crate) async fn apply(
                 }
                 Ok(())
             });
-            let r = tasks.run(Goal::Apply()).await;
+            let r = tasks
+                .run(Goal::Apply(nixops4_core::eval_api::DeploymentPath::root()))
+                .await;
 
             // TODO: These cleanup operations should collect all errors and report them together
             // instead of stopping at the first error, since we want all cleanup to complete
