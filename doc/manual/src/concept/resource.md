@@ -25,3 +25,70 @@ When a resource type has `requireState = true`:
 When a resource type has `requireState = false`:
 - The resource does not need a state handler
 - The resource is stateless and can be idempotently recreated from its inputs
+
+## Resource Dependencies
+
+Resources can depend on each other in two different ways:
+
+### Output → Input Dependencies
+
+Most dependencies between resources involve one resource's output becomes another resource's input.
+The resource graph topology is static:
+
+```nix
+{ resources, ... }:
+{
+  resources.database = {
+    type = "postgresql_database";
+    inputs.name = "myapp";
+  };
+
+  resources.user = {
+    type = "postgresql_user";
+    inputs.database = resources.database.name;
+  };
+}
+```
+
+### Structural Dependencies
+
+The resource graph topology itself depends on resource outputs. Sub-deployment attributes are computed dynamically.
+
+```nix
+{ lib, resources, ... }:
+{
+  resources.settings = {
+    imports = [ ./settings-resource.nix ];
+    inputs.location = "https://panel.example.com/config.json";
+  };
+
+  deployments = {
+    clients.deployments =
+      # Structural dependency: the deployments structure under clients depends on the outputs of the settings resource
+      lib.mapAttrs
+        (clientName: clientConfig: {
+          imports = [ ./client.nix ];
+          clientConfig = clientConfig;
+        })
+        resources.settings.clients;
+
+    shared = {
+      resources = {
+        # Resources here would not be structural dependencies
+      }
+      # This conditional resource is also a structural dependency on the settings resource
+      // lib.optionalAttrs resources.settings.logging.enable {
+        log_token = {
+          # ...
+        };
+      };
+    };
+  };
+}
+```
+
+Structural dependencies can only refer to `resources` attrsets that can be evaluated independently of the affected structure, so sub-`deployments` are required.
+Specifically:
+- A structural dependency in `resources` can not refer to any of the resources contained within that resource set.
+- Similarly a structural dependency in `deployments` can not be self-referential either.
+- It *is* possible to refer to the parent deployment or its other descendant deployments, assuming no mutual structural dependencies.
