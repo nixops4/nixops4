@@ -18,6 +18,7 @@ serde_json = { version = "1.0" }
 json-patch = "4.0"
 fd-lock = "4.0"
 chrono = "0.4"
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 tempfile = { version = "3.17" }
