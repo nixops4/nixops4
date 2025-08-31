@@ -26,8 +26,7 @@ in
     provider.executable = config.type.provider.executable;
     provider.args = config.type.provider.args;
     resourceType = config.type.type;
-    outputsSkeleton = config.type.outputsSkeleton;
-    requireState = config.type.requireState;
+    inherit (config.type) outputsSkeleton requireState isOptionalInputName;
     inputs =
       { ... }:
       {
