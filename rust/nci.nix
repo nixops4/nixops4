@@ -79,5 +79,27 @@
           };
         };
       };
+
+      nci.crates.nixops4-resources-terraform.drvConfig = {
+        env =
+          let
+            # TODO:
+            #  - figure out how Nixpkgs achieves a locked terraform command
+            #  - is that the right way to go about things for us?
+            #  - adopt this elsewhere, drop it, and/or accept this as an ad hoc testing solution
+            providerPath =
+              pkg:
+              "${pkg}/libexec/terraform-providers/${pkg.provider-source-address}/${pkg.version}/${pkg.GOOS}_${pkg.GOARCH}/${pkg.pname}_${pkg.version}";
+          in
+          {
+            _NIXOPS4_TEST_TERRAFORM_PROVIDER_LOCAL = providerPath pkgs.terraform-providers.local;
+          };
+        mkDerivation = {
+          # Should be nativeCheckInputs, but that doesn't seem wired up in nix-cargo-integration or its dependencies (dream2nix)
+          nativeBuildInputs = [ pkgs.protobuf ];
+          meta.mainProgram = "nixops4-resources-terraform";
+        };
+      };
+
     };
 }

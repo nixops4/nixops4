@@ -53,8 +53,12 @@ struct StateFileInProperties {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 struct StateFileOutProperties {}
 
+#[async_trait::async_trait]
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
-    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse> {
+    async fn create(
+        &self,
+        request: v0::CreateResourceRequest,
+    ) -> Result<v0::CreateResourceResponse> {
         match request.type_.as_str() {
             "file" => do_create(request, |p: FileInProperties| {
                 std::fs::write(&p.name, &p.contents)?;
@@ -149,7 +153,10 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
         }
     }
 
-    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse> {
+    async fn update(
+        &self,
+        request: v0::UpdateResourceRequest,
+    ) -> Result<v0::UpdateResourceResponse> {
         match request.resource.type_.as_str() {
             "file" => {
                 bail!("Internal error: update called on stateless file resource");
@@ -188,7 +195,7 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
         }
     }
 
-    fn state_read(
+    async fn state_read(
         &self,
         request: v0::StateResourceReadRequest,
     ) -> Result<v0::StateResourceReadResponse> {
@@ -216,7 +223,7 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
         }
     }
 
-    fn state_event(
+    async fn state_event(
         &self,
         request: v0::StateResourceEvent,
     ) -> Result<v0::StateResourceEventResponse> {
@@ -253,12 +260,12 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     f: impl Fn(In) -> Result<Out>,
 ) -> std::prelude::v1::Result<v0::CreateResourceResponse, anyhow::Error> {
     let parsed_properties: In = serde_json::from_value(Value::Object(
-        request.input_properties.0.into_iter().collect(),
+        request.clone().input_properties.0.into_iter().collect(),
     ))
     .with_context(|| {
         format!(
-            "Could not deserialize input properties for {} resource",
-            request.type_
+            "Could not deserialize input properties for {} resource: {:?}",
+            request.type_, request
         )
     })?;
 
@@ -325,6 +332,7 @@ fn parse_input_properties<T: for<'de> Deserialize<'de>>(
     })
 }
 
-fn main() {
-    run_main(LocalResourceProvider {})
+#[tokio::main]
+async fn main() {
+    run_main(LocalResourceProvider {}).await
 }

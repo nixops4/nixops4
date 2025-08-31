@@ -53,12 +53,28 @@ in
       '';
     };
     inputs = mkOption {
-      type = types.submodule { };
+      type = types.submodule (
+        { options, ... }:
+        {
+          # Ugly smuggle until we can confidently "pretty smuggle" with https://github.com/NixOS/nixpkgs/pull/391544
+          options._options = lib.mkOption {
+            internal = true;
+          };
+          config._options = options;
+        }
+      );
       description = ''
         The inputs to the resource.
 
         These parameters primarily control the configuration of the resource.
         They are set by you (a module author or configuration author) and are passed to the resource provider executable.
+      '';
+    };
+    isOptionalInputName = mkOption {
+      type = types.functionTo types.bool;
+      default = _: false;
+      description = ''
+        Whether the named input is optional or not. If optional and undefined, no error is raised, and it is not passed to the resource provider.
       '';
     };
     outputs = mkOption {
@@ -105,10 +121,30 @@ in
     _resourceForNixOps = {
       inherit (config)
         provider
-        inputs
         outputsSkeleton
         state
         ;
+
+      inputs =
+        lib.mapAttrs
+          (
+            name: value:
+            # Provide appropriate values: actual value if defined, null if optional and undefined
+            if config.inputs._options.${name}.isDefined then
+              value
+            else if config.isOptionalInputName name then
+              null
+            else
+              value # Required inputs should always be defined
+          )
+          (
+            lib.filterAttrs (
+              name: _v:
+              # Only exclude the options retrieval hack
+              name != "_options"
+            ) config.inputs
+          );
+
       type = config.resourceType;
     };
   };

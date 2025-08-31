@@ -468,6 +468,30 @@ fn parse_resource(
     })
 }
 
+fn handle_resource_dependency_error(
+    e: anyhow::Error,
+    dependent: nixops4_core::eval_api::Property,
+) -> std::result::Result<ResourceInputState, anyhow::Error> {
+    let s = e.to_string();
+    if s.contains("__internal_exception_load_resource_property_#") {
+        let base64_str = s
+            .split("__internal_exception_load_resource_property_#")
+            .collect::<Vec<&str>>()[1]
+            .split("#")
+            .collect::<Vec<&str>>()[0];
+        let json_str = base64::engine::general_purpose::STANDARD.decode(base64_str)?;
+        let named_property: NamedProperty = serde_json::from_slice(&json_str)?;
+        Ok(ResourceInputState::ResourceInputDependency(
+            ResourceInputDependency {
+                dependent,
+                dependency: named_property,
+            },
+        ))
+    } else {
+        Err(e)
+    }
+}
+
 fn perform_get_resource_input(
     this: &mut EvaluationDriver,
     req: &nixops4_core::eval_api::Property,
@@ -484,26 +508,7 @@ fn perform_get_resource_input(
             req.to_owned(),
             json,
         ))),
-        Err(e) => {
-            let s = e.to_string();
-            if s.contains("__internal_exception_load_resource_property_#") {
-                let base64_str = s
-                    .split("__internal_exception_load_resource_property_#")
-                    .collect::<Vec<&str>>()[1]
-                    .split("#")
-                    .collect::<Vec<&str>>()[0];
-                let json_str = base64::engine::general_purpose::STANDARD.decode(base64_str)?;
-                let named_property: NamedProperty = serde_json::from_slice(&json_str)?;
-                Ok(ResourceInputState::ResourceInputDependency(
-                    ResourceInputDependency {
-                        dependent: req.to_owned(),
-                        dependency: named_property,
-                    },
-                ))
-            } else {
-                Err(e)
-            }
-        }
+        Err(e) => handle_resource_dependency_error(e, req.to_owned()),
     }
 }
 

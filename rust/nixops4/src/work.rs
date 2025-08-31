@@ -270,7 +270,7 @@ impl WorkContext {
                 .await
                 .context("waiting for ListResources response")?;
             match r {
-                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::Error(_id, e) => bail!("while listing resources: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ListResources((_dt, resource_names)) => {
@@ -377,7 +377,7 @@ impl WorkContext {
                 .await
                 .context("waiting for GetResourceProviderInfo response")?;
             match r {
-                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::Error(_id, e) => bail!("while getting provider info: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ResourceProviderInfo(info) => {
@@ -411,7 +411,7 @@ impl WorkContext {
                 .await
                 .context("waiting for ListResourceInputs response")?;
             match r {
-                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::Error(_id, e) => bail!("while listing resource inputs: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ListResourceInputs((_id, input_names)) => {
@@ -454,7 +454,11 @@ impl WorkContext {
                 .await
                 .context("waiting for GetResourceInputValue response")?;
             match r {
-                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::Error(_id, e) => bail!(
+                    "while evaluating resource input value {}: {}",
+                    input_name,
+                    e
+                ),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ResourceInputState((_, state)) => {

@@ -123,6 +123,14 @@ in
       '';
     };
 
+    isOptionalInputName = mkOption {
+      type = types.functionTo types.bool;
+      default = _: false;
+      description = ''
+        Whether the named input is optional or not. If optional and undefined, no error is raised, and it is not passed to the resource provider.
+      '';
+    };
+
     outputs = mkOption {
       type = types.deferredModule;
       description = ''
