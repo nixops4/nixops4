@@ -20,7 +20,10 @@
       ...
     }:
     {
-
+      # Run with either:
+      #   nix-unit --flake .#tests.systems.<system>
+      # or, slower:
+      #   nix build .#checks.<system>.nix-unit
       nix-unit.tests = {
         lib = import ../nix/lib/tests.nix {
           inherit lib self system;
