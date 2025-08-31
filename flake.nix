@@ -32,6 +32,9 @@
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
           ./test/nixos/flake-module.nix
+          ./nix/flake-parts/builders.nix
+          ./nix/render-provider-docs/flake-module.nix
+          ./nix/tf-provider-to-module/flake-module.nix
         ];
         systems = [
           "x86_64-linux"
@@ -72,6 +75,14 @@
             packages.nix = config.nix-bindings-rust.nixPackage;
 
             nix-bindings-rust.nixPackage = inputs'.nix.packages.nix;
+
+            # Sample; needs to become a golden test, using a specific version of the provider
+            packages.postgresql-provider-docs = self.lib.renderProviderDocs {
+              system = pkgs.system;
+              module = self.lib.tfProviderToModule {
+                tfProvider = pkgs.terraform-providers.postgresql;
+              };
+            };
 
             checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
             checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {

@@ -1,4 +1,4 @@
-{
+top@{
   lib,
   inputs,
   self,
@@ -10,10 +10,31 @@
     inputs.pre-commit-hooks-nix.flakeModule
     inputs.hercules-ci-effects.flakeModule
     inputs.nix-unit.modules.flake.default
+    (
+      # Expose the module arguments in config. We should probably have this in flake-parts and/or module system
+      { config, specialArgs, ... }:
+      {
+        options.myModuleArguments = lib.mkOption { };
+        config.myModuleArguments = config._module.args // specialArgs;
+      }
+    )
   ];
+
+  # Create a partition with mocked packages for faster nix-unit testing
+  # This provides a mocked self and selfWithSystem.
+  partitions.unit-test-mock.module = {
+    perSystem =
+      { pkgs, ... }:
+      {
+        # nci uses something like mkDefault here, so we can override this with ease
+        packages.nixops4-resources-terraform-release = pkgs.writeScriptBin "mock-nixops4-resources-terraform" "mock-binary";
+      };
+  };
+
   perSystem =
     {
       config,
+      options,
       pkgs,
       inputs',
       system,
@@ -32,11 +53,25 @@
           flake-parts = inputs.flake-parts;
           nixops4 = self;
         };
+        tf-provider-to-module = import ../nix/tf-provider-to-module/tests/test.nix {
+          inherit lib system;
+
+          # Use partition's withSystem that has mocked packages
+          selfWithSystem = top.config.partitions.unit-test-mock.module.myModuleArguments.withSystem;
+          # .flake: note that this is not a complete flake yet with inputs, outputs, outPath, sourceInfo, ...
+          self = top.config.partitions.unit-test-mock.module.flake;
+        };
+        tf-provider-to-module-real = lib.optionalAttrs (!options ? nciIsMocked) (
+          import ../nix/tf-provider-to-module/tests/test.nix {
+            inherit lib self system;
+            selfWithSystem = withSystem;
+          }
+        );
       };
       nix-unit.inputs = {
-        inherit (inputs) flake-parts nixpkgs nix-cargo-integration;
+        inherit (inputs) flake-parts nixpkgs;
         "flake-parts/nixpkgs-lib" = inputs.flake-parts.inputs.nixpkgs-lib;
-        "nix-cargo-integration/treefmt" = inputs.nix-cargo-integration.inputs.treefmt;
+        "nix-cargo-integration" = ./mock-nci;
         "nix-bindings-rust" = inputs.nix-bindings-rust;
       };
       nix-unit.allowNetwork = true;
@@ -71,6 +106,9 @@
           strictDeps = true;
           inputsFrom = [ config.nci.outputs.nixops4-project.devShell ];
           inherit (config.nci.outputs.nixops4-project.devShell.env) LIBCLANG_PATH;
+          inherit (config.nci.outputs.nixops4-project.devShell.env)
+            _NIXOPS4_TEST_TERRAFORM_PROVIDER_LOCAL
+            ;
           NIX_DEBUG_INFO_DIRS =
             let
               # TODO: add to Nixpkgs lib
@@ -96,6 +134,7 @@
             pkgs.gdb
             pkgs.hci
             inputs'.nix-unit.packages.nix-unit
+            pkgs.protobuf # For tonic-prost-build
           ]
           ++ config.packages.manual.externalBuildTools;
           shellHook = ''

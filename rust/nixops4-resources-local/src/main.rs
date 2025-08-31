@@ -256,12 +256,12 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
     f: impl Fn(In) -> Result<Out>,
 ) -> std::prelude::v1::Result<v0::CreateResourceResponse, anyhow::Error> {
     let parsed_properties: In = serde_json::from_value(Value::Object(
-        request.input_properties.0.into_iter().collect(),
+        request.clone().input_properties.0.into_iter().collect(),
     ))
     .with_context(|| {
         format!(
-            "Could not deserialize input properties for {} resource",
-            request.type_
+            "Could not deserialize input properties for {} resource: {:?}",
+            request.type_, request
         )
     })?;
 
