@@ -9,16 +9,22 @@ use nix::unistd::{dup, dup2};
 use crate::schema::v0;
 
 pub trait ResourceProvider {
-    fn create(&self, request: v0::CreateResourceRequest) -> Result<v0::CreateResourceResponse>;
-    fn update(&self, request: v0::UpdateResourceRequest) -> Result<v0::UpdateResourceResponse>;
-    fn state_read(
+    async fn create(
+        &self,
+        request: v0::CreateResourceRequest,
+    ) -> Result<v0::CreateResourceResponse>;
+    async fn update(
+        &self,
+        request: v0::UpdateResourceRequest,
+    ) -> Result<v0::UpdateResourceResponse>;
+    async fn state_read(
         &self,
         request: v0::StateResourceReadRequest,
     ) -> Result<v0::StateResourceReadResponse> {
         let _ = request;
         anyhow::bail!("State read operation not implemented by resource provider")
     }
-    fn state_event(
+    async fn state_event(
         &self,
         request: v0::StateResourceEvent,
     ) -> Result<v0::StateResourceEventResponse> {
@@ -38,7 +44,7 @@ fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<
     out.flush().context("flushing response")
 }
 
-pub fn run_main(provider: impl ResourceProvider) {
+pub async fn run_main(provider: impl ResourceProvider) {
     let pipe = {
         let pipe = init_stdio();
         pipe_fds_to_files(pipe)
@@ -73,6 +79,7 @@ pub fn run_main(provider: impl ResourceProvider) {
             v0::Request::CreateResourceRequest(r) => {
                 let resp = provider
                     .create(r)
+                    .await
                     .with_context(|| "Could not create resource")
                     .unwrap_or_exit();
                 write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
@@ -82,6 +89,7 @@ pub fn run_main(provider: impl ResourceProvider) {
             v0::Request::UpdateResourceRequest(r) => {
                 let resp = provider
                     .update(r)
+                    .await
                     .with_context(|| "Could not update resource")
                     .unwrap_or_exit();
                 write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
@@ -91,6 +99,7 @@ pub fn run_main(provider: impl ResourceProvider) {
             v0::Request::StateResourceEvent(r) => {
                 let resp = provider
                     .state_event(r)
+                    .await
                     .with_context(|| "Could not handle state event")
                     .unwrap_or_exit();
                 write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
@@ -100,6 +109,7 @@ pub fn run_main(provider: impl ResourceProvider) {
             v0::Request::StateResourceReadRequest(r) => {
                 let resp = provider
                     .state_read(r)
+                    .await
                     .with_context(|| "Could not read state")
                     .unwrap_or_exit();
                 write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
