@@ -49,7 +49,7 @@ fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<
     out.flush().context("flushing response")
 }
 
-pub async fn run_main(provider: impl ResourceProvider) {
+pub async fn run_main(provider: impl ResourceProvider + Sync) {
     let pipe = {
         let pipe = init_stdio();
         pipe_fds_to_files(pipe)
