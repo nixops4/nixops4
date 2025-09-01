@@ -1150,17 +1150,28 @@ impl WorkContext {
                                 provider_info.resource_type
                             );
                         }
-                        let outputs = provider
-                            .update(
-                                provider_info.resource_type.as_str(),
-                                &inputs,
-                                &past_resource.input_properties,
-                                &past_resource.output_properties,
-                            )
-                            .await
-                            .with_context(|| {
-                                format!("Failed to update resource {}", resource_path)
-                            })?;
+
+                        // Skip update if inputs haven't changed
+                        let outputs = if inputs == past_resource.input_properties {
+                            tracing::info!(
+                                "Skipping update for resource {}: inputs unchanged",
+                                resource_path
+                            );
+                            past_resource.output_properties.clone()
+                        } else {
+                            tracing::info!("Updating resource {}: inputs changed", resource_path);
+                            provider
+                                .update(
+                                    provider_info.resource_type.as_str(),
+                                    &inputs,
+                                    &past_resource.input_properties,
+                                    &past_resource.output_properties,
+                                )
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to update resource {}", resource_path)
+                                })?
+                        };
                         let current_resource = crate::state::ResourceState {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
