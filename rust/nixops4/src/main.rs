@@ -1,5 +1,6 @@
 mod apply;
 mod control;
+mod dump_state;
 mod eval_client;
 mod interrupt;
 mod logging;
@@ -51,6 +52,16 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             };
             Ok(())
         }
+        Commands::State(sub) => match sub {
+            State::Dump { resource_path } => {
+                let mut logging = set_up_logging(interrupt_state, &args)?;
+                let state =
+                    dump_state::dump_state(interrupt_state, &args.options, resource_path).await?;
+                logging.tear_down()?;
+                println!("{}", state);
+                Ok(())
+            }
+        },
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -273,6 +284,15 @@ enum Members {
 }
 
 #[derive(Subcommand, Debug)]
+enum State {
+    /// Dump the resolved state for a resource path
+    Dump {
+        /// Resource path to dump state for (dot-separated, e.g., "production.state")
+        resource_path: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Apply changes so that the resources are in the desired state.
     ///
@@ -284,6 +304,10 @@ enum Commands {
     /// Commands that operate on component members
     #[command(subcommand)]
     Members(Members),
+
+    /// Commands that operate on state
+    #[command(subcommand)]
+    State(State),
 
     /// Generate markdown documentation for nixops4-resource-runner
     #[command(hide = true)]
