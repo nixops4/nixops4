@@ -1,5 +1,6 @@
 mod apply;
 mod control;
+mod dump_state;
 mod eval_client;
 mod interrupt;
 mod logging;
@@ -49,6 +50,24 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             };
             Ok(())
         }
+        Commands::State(sub) => match sub {
+            State::Dump {
+                resource_path,
+                deployment,
+            } => {
+                let mut logging = set_up_logging(interrupt_state, &args)?;
+                let state = dump_state::dump_state(
+                    interrupt_state,
+                    &args.options,
+                    resource_path,
+                    deployment,
+                )
+                .await?;
+                logging.tear_down()?;
+                println!("{}", state);
+                Ok(())
+            }
+        },
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -224,6 +243,18 @@ enum Deployments {
 }
 
 #[derive(Subcommand, Debug)]
+enum State {
+    /// Dump the resolved deployment state for a resource path
+    Dump {
+        /// Resource path to dump state for
+        resource_path: String,
+        /// Deployment name
+        #[arg(short, long, default_value = "default")]
+        deployment: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Apply changes so that the resources are in the desired state
     #[command()]
@@ -232,6 +263,10 @@ enum Commands {
     /// Commands that operate on all deployments
     #[command(subcommand)]
     Deployments(Deployments),
+
+    /// Commands that operate on state
+    #[command(subcommand)]
+    State(State),
 
     /// Generate markdown documentation for nixops4-resource-runner
     #[command(hide = true)]
