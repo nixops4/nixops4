@@ -69,8 +69,8 @@ impl ResourceProvider for TerraformProvider {
         let resource_inputs = Self::extract_resource_inputs(&request.input_properties.0);
 
         // Debug: log the configuration being sent
-        eprintln!("DEBUG: Provider config: {:?}", provider_config);
-        eprintln!("DEBUG: Resource inputs: {:?}", resource_inputs);
+        // eprintln!("DEBUG: Provider config: {:?}", provider_config);
+        // eprintln!("DEBUG: Resource inputs: {:?}", resource_inputs);
 
         // Configure the provider if we have provider config
         if !provider_config.is_empty() {
@@ -130,8 +130,8 @@ impl ResourceProvider for TerraformProvider {
         let resource_inputs = Self::extract_resource_inputs(&request.input_properties.0);
 
         // Debug: log the configuration being sent
-        eprintln!("DEBUG UPDATE: Provider config: {:?}", provider_config);
-        eprintln!("DEBUG UPDATE: Resource inputs: {:?}", resource_inputs);
+        // eprintln!("DEBUG UPDATE: Provider config: {:?}", provider_config);
+        // eprintln!("DEBUG UPDATE: Resource inputs: {:?}", resource_inputs);
 
         // Configure the provider if we have provider config
         if !provider_config.is_empty() {

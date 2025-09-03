@@ -133,14 +133,14 @@ impl ClientConnection {
             serde_json::to_vec(&json_object).context("Failed to serialize config to JSON")?;
         let msgpack_bytes =
             rmp_serde::to_vec(&json_object).context("Failed to serialize config to msgpack")?;
-        eprintln!(
-            "DEBUG: Sending JSON to terraform provider v5: {}",
-            String::from_utf8_lossy(&json_bytes)
-        );
-        eprintln!(
-            "DEBUG: Sending msgpack to terraform provider v5: {} bytes",
-            msgpack_bytes.len()
-        );
+        // eprintln!(
+        //     "DEBUG: Sending JSON to terraform provider v5: {}",
+        //     String::from_utf8_lossy(&json_bytes)
+        // );
+        // eprintln!(
+        //     "DEBUG: Sending msgpack to terraform provider v5: {} bytes",
+        //     msgpack_bytes.len()
+        // );
 
         Ok(super::grpc::tfplugin5_9::DynamicValue {
             msgpack: msgpack_bytes,
@@ -217,10 +217,10 @@ impl ClientConnection {
 
         // Create complete planned state with null values for missing optional attributes
         let complete_planned_state = Self::complete_resource_state(planned_state, resource_block)?;
-        eprintln!(
-            "DEBUG: Complete planned state: {:?}",
-            complete_planned_state
-        );
+        // eprintln!(
+        //     "DEBUG: Complete planned state: {:?}",
+        //     complete_planned_state
+        // );
 
         // Also complete the prior state if it exists
         let complete_prior_state = match &prior_state {
@@ -468,7 +468,7 @@ impl ClientConnection {
             if let serde_json::Value::Object(map) = json_value {
                 Ok(map.into_iter().collect())
             } else {
-                eprintln!("DEBUG: JSON value is not an object: {:?}", json_value);
+                // eprintln!("DEBUG: JSON value is not an object: {:?}", json_value);
                 bail!("Expected JSON object in DynamicValue")
             }
         } else if !dynamic_value.msgpack.is_empty() {
@@ -476,14 +476,14 @@ impl ClientConnection {
             let json_value: serde_json::Value = rmp_serde::from_slice(&dynamic_value.msgpack)
                 .context("Failed to parse MessagePack from DynamicValue")?;
 
-            eprintln!("DEBUG: Parsed msgpack value: {:?}", json_value);
+            // eprintln!("DEBUG: Parsed msgpack value: {:?}", json_value);
             if let serde_json::Value::Object(map) = json_value {
                 Ok(map.into_iter().collect())
             } else {
-                eprintln!(
-                    "DEBUG: MessagePack value is not an object: {:?}",
-                    json_value
-                );
+                // eprintln!(
+                //     "DEBUG: MessagePack value is not an object: {:?}",
+                //     json_value
+                // );
                 bail!("Expected JSON object from MessagePack in DynamicValue")
             }
         } else {
