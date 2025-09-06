@@ -1,6 +1,8 @@
 
 # NixOps4
 
+See https://nixops.dev.
+
 This project is intended to replace and improve on [NixOps 2](https://github.com/NixOS/nixops).
 It fixes a number of structural issues through a rewrite from first principles.
 
