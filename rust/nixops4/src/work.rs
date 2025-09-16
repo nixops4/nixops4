@@ -9,8 +9,9 @@ use crate::{
 };
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
-    self, AssignRequest, DeploymentType, EvalRequest, EvalResponse, Id, IdNum, NamedProperty,
-    Property, QueryResponseValue, ResourceInputState, ResourceRequest, ResourceType,
+    self, AssignRequest, DeploymentPath, DeploymentType, EvalRequest, EvalResponse, Id, IdNum,
+    NamedProperty, NestedDeploymentRequest, Property, QueryResponseValue, ResourceInputState,
+    ResourcePath, ResourceRequest, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -26,21 +27,27 @@ use tracing::{info_span, Instrument as _};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
-    Apply(),
-    ListResources(),
-    GetResourceProviderInfo(Id<ResourceType>, String),
-    ListResourceInputs(Id<ResourceType>, String),
-    GetResourceInputValue(Id<ResourceType>, String, String),
+    Apply(DeploymentPath),
+    ListResources(DeploymentPath),
+    AssignDeploymentId(DeploymentPath),
+    AssignResourceId(ResourcePath),
+    GetResourceProviderInfo(Id<ResourceType>, ResourcePath),
+    ListResourceInputs(Id<ResourceType>, ResourcePath),
+    GetResourceInputValue(Id<ResourceType>, ResourcePath, String),
     // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
-    GetResourceOutputValue(Id<ResourceType>, String, String),
-    ApplyResource(Id<ResourceType>, String),
-    RunState(Id<ResourceType>, String),
+    GetResourceOutputValue(Id<ResourceType>, ResourcePath, String),
+    ApplyResource(Id<ResourceType>, ResourcePath),
+    RunState(Id<ResourceType>, ResourcePath),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Goal::Apply() => write!(f, "Apply"),
-            Goal::ListResources() => write!(f, "List resources"),
+            Goal::Apply(path) => write!(f, "Apply deployment {:?}", path.0),
+            Goal::ListResources(path) => write!(f, "List resources in deployment {:?}", path.0),
+            Goal::AssignDeploymentId(path) => {
+                write!(f, "Assign deployment ID for path {:?}", path.0)
+            }
+            Goal::AssignResourceId(name) => write!(f, "Assign resource ID to {}", name),
             Goal::GetResourceProviderInfo(_, name) => {
                 write!(f, "Get resource provider info for {}", name)
             }
@@ -74,7 +81,9 @@ impl Display for Goal {
 #[derive(Clone, Debug)]
 pub enum Outcome {
     Done(),
-    ResourcesListed(Vec<String>),
+    ResourcesListed(Vec<ResourcePath>),
+    DeploymentId(Id<DeploymentType>),
+    ResourceId(Id<ResourceType>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
@@ -86,20 +95,18 @@ pub enum Outcome {
 pub struct WorkContext {
     pub options: crate::Options,
     pub eval_sender: eval_client::EvalSender,
-    pub deployment_id: Id<DeploymentType>,
+    pub root_deployment_id: Id<DeploymentType>,
     pub interrupt_state: InterruptState,
     pub state: Mutex<WorkState>,
     pub id_subscriptions: Pubsub<IdNum, EvalResponse>,
 }
 pub struct WorkState {
-    resource_ids: BTreeMap<String, Id<ResourceType>>,
     cleanup_tasks:
         Vec<Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>>,
 }
 impl Default for WorkState {
     fn default() -> Self {
         Self {
-            resource_ids: BTreeMap::new(),
             cleanup_tasks: Vec::new(),
         }
     }
@@ -131,8 +138,14 @@ impl WorkContext {
         Ok(())
     }
 
-    async fn list_resources(&self, context: &TaskContext<Self>) -> Result<Vec<String>> {
-        let r = context.require(Goal::ListResources()).await;
+    async fn list_resources(
+        &self,
+        context: &TaskContext<Self>,
+        deployment_path: &DeploymentPath,
+    ) -> Result<Vec<ResourcePath>> {
+        let r = context
+            .require(Goal::ListResources(deployment_path.clone()))
+            .await;
         let outcome = match r {
             Err(e) => {
                 bail!("Error while listing resources: {}", e);
@@ -154,8 +167,12 @@ impl WorkContext {
     // deduplicated and that we don't have cycles.
     // -----------------------------------------------------------------------
 
-    async fn perform_apply(&self, context: TaskContext<Self>) -> Result<Outcome> {
-        let resources = self.list_resources(&context).await?;
+    async fn perform_apply(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        let resources = self.list_resources(&context, &deployment_path).await?;
         if resources.is_empty() {
             eprintln!("Deployment contains no resources; nothing to apply.");
         } else {
@@ -166,24 +183,27 @@ impl WorkContext {
         }
         self.interrupt_state.check_interrupted()?;
 
-        // Assign ids to the resources
-
-        let resource_ids: BTreeMap<String, Id<ResourceType>> = resources
-            .iter()
-            .map(|name| (name.clone(), self.eval_sender.next_id()))
-            .collect();
-        for (r, id) in resource_ids.iter() {
-            self.eval_sender
-                .send(&EvalRequest::LoadResource(AssignRequest {
-                    assign_to: *id,
-                    payload: ResourceRequest {
-                        deployment: self.deployment_id,
-                        name: r.clone(),
-                    },
-                }))
+        // Get resource IDs using the task tracker
+        let mut resource_id_thunks = BTreeMap::new();
+        for resource_name in &resources {
+            let thunk = context
+                .spawn(Goal::AssignResourceId(resource_name.clone()))
                 .await?;
-            self.state.lock().await.resource_ids.insert(r.clone(), *id);
+            resource_id_thunks.insert(resource_name.clone(), thunk);
         }
+
+        // Force all resource IDs and collect the mapping
+        let resource_ids: BTreeMap<ResourcePath, Id<ResourceType>> =
+            Thunk::force_into_map(resource_id_thunks)
+                .await
+                .into_iter()
+                .map(|(name, outcome)| {
+                    match clone_result(&outcome).expect("Resource ID assignment failed") {
+                        Outcome::ResourceId(id) => (name, id),
+                        _ => panic!("Unexpected outcome from AssignResourceId"),
+                    }
+                })
+                .collect();
 
         let mut resource_thunk_map = BTreeMap::new();
         for (resource_name, id) in resource_ids.iter() {
@@ -224,11 +244,24 @@ impl WorkContext {
         Ok(Outcome::Done())
     }
 
-    async fn perform_list_resources(&self, _context: TaskContext<Self>) -> Result<Outcome> {
+    async fn perform_list_resources(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        // First resolve the deployment ID from the deployment path
+        let deployment_id_thunk = context
+            .require(Goal::AssignDeploymentId(deployment_path.clone()))
+            .await?;
+        let deployment_id = match clone_result(&deployment_id_thunk)? {
+            Outcome::DeploymentId(id) => id,
+            _ => panic!("Unexpected outcome from AssignDeploymentId"),
+        };
+
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
-            .query(msg_id, EvalRequest::ListResources, self.deployment_id)
+            .query(msg_id, EvalRequest::ListResources, deployment_id)
             .await?;
 
         loop {
@@ -241,7 +274,14 @@ impl WorkContext {
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ListResources((_dt, resource_names)) => {
-                            break Ok(Outcome::ResourcesListed(resource_names))
+                            let resource_paths = resource_names
+                                .into_iter()
+                                .map(|name| ResourcePath {
+                                    deployment_path: deployment_path.clone(),
+                                    resource_name: name,
+                                })
+                                .collect();
+                            break Ok(Outcome::ResourcesListed(resource_paths));
                         }
                         _ => bail!(
                             "Unexpected response to ListResources, {:?}",
@@ -254,11 +294,76 @@ impl WorkContext {
         }
     }
 
+    async fn perform_get_resource_id(
+        &self,
+        context: TaskContext<Self>,
+        name: ResourcePath,
+    ) -> Result<Outcome> {
+        // First resolve the deployment ID from the deployment path
+        let deployment_id_thunk = context
+            .require(Goal::AssignDeploymentId(name.deployment_path.clone()))
+            .await?;
+        let deployment_id = match clone_result(&deployment_id_thunk)? {
+            Outcome::DeploymentId(id) => id,
+            _ => panic!("Unexpected outcome from AssignDeploymentId"),
+        };
+
+        let id = self.eval_sender.next_id();
+        self.eval_sender
+            .send(&EvalRequest::LoadResource(AssignRequest {
+                assign_to: id,
+                payload: ResourceRequest {
+                    deployment: deployment_id,
+                    name: name.resource_name.clone(),
+                },
+            }))
+            .await?;
+        Ok(Outcome::ResourceId(id))
+    }
+
+    async fn perform_assign_deployment_id(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        if deployment_path.is_root() {
+            // For root deployment, return the root deployment ID
+            Ok(Outcome::DeploymentId(self.root_deployment_id))
+        } else {
+            // For nested deployments, recursively resolve the parent first
+            let mut parent_path = deployment_path.0.clone();
+            let current_name = parent_path.pop().unwrap(); // Get the last component
+            let parent_deployment_path = DeploymentPath(parent_path);
+
+            // Get the parent deployment ID
+            let parent_id_thunk = context
+                .require(Goal::AssignDeploymentId(parent_deployment_path))
+                .await?;
+            let parent_id = match clone_result(&parent_id_thunk)? {
+                Outcome::DeploymentId(id) => id,
+                _ => panic!("Unexpected outcome from AssignDeploymentId"),
+            };
+
+            // Now load the nested deployment from the parent
+            let id = self.eval_sender.next_id();
+            self.eval_sender
+                .send(&EvalRequest::LoadNestedDeployment(AssignRequest {
+                    assign_to: id,
+                    payload: NestedDeploymentRequest {
+                        parent_deployment: parent_id,
+                        name: current_name,
+                    },
+                }))
+                .await?;
+            Ok(Outcome::DeploymentId(id))
+        }
+    }
+
     async fn perform_get_resource_provider_info(
         &self,
         _context: TaskContext<Self>,
         id: Id<ResourceType>,
-        _resource_name: String,
+        _resource_name: ResourcePath,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -327,7 +432,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        _resource_name: String,
+        _resource_name: ResourcePath,
         input_name: String,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
@@ -358,14 +463,24 @@ impl WorkContext {
                                     break Ok(Outcome::ResourceInputValue(value))
                                 }
                                 ResourceInputState::ResourceInputDependency(x) => {
-                                    let dep_id = self
-                                        .state
-                                        .lock()
+                                    // Get the resource ID using the task tracker
+                                    let dep_id_thunk = context
+                                        .require(Goal::AssignResourceId(
+                                            x.dependency.resource.clone(),
+                                        ))
                                         .await
-                                        .resource_ids
-                                        .get(&x.dependency.resource)
-                                        .unwrap()
-                                        .clone();
+                                        .with_context(|| {
+                                            format!(
+                                                "while getting resource ID for dependency: {}",
+                                                &x.dependency.resource
+                                            )
+                                        })?;
+
+                                    let dep_id = match clone_result(&dep_id_thunk)? {
+                                        Outcome::ResourceId(id) => id,
+                                        _ => panic!("Unexpected outcome from AssignResourceId"),
+                                    };
+
                                     let property = x.dependency.name.clone();
                                     let resource = x.dependency.resource.clone();
                                     let r = context
@@ -402,7 +517,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_name: String,
+        resource_name: ResourcePath,
         property: String,
     ) -> Result<Outcome> {
         // Apply the resource
@@ -434,7 +549,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        name: String,
+        name: ResourcePath,
     ) -> Result<Outcome> {
         let provider_info_thunk = context
             .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
@@ -478,25 +593,30 @@ impl WorkContext {
         };
 
         let state_provider = match &provider_info.state {
-            Some(state_resource_name) => {
-                let state_resource_id = self
-                    .state
-                    .lock()
+            Some(state_resource_path) => {
+                // Get the state resource ID using the task tracker
+                let state_id_thunk = context
+                    .require(Goal::AssignResourceId(state_resource_path.clone()))
                     .await
-                    .resource_ids
-                    .get(state_resource_name)
-                    .unwrap()
-                    .clone();
+                    .map_err(|e| {
+                        anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                    })?;
+
+                let state_resource_id = match clone_result(&state_id_thunk)? {
+                    Outcome::ResourceId(id) => id,
+                    _ => panic!("Unexpected outcome from AssignResourceId"),
+                };
+
                 let thunk = context
                     .spawn(Goal::RunState(
                         state_resource_id,
-                        state_resource_name.clone(),
+                        state_resource_path.clone(),
                     ))
                     .await
                     .map_err(|e| {
                         anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
                     })?;
-                Some((state_resource_name, state_resource_id, thunk))
+                Some((state_resource_path, state_resource_id, thunk))
             }
             None => None,
         };
@@ -529,7 +649,7 @@ impl WorkContext {
             inputs
         };
 
-        let span = info_span!("creating resource", name = name);
+        let span = info_span!("creating resource", name = name.to_string().as_str());
 
         if self.options.verbose {
             eprintln!("Provider details for {}: {:?}", name, &provider_info);
@@ -549,52 +669,66 @@ impl WorkContext {
                 .create(provider_info.resource_type.as_str(), &inputs, false)
                 .await
                 .with_context(|| format!("Failed to create stateless resource {}", name))?,
-            Some(ref state_handle) => match state_handle.past.deployment.resources.get(&name) {
-                Some(past_resource) => {
-                    if past_resource.type_ != provider_info.resource_type {
-                        bail!(
-                            "Resource type change is not supported: {} != {}",
-                            past_resource.type_,
-                            provider_info.resource_type
-                        );
+            Some(ref state_handle) => {
+                let past_resource_opt = state_handle
+                    .current
+                    .lock()
+                    .await
+                    .deployment
+                    .get_resource(&name)
+                    .cloned();
+                match past_resource_opt {
+                    Some(past_resource) => {
+                        if past_resource.type_ != provider_info.resource_type {
+                            bail!(
+                                "Resource type change is not supported: {} != {}",
+                                past_resource.type_,
+                                provider_info.resource_type
+                            );
+                        }
+                        let outputs = provider
+                            .update(
+                                provider_info.resource_type.as_str(),
+                                &inputs,
+                                &past_resource.input_properties,
+                                &past_resource.output_properties,
+                            )
+                            .await
+                            .with_context(|| format!("Failed to update resource {}", name))?;
+                        let current_resource = crate::state::ResourceState {
+                            type_: provider_info.resource_type.clone(),
+                            input_properties: inputs.clone(),
+                            output_properties: outputs.clone(),
+                        };
+                        if &current_resource != &past_resource {
+                            state_handle
+                                .resource_event(
+                                    &name,
+                                    "update",
+                                    Some(&past_resource),
+                                    &current_resource,
+                                )
+                                .await?;
+                        }
+                        outputs
                     }
-                    let outputs = provider
-                        .update(
-                            provider_info.resource_type.as_str(),
-                            &inputs,
-                            &past_resource.input_properties,
-                            &past_resource.output_properties,
-                        )
-                        .await
-                        .with_context(|| format!("Failed to update resource {}", name))?;
-                    let current_resource = crate::state::ResourceState {
-                        type_: provider_info.resource_type.clone(),
-                        input_properties: inputs.clone(),
-                        output_properties: outputs.clone(),
-                    };
-                    if &current_resource != past_resource {
+                    None => {
+                        let outputs = provider
+                            .create(provider_info.resource_type.as_str(), &inputs, true)
+                            .await
+                            .with_context(|| format!("Failed to create resource {}", name))?;
+                        let current_resource = crate::state::ResourceState {
+                            type_: provider_info.resource_type.clone(),
+                            input_properties: inputs.clone(),
+                            output_properties: outputs.clone(),
+                        };
                         state_handle
-                            .resource_event(&name, "update", Some(past_resource), &current_resource)
+                            .resource_event(&name, "create", None, &current_resource)
                             .await?;
+                        outputs
                     }
-                    outputs
                 }
-                None => {
-                    let outputs = provider
-                        .create(provider_info.resource_type.as_str(), &inputs, true)
-                        .await
-                        .with_context(|| format!("Failed to create resource {}", name))?;
-                    let current_resource = crate::state::ResourceState {
-                        type_: provider_info.resource_type.clone(),
-                        input_properties: inputs.clone(),
-                        output_properties: outputs.clone(),
-                    };
-                    state_handle
-                        .resource_event(&name, "create", None, &current_resource)
-                        .await?;
-                    outputs
-                }
-            },
+            }
         };
 
         drop(span);
@@ -647,14 +781,24 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
-            Goal::Apply() => {
-                self.perform_apply(context)
+            Goal::Apply(deployment_path) => {
+                self.perform_apply(context, deployment_path)
                     .instrument(info_span!("Applying deployment"))
                     .await
             }
-            Goal::ListResources() => {
-                self.perform_list_resources(context)
+            Goal::ListResources(deployment_path) => {
+                self.perform_list_resources(context, deployment_path)
                     .instrument(info_span!("Listing resources"))
+                    .await
+            }
+            Goal::AssignDeploymentId(path) => {
+                self.perform_assign_deployment_id(context, path)
+                    .instrument(info_span!("Assigning deployment ID"))
+                    .await
+            }
+            Goal::AssignResourceId(name) => {
+                self.perform_get_resource_id(context, name)
+                    .instrument(info_span!("Getting resource ID"))
                     .await
             }
 
@@ -662,14 +806,14 @@ impl TaskWork for WorkContext {
                 self.perform_get_resource_provider_info(context, id, resource_name.clone())
                     .instrument(info_span!(
                         "Getting resource provider info",
-                        resource = resource_name
+                        resource = ?resource_name
                     ))
                     .await
             }
 
             Goal::ListResourceInputs(id, name) => {
                 self.perform_list_resource_inputs(context, id)
-                    .instrument(info_span!("Listing resource inputs", resource = name))
+                    .instrument(info_span!("Listing resource inputs", resource = ?name))
                     .await
             }
 
@@ -679,7 +823,7 @@ impl TaskWork for WorkContext {
                 self.perform_get_resource_input_value(context, id, resource_name, input_name)
                     .instrument(info_span!(
                         "Getting resource input value",
-                        resource = resource_name_2,
+                        resource = ?resource_name_2,
                         input = input_name_2
                     ))
                     .await
@@ -691,7 +835,7 @@ impl TaskWork for WorkContext {
                 self.perform_get_resource_output_value(context, id, name, property)
                     .instrument(info_span!(
                         "Getting resource output value",
-                        resource = name_2,
+                        resource = ?name_2,
                         property = property_2
                     ))
                     .await
@@ -701,7 +845,7 @@ impl TaskWork for WorkContext {
                 let name_2 = name.clone();
                 let context = context.clone();
                 self.perform_apply_resource(context, id, name)
-                    .instrument(info_span!("Applying resource", resource = name_2))
+                    .instrument(info_span!("Applying resource", resource = ?name_2))
                     .await
             }
 
@@ -763,7 +907,7 @@ impl TaskWork for WorkContext {
                 })
                 .instrument(info_span!(
                     "Running state provider resource",
-                    resource = name
+                    resource = ?name
                 ))
                 .await
             }

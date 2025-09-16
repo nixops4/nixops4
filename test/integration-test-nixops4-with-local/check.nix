@@ -198,6 +198,65 @@ runCommand "itest-nixops4-with-local"
       rm -f initial-version.md current-version.md nixops4-state.json
     )
 
+    h1 NESTED DEPLOYMENTS
+    (
+      set -x
+      echo "=== Testing nested deployments ==="
+      
+      # Apply the nested deployment
+      nixops4 apply -v nestedDeployment --show-trace
+      
+      # Verify state file was created
+      test -f nested-parent-state.json
+      
+      # Check that all memo resources have correct values
+      # The deploymentSummary should contain all the versions
+      nixops4 apply -v nestedDeployment --show-trace 2>&1 | tee nested-output.log
+      
+      # Extract and verify values from the output
+      # Parent resources
+      grep -E "parent.*v1\.0\.0" nested-output.log || echo "Parent version v1.0.0 expected"
+      grep -E "parent.*production" nested-output.log || echo "Parent config production expected"
+      
+      # Frontend resources
+      grep -E "frontend.*frontend-v1\.0\.0" nested-output.log || echo "Frontend version expected"
+      grep -E "web-production" nested-output.log || echo "Web config expected"
+      
+      # Backend resources  
+      grep -E "api-v1\.0\.0" nested-output.log || echo "API version expected"
+      grep -E "backend-production-frontend-frontend-v1\.0\.0" nested-output.log || echo "Backend config expected"
+      
+      # Deeply nested resources
+      grep -E "assets-frontend-v1\.0\.0" nested-output.log || echo "Assets version expected"
+      grep -E "db-api-v1\.0\.0" nested-output.log || echo "Database version expected"
+      
+      # The deployment summary should contain all values
+      grep -E "deploymentSummary.*parent:v1\.0\.0.*frontend:frontend-v1\.0\.0.*backend:api-v1\.0\.0.*assets:assets-frontend-v1\.0\.0.*db:db-api-v1\.0\.0" nested-output.log || {
+        echo "ERROR: Deployment summary does not contain expected values"
+        echo "Expected pattern: parent:v1.0.0|frontend:frontend-v1.0.0|backend:api-v1.0.0|assets:assets-frontend-v1.0.0|db:db-api-v1.0.0"
+        cat nested-output.log
+        exit 1
+      }
+      
+      echo "=== Testing state persistence in nested deployments ==="
+      
+      # Update parent version
+      sed -i 's/inputs.initialize_with = "v1.0.0"/inputs.initialize_with = "v2.0.0"/' flake.nix
+      
+      # Apply again
+      nixops4 apply -v nestedDeployment --show-trace 2>&1 | tee nested-output2.log
+      
+      # Parent version should remain v1.0.0 (memo preserves state)
+      grep -E "deploymentSummary.*parent:v1\.0\.0" nested-output2.log || {
+        echo "ERROR: Parent version changed when it should have been preserved"
+        cat nested-output2.log
+        exit 1
+      }
+      
+      # Clean up
+      rm -f nested-parent-state.json nested-output.log nested-output2.log
+    )
+
     h1 SUCCESS
     touch $out
   ''

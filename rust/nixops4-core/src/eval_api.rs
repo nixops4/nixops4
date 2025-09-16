@@ -91,6 +91,51 @@ pub struct DeploymentType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
 
+/// A path to a deployment within nested deployments
+/// An empty path represents the root deployment
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
+)]
+pub struct DeploymentPath(pub Vec<String>);
+
+impl DeploymentPath {
+    /// Create a new root deployment path
+    pub fn root() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Check if this is the root deployment
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// A resource path within a deployment
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
+)]
+pub struct ResourcePath {
+    /// Path to the deployment containing the resource
+    pub deployment_path: DeploymentPath,
+    /// Name of the resource within the deployment
+    pub resource_name: String,
+}
+
+impl std::fmt::Display for ResourcePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.deployment_path.0.is_empty() {
+            write!(f, "{}", self.resource_name)
+        } else {
+            write!(
+                f,
+                "{}.{}",
+                self.deployment_path.0.join("."),
+                self.resource_name
+            )
+        }
+    }
+}
+
 /// This interface is internal to NixOps4. It is used to communicate between the CLI and the evaluator.
 /// Only matching CLI and evaluator versions are compatible.
 /// No promises are made about this interface.
@@ -99,6 +144,7 @@ pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
+    LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
     ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
     LoadResource(AssignRequest<ResourceRequest>),
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
@@ -177,7 +223,7 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
-    pub state: Option<String>,
+    pub state: Option<ResourcePath>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,7 +234,7 @@ pub struct ResourceInputDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
-    pub resource: String,
+    pub resource: ResourcePath,
     pub name: String,
 }
 
@@ -217,6 +263,17 @@ pub struct DeploymentRequest {
     pub name: String,
 }
 impl RequestIdType for DeploymentRequest {
+    type IdType = DeploymentType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NestedDeploymentRequest {
+    /// The parent deployment to load the nested deployment from.
+    pub parent_deployment: Id<DeploymentType>,
+    /// The name of the nested deployment to load.
+    pub name: String,
+}
+impl RequestIdType for NestedDeploymentRequest {
     type IdType = DeploymentType;
 }
 
@@ -341,7 +398,10 @@ mod tests {
             id: Id::new(2),
             provider: serde_json::json!({"executable": "/bin/memo", "type": "stdio"}),
             resource_type: "memo".to_string(),
-            state: Some("myStateHandler".to_string()),
+            state: Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myStateHandler".to_string(),
+            }),
         };
 
         // Test serialization/deserialization
@@ -350,7 +410,13 @@ mod tests {
         assert_eq!(info, info2);
 
         // Verify state field contains the expected value
-        assert_eq!(info.state, Some("myStateHandler".to_string()));
+        assert_eq!(
+            info.state,
+            Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myStateHandler".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -371,11 +437,17 @@ mod tests {
             "id": {"id": 4},
             "provider": {"executable": "/bin/memo", "type": "stdio"},
             "resource_type": "memo",
-            "state": "myState"
+            "state": {"deployment_path": [], "resource_name": "myState"}
         }"#;
 
         let info: ResourceProviderInfo = serde_json::from_str(json_with_state).unwrap();
-        assert_eq!(info.state, Some("myState".to_string()));
+        assert_eq!(
+            info.state,
+            Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myState".to_string(),
+            })
+        );
         assert_eq!(info.resource_type, "memo");
     }
 }

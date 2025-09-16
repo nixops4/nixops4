@@ -25,9 +25,11 @@ in
         expr = d.deploymentFunction {
           resources = { };
           resourceProviderSystem = system;
+          deployments = { };
         };
         expected = {
           resources = { };
+          deployments = { };
         };
       };
     };
@@ -167,6 +169,8 @@ in
             stdout = "mgmttool installing\nmgmttool installed";
           };
         };
+        # TODO: use
+        deployments = { };
       };
 
     in
@@ -225,6 +229,7 @@ in
               state = null;
             };
           };
+          deployments = { };
         };
       };
     };
@@ -288,7 +293,7 @@ in
               providers.example = testProviderModule;
               resources.myStateful = {
                 type = providers.example.stateful;
-                state = "myStateHandler";
+                state = [ "myStateHandler" ];
                 inputs.data = "world";
               };
             }
@@ -321,6 +326,7 @@ in
               myStateless = { };
             };
             resourceProviderSystem = system;
+            deployments = { };
           }).resources.myStateless.state;
         expected = null;
       };
@@ -332,8 +338,9 @@ in
               myStateful = { };
             };
             resourceProviderSystem = system;
+            deployments = { };
           }).resources.myStateful.state;
-        expected = "myStateHandler";
+        expected = [ "myStateHandler" ];
       };
 
       "test stateful resource without state throws error" = {
@@ -343,6 +350,7 @@ in
               myStateful = { };
             };
             resourceProviderSystem = system;
+            deployments = { };
           }).resources.myStateful.state;
         expectedError.type = "ThrownError";
         expectedError.msg = "resources\\.myStateful\\.state has not been defined";
