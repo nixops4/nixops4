@@ -284,7 +284,7 @@ impl EvalState {
         let n = unsafe { check_call!(raw::get_attrs_size(&mut self.context, v.raw_ptr())) }?;
         let mut attrs = Vec::with_capacity(n as usize);
         for i in 0..n {
-            let cstr_ptr: *const i8 = unsafe {
+            let cstr_ptr: *const u8 = unsafe {
                 check_call!(raw::get_attr_name_byidx(
                     &mut self.context,
                     v.raw_ptr(),

@@ -50,7 +50,7 @@ impl Context {
             raw::set_err_msg(
                 self.inner.as_ptr(),
                 raw::err_NIX_OK,
-                b"\0".as_ptr() as *const i8,
+                b"\0".as_ptr() as *const u8,
             );
         }
     }
