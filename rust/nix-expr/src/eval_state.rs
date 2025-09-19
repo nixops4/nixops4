@@ -362,16 +362,44 @@ impl EvalState {
         Ok(v2.map(|x| unsafe { Value::new(x) }))
     }
 
-    /// Evaluates, require that the value is a list, and select an element by index.
-    pub fn require_list_select_idx(
-        &mut self,
-        v: &Value,
-        idx: u32,
-    ) -> Result<Option<Value>> {
+    /// Evaluates, require that the value is a list.
+    /// Returns the number of elements in the list.
+    ///
+    /// This function only forces evaluation of the list structure itself,
+    /// not the individual elements. Elements remain as lazy thunks.
+    pub fn require_list_size(&mut self, v: &Value) -> Result<u32> {
         let t = self.value_type(v)?;
         if t != ValueType::List {
             bail!("expected a list, but got a {:?}", t);
         }
+        let ret = unsafe { check_call!(raw::get_list_size(&mut self.context, v.raw_ptr())) }?;
+        Ok(ret)
+    }
+
+    /// Evaluates, require that the value is a list, and select an element by index.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    ///
+    /// # Strictness
+    ///
+    /// This function forces evaluation of the selected element, similar to
+    /// `require_attrs_select`. If the element contains an error (e.g., `throw`),
+    /// this function will return that error rather than a lazy thunk.
+    pub fn require_list_select_idx_strict(&mut self, v: &Value, idx: u32) -> Result<Option<Value>> {
+        let t = self.value_type(v)?;
+        if t != ValueType::List {
+            bail!("expected a list, but got a {:?}", t);
+        }
+
+        // TODO: Remove this bounds checking once https://github.com/NixOS/nix/pull/14030
+        // is merged, which will add proper bounds checking to the underlying C API.
+        // Currently we perform bounds checking in Rust to avoid undefined behavior.
+        let size = unsafe { check_call!(raw::get_list_size(&mut self.context, v.raw_ptr())) }?;
+
+        if idx >= size {
+            return Ok(None);
+        }
+
         let v2 = unsafe {
             check_call_opt_key!(raw::get_list_byidx(
                 &mut self.context,
@@ -381,25 +409,6 @@ impl EvalState {
             ))
         }?;
         Ok(v2.map(|x| unsafe { Value::new(x) }))
-    }
-
-    /// Evaluates, require that the value is a list.
-    /// Returns the number of elements in the list.
-    pub fn require_list_size(
-        &mut self,
-        v: &Value,
-    ) -> Result<u32> {
-        let t = self.value_type(v)?;
-        if t != ValueType::List {
-            bail!("expected a list, but got a {:?}", t);
-        }
-        let ret = unsafe {
-            check_call!(raw::get_list_size(
-                &mut self.context,
-                v.raw_ptr()
-            ))
-        }?;
-        Ok(ret)
     }
 
     /// Create a new value containing the passed string.
@@ -1890,6 +1899,186 @@ mod tests {
             assert_eq!(i, 1);
             let i = es.require_int(&b).unwrap();
             assert_eq!(i, 2);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_basic() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[ 10 20 30 ]", "<test>").unwrap();
+
+            let elem0 = es.require_list_select_idx_strict(&v, 0).unwrap().unwrap();
+            let elem1 = es.require_list_select_idx_strict(&v, 1).unwrap().unwrap();
+            let elem2 = es.require_list_select_idx_strict(&v, 2).unwrap().unwrap();
+
+            assert_eq!(es.require_int(&elem0).unwrap(), 10);
+            assert_eq!(es.require_int(&elem1).unwrap(), 20);
+            assert_eq!(es.require_int(&elem2).unwrap(), 30);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_out_of_bounds() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[ 1 2 3 ]", "<test>").unwrap();
+
+            let out_of_bounds = es.require_list_select_idx_strict(&v, 3).unwrap();
+            assert!(out_of_bounds.is_none());
+
+            // Test boundary case - the last valid index
+            let last_elem = es.require_list_select_idx_strict(&v, 2).unwrap().unwrap();
+            assert_eq!(es.require_int(&last_elem).unwrap(), 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_empty_list() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[ ]", "<test>").unwrap();
+
+            // Test that the safe version properly handles empty list access
+            let elem = es.require_list_select_idx_strict(&v, 0).unwrap();
+            assert!(elem.is_none());
+
+            // Verify we can get the size of an empty list
+            let size = es.require_list_size(&v).unwrap();
+            assert_eq!(size, 0);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = make_thunk(&mut es, "[ 42 ]");
+            assert!(es.value_type_unforced(&v).is_none());
+
+            let elem = es.require_list_select_idx_strict(&v, 0).unwrap().unwrap();
+            assert_eq!(es.require_int(&elem).unwrap(), 42);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_error_element() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+
+            let v = es
+                .eval_from_string("[ (1 + 1) (throw \"error\") (3 + 3) ]", "<test>")
+                .unwrap();
+
+            let elem0 = es.require_list_select_idx_strict(&v, 0).unwrap().unwrap();
+            assert_eq!(es.require_int(&elem0).unwrap(), 2);
+
+            let elem2 = es.require_list_select_idx_strict(&v, 2).unwrap().unwrap();
+            assert_eq!(es.require_int(&elem2).unwrap(), 6);
+
+            let elem1_result = es.require_list_select_idx_strict(&v, 1);
+            match elem1_result {
+                Ok(_) => panic!("expected an error from throw during selection"),
+                Err(e) => {
+                    assert!(e.to_string().contains("error"));
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_select_idx_strict_wrong_type() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("42", "<test>").unwrap();
+
+            let r = es.require_list_select_idx_strict(&v, 0);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    assert!(err_msg.contains("expected a list, but got a"));
+                }
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_size_basic() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+
+            let empty = es.eval_from_string("[ ]", "<test>").unwrap();
+            assert_eq!(es.require_list_size(&empty).unwrap(), 0);
+
+            let three_elem = es.eval_from_string("[ 1 2 3 ]", "<test>").unwrap();
+            assert_eq!(es.require_list_size(&three_elem).unwrap(), 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_size_forces_thunk() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = make_thunk(&mut es, "[ 1 2 3 4 5 ]");
+            assert!(es.value_type_unforced(&v).is_none());
+
+            let size = es.require_list_size(&v).unwrap();
+            assert_eq!(size, 5);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_size_lazy_elements() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+
+            let v = es
+                .eval_from_string(
+                    "[ (throw \"error1\") (throw \"error2\") (throw \"error3\") ]",
+                    "<test>",
+                )
+                .unwrap();
+
+            let size = es.require_list_size(&v).unwrap();
+            assert_eq!(size, 3);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_require_list_size_wrong_type() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("\"not a list\"", "<test>").unwrap();
+
+            let r = es.require_list_size(&v);
+            match r {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    assert!(err_msg.contains("expected a list, but got a"));
+                }
+            }
         })
         .unwrap();
     }
