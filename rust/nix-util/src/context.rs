@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use nix_c_raw as raw;
+use std::os::raw::c_char;
 use std::ptr::null_mut;
 use std::ptr::NonNull;
 
@@ -50,7 +51,7 @@ impl Context {
             raw::set_err_msg(
                 self.inner.as_ptr(),
                 raw::err_NIX_OK,
-                b"\0".as_ptr() as *const u8,
+                b"\0".as_ptr() as *const c_char,
             );
         }
     }

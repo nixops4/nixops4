@@ -1,4 +1,4 @@
-use std::{ffi::CString, ptr::NonNull};
+use std::{ffi::CString, os::raw::c_char, ptr::NonNull};
 
 use anyhow::{Context as _, Result};
 use nix_c_raw as raw;
@@ -87,7 +87,7 @@ impl FlakeReferenceParseFlags {
             context::check_call!(raw::flake_reference_parse_flags_set_base_directory(
                 &mut ctx,
                 self.ptr.as_ptr(),
-                base_directory.as_ptr() as *const u8,
+                base_directory.as_ptr() as *const c_char,
                 base_directory.len()
             ))
         }?;
@@ -125,7 +125,7 @@ impl FlakeReference {
                 fetch_settings.raw_ptr(),
                 flake_settings.ptr,
                 flags.ptr.as_ptr(),
-                reference.as_ptr() as *const u8,
+                reference.as_ptr() as *const c_char,
                 reference.len(),
                 // pointer to ptr
                 &mut ptr,
