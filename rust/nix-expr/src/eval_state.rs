@@ -362,6 +362,46 @@ impl EvalState {
         Ok(v2.map(|x| unsafe { Value::new(x) }))
     }
 
+    /// Evaluates, require that the value is a list, and select an element by index.
+    pub fn require_list_select_idx(
+        &mut self,
+        v: &Value,
+        idx: u32,
+    ) -> Result<Option<Value>> {
+        let t = self.value_type(v)?;
+        if t != ValueType::List {
+            bail!("expected a list, but got a {:?}", t);
+        }
+        let v2 = unsafe {
+            check_call_opt_key!(raw::get_list_byidx(
+                &mut self.context,
+                v.raw_ptr(),
+                self.eval_state.as_ptr(),
+                idx
+            ))
+        }?;
+        Ok(v2.map(|x| unsafe { Value::new(x) }))
+    }
+
+    /// Evaluates, require that the value is a list.
+    /// Returns the number of elements in the list.
+    pub fn require_list_size(
+        &mut self,
+        v: &Value,
+    ) -> Result<u32> {
+        let t = self.value_type(v)?;
+        if t != ValueType::List {
+            bail!("expected a list, but got a {:?}", t);
+        }
+        let ret = unsafe {
+            check_call!(raw::get_list_size(
+                &mut self.context,
+                v.raw_ptr()
+            ))
+        }?;
+        Ok(ret)
+    }
+
     /// Create a new value containing the passed string.
     /// Returns a string value without any string context.
     pub fn new_value_str(&mut self, s: &str) -> Result<Value> {
