@@ -3,7 +3,7 @@
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix.url = "github:NixOS/nix";
+    nix.url = "github:NixOS/nix?ref=pull/14025/head";
     nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
