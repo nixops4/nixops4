@@ -65,6 +65,25 @@ lazy_static! {
     static ref STORE_CACHE: Arc<Mutex<StoreCacheMap>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
+unsafe extern "C" fn callback_get_result_store_path_set(
+    user_data: *mut std::os::raw::c_void,
+    store_path: *const raw::StorePath,
+) {
+    let ret = user_data as *mut Vec<StorePath>;
+    let ret: &mut Vec<StorePath> = &mut *ret;
+
+    let store_path = raw::store_path_clone(store_path);
+
+    let store_path =
+        NonNull::new(store_path).expect("nix_store_parse_path returned a null pointer");
+    let store_path = StorePath::new_raw(store_path);
+    ret.push(store_path);
+}
+
+fn callback_get_result_store_path_set_data(vec: &mut Vec<StorePath>) -> *mut std::os::raw::c_void {
+    vec as *mut Vec<StorePath> as *mut std::os::raw::c_void
+}
+
 pub struct Store {
     inner: Arc<StoreRef>,
     /* An error context to reuse. This way we don't have to allocate them for each store operation. */
@@ -215,6 +234,30 @@ impl Store {
                 NonNull::new(store_path).expect("nix_store_parse_path returned a null pointer");
             Ok(StorePath::new_raw(store_path))
         }
+    }
+
+    #[doc(alias = "nix_store_get_fs_closure")]
+    pub fn get_fs_closure(
+        &mut self,
+        store_path: &StorePath,
+        flip_direction: bool,
+        include_outputs: bool,
+        include_derivers: bool,
+    ) -> Result<Vec<StorePath>> {
+        let mut r = Vec::new();
+        unsafe {
+            check_call!(raw::store_get_fs_closure(
+                &mut self.context,
+                self.inner.ptr(),
+                store_path.as_ptr(),
+                flip_direction,
+                include_outputs,
+                include_derivers,
+                callback_get_result_store_path_set_data(&mut r),
+                Some(callback_get_result_store_path_set)
+            ))
+        }?;
+        Ok(r)
     }
 
     pub fn weak_ref(&self) -> StoreWeak {
