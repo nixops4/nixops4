@@ -11,6 +11,7 @@ use nix_util::context::Context;
 use nix_util::string_return::{callback_get_result_string, callback_get_result_string_data};
 use nix_util::{check_call, check_call_opt_key, result_string_init};
 use std::ffi::{c_char, CString};
+use std::iter::FromIterator;
 use std::os::raw::c_uint;
 use std::ptr::{null, null_mut, NonNull};
 use std::sync::{Arc, Weak};
@@ -261,6 +262,46 @@ impl EvalState {
             bail!("expected a bool, but got a {:?}", t);
         }
         unsafe { check_call!(raw::get_bool(&mut self.context, v.raw_ptr())) }
+    }
+
+    /// Evaluate and require that the passed value is a list.
+    /// Returns the contained values in the specified container type.
+    /// This is strict - all list elements will be evaluated.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use nix_expr::value::Value;
+    /// # use std::collections::VecDeque;
+    /// # fn example(es: &mut nix_expr::eval_state::EvalState, list_value: &Value) -> anyhow::Result<()> {
+    /// let vec: Vec<Value> = es.require_list_strict(&list_value)?;
+    /// let deque: VecDeque<Value> = es.require_list_strict(&list_value)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn require_list_strict<C>(&mut self, value: &Value) -> Result<C>
+    where
+        C: FromIterator<Value>,
+    {
+        let t = self.value_type(value)?;
+        if t != ValueType::List {
+            bail!("expected a list, but got a {:?}", t);
+        }
+        let size = unsafe { check_call!(raw::get_list_size(&mut self.context, value.raw_ptr())) }?;
+
+        (0..size)
+            .map(|i| {
+                let element_ptr = unsafe {
+                    check_call!(raw::get_list_byidx(
+                        &mut self.context,
+                        value.raw_ptr(),
+                        self.eval_state.as_ptr(),
+                        i
+                    ))
+                }?;
+                Ok(unsafe { Value::new(element_ptr) })
+            })
+            .collect()
     }
 
     /// Evaluate, and require that the value is an attrset.
@@ -1314,6 +1355,91 @@ mod tests {
             es.force(&v).unwrap();
             let t = es.value_type_unforced(&v);
             assert!(t == Some(ValueType::List));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_list_strict_empty() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[]", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let list: Vec<Value> = es.require_list_strict(&v).unwrap();
+            assert_eq!(list.len(), 0);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_list_strict_int() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[42]", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let list: Vec<Value> = es.require_list_strict(&v).unwrap();
+            assert_eq!(list.len(), 1);
+            assert_eq!(es.require_int(&list[0]).unwrap(), 42);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_list_strict_int_bool() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[42 true]", "<test>").unwrap();
+            es.force(&v).unwrap();
+            let list: Vec<Value> = es.require_list_strict(&v).unwrap();
+            assert_eq!(list.len(), 2);
+            assert_eq!(es.require_int(&list[0]).unwrap(), 42);
+            assert_eq!(es.require_bool(&list[1]).unwrap(), true);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_list_strict_error() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string(r#"[(throw "_evaluated_item_")]"#, "<test>").unwrap();
+            es.force(&v).unwrap();
+            // This should fail because require_list_strict evaluates all elements
+            let result: Result<Vec<Value>, _> = es.require_list_strict(&v);
+            assert!(result.is_err());
+            match result {
+                Err(error_msg) => {
+                    let error_str = error_msg.to_string();
+                    assert!(error_str.contains("_evaluated_item_"));
+                }
+                Ok(_) => panic!("unexpected success. The item should have been evaluated and its error propagated.")
+            }
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn eval_state_value_list_strict_generic_container() {
+        gc_registering_current_thread(|| {
+            let store = Store::open(None, HashMap::new()).unwrap();
+            let mut es = EvalState::new(store, []).unwrap();
+            let v = es.eval_from_string("[1 2 3]", "<test>").unwrap();
+
+            // Test with Vec
+            let vec: Vec<Value> = es.require_list_strict(&v).unwrap();
+            assert_eq!(vec.len(), 3);
+
+            // Test with VecDeque
+            let deque: std::collections::VecDeque<Value> = es.require_list_strict(&v).unwrap();
+            assert_eq!(deque.len(), 3);
+
+            // Verify contents are the same
+            assert_eq!(es.require_int(&vec[0]).unwrap(), 1);
+            assert_eq!(es.require_int(&deque[0]).unwrap(), 1);
         })
         .unwrap();
     }
