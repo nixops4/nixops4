@@ -184,6 +184,93 @@ impl ResourceProvider for TerraformProvider {
 
         result
     }
+
+    async fn state_read(
+        &self,
+        request: v0::StateResourceReadRequest,
+    ) -> Result<v0::StateResourceReadResponse> {
+        // Launch a temporary provider client for this operation
+        let mut client = ProviderClient::launch(&self.provider_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to launch Terraform provider: {}",
+                    self.provider_path
+                )
+            })?;
+
+        // Extract provider configuration and resource inputs
+        let provider_config = Self::extract_provider_config(&request.resource.input_properties.0);
+        let resource_inputs = Self::extract_resource_inputs(&request.resource.input_properties.0);
+
+        // Debug: log the configuration being sent
+        // eprintln!("DEBUG: Provider config: {:?}", provider_config);
+        // eprintln!("DEBUG: Resource inputs: {:?}", resource_inputs);
+
+        // Configure the provider if we have provider config
+        if !provider_config.is_empty() {
+            client
+                .client_connection()?
+                .configure_provider(provider_config)
+                .await
+                .context("Failed to configure Terraform provider")?;
+        }
+
+        // For read operations, we need the current state from current output properties
+        let current_state = if let Some(ref output_props) = request.resource.output_properties {
+            if output_props.0.is_empty() {
+                None
+            } else {
+                Some(
+                    output_props
+                        .0
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<HashMap<String, Value>>(),
+                )
+            }
+        } else {
+            None
+        };
+
+        // Read state
+        let state = client
+            .client_connection()?
+            .read_resource(&request.resource.type_.0, current_state)
+            .await
+            .context("Failed to read resource with Terraform provider")?;
+
+        // Convert response to NixOps4 format
+        let output_properties = state
+            .into_iter()
+            .map(|(k, v)| (k, v))
+            .collect::<Map<String, Value>>();
+
+        let mut out_map = serde_json::Map::new();
+        out_map.insert("_type".to_string(), "nixopsState".into());
+        out_map.insert("deployments".to_string(), serde_json::json!({}));
+        out_map.insert(
+            "resources".to_string(),
+            serde_json::json!({
+                // TODO can we get the resource name here?
+                "resource": serde_json::json!({
+                    "input_properties".to_string(): resource_inputs,
+                    "output_properties".to_string(): output_properties,
+                    "type": &request.resource.type_.0
+                })
+            }),
+        );
+
+        let result = Ok(v0::StateResourceReadResponse { state: out_map });
+
+        // Shutdown provider client
+        client
+            .shutdown()
+            .await
+            .context("Failed to shutdown Terraform provider")?;
+
+        result
+    }
 }
 
 #[cfg(test)]
