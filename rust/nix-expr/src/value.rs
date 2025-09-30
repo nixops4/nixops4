@@ -8,28 +8,41 @@ use std::ptr::{null_mut, NonNull};
 
 pub type Int = i64;
 
-/// The type of a value (or thunk)
+/// The type discriminator of a [`Value`] that has successfully evaluated to at least [weak head normal form](https://nix.dev/manual/nix/latest/language/evaluation.html?highlight=WHNF#values).
+///
+/// Typically acquired with [`EvalState::value_type`][`crate::eval_state::EvalState::value_type`]
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValueType {
+    /// A Nix [attribute set](https://nix.dev/manual/nix/stable/language/types.html#type-attrs)
     AttrSet,
+    /// A Nix [boolean](https://nix.dev/manual/nix/stable/language/types.html#type-bool)
     Bool,
+    /// A Nix external value (mostly-opaque value for plugins, linked applications)
     External,
+    /// A Nix [float](https://nix.dev/manual/nix/stable/language/types.html#type-float)
     Float,
+    /// A Nix [function](https://nix.dev/manual/nix/stable/language/types.html#type-function)
     Function,
+    /// A Nix [integer](https://nix.dev/manual/nix/stable/language/types.html#type-int)
     Int,
+    /// A Nix [list](https://nix.dev/manual/nix/stable/language/types.html#type-list)
     List,
+    /// A Nix [`null`](https://nix.dev/manual/nix/stable/language/types.html#type-null)
     Null,
+    /// A Nix [path value](https://nix.dev/manual/nix/stable/language/types.html#type-path)
     Path,
+    /// A Nix [string](https://nix.dev/manual/nix/stable/language/types.html#type-string)
     String,
+    /// An unknown value, presumably from a new, partially unsupported version of Nix
     Unknown,
 }
 
 impl ValueType {
-    /// Convert a raw value type to a `ValueType`.
+    /// Convert a raw value type to a [`ValueType`].
     ///
-    /// Return `None` if the Value is still a thunk (i.e. not yet evaluated).
+    /// Return [`None`] if the Value is still a thunk (i.e. not yet evaluated).
     ///
-    /// Return `Some(ValueType::Unknown)` if the value type is not recognized.
+    /// Return `Some(`[`ValueType::Unknown`]`)` if the value type is not recognized.
     pub(crate) fn from_raw(raw: raw::ValueType) -> Option<ValueType> {
         match raw {
             raw::ValueType_NIX_TYPE_ATTRS => Some(ValueType::AttrSet),
@@ -51,14 +64,14 @@ impl ValueType {
     }
 }
 
-/* A pointer to a value or thunk, to be used with EvalState methods. */
+/// A pointer to a [value](https://nix.dev/manual/nix/latest/language/types.html) or [thunk](https://nix.dev/manual/nix/2.31/language/evaluation.html?highlight=thunk#laziness), to be used with [`EvalState`][`crate::eval_state::EvalState`] methods.
 pub struct Value {
     inner: NonNull<raw::Value>,
 }
 impl Value {
-    /// Take ownership of a new Value.
+    /// Take ownership of a new [`Value`].
     ///
-    /// This does not call `nix_gc_incref`, but does call `nix_gc_decref` when dropped.
+    /// This does not call [`nix_c_raw::gc_incref`], but does call [`nix_c_raw::nix_gc_decref`] when [dropped][`Drop`].
     ///
     /// # Safety
     ///
@@ -69,9 +82,9 @@ impl Value {
         }
     }
 
-    /// Borrow a reference to a Value.
+    /// Borrow a reference to a [`Value`].
     ///
-    /// This calls `nix_gc_incref`, and the returned Value will call `nix_gc_decref` when dropped.
+    /// This calls [`nix_c_raw::value_incref`], and the returned Value will call [`nix_c_raw::value_decref`] when dropped.
     ///
     /// # Safety
     ///
