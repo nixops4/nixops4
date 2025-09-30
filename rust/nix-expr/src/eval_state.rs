@@ -1,3 +1,133 @@
+//! # Nix Expression Evaluation
+//!
+//! This module provides the core [`EvalState`] type for evaluating Nix expressions
+//! and extracting typed values from the results.
+//!
+//! ## Overview
+//!
+//! The [`EvalState`] manages the evaluation context for Nix expressions, including:
+//! - Expression parsing and evaluation with [`eval_from_string`](EvalState::eval_from_string)
+//! - Type-safe value extraction with [`require_*`](EvalState#implementations) methods
+//! - Memory management and garbage collection integration
+//! - Store integration for derivations and store paths
+//! - Custom function creation with [`new_value_primop`](EvalState::new_value_primop) and [`new_value_thunk`](EvalState::new_value_thunk)
+//!
+//! ### Construction
+//!
+//! Create an [`EvalState`] using [`EvalState::new`] or [`EvalStateBuilder`] for advanced configuration:
+//!
+//! ```rust
+//! # use nix_expr::eval_state::{EvalState, EvalStateBuilder, test_init, gc_register_my_thread};
+//! # use nix_store::store::Store;
+//! # use std::collections::HashMap;
+//! # fn example() -> anyhow::Result<()> {
+//! # test_init(); let guard = gc_register_my_thread()?;
+//! let store = Store::open(None, HashMap::new())?;
+//!
+//! // Simple creation
+//! let mut es = EvalState::new(store.clone(), [])?;
+//!
+//! // With custom lookup paths
+//! let mut es = EvalStateBuilder::new(store)?
+//!     .lookup_path(["nixpkgs=/path/to/nixpkgs"])?
+//!     .build()?;
+//! # drop(guard);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Value Extraction
+//!
+//! All `require_*` methods perform these steps:
+//! 1. **Evaluation**: Force evaluation of thunks as needed
+//! 2. **Type checking**: Verify the value matches the expected type
+//! 3. **Extraction**: Return the typed Rust value or an error
+//!
+//! Methods with `_strict` in their name also evaluate their return values before returning them.
+//!
+//! ### Evaluation Strictness
+//!
+//! - **Lazy methods** (e.g., [`require_list_size`](EvalState::require_list_size)):
+//!   Evaluate only the structure needed
+//! - **Strict methods** (e.g., [`require_list_strict`](EvalState::require_list_strict)):
+//!   Force full evaluation of all contained values
+//! - **Selective methods** (e.g., [`require_list_select_idx_strict`](EvalState::require_list_select_idx_strict)):
+//!   Evaluate only the accessed elements
+//!
+//! ## Laziness and Strictness
+//!
+//! The terms "lazy" and "strict" in this API refer to Nix's [Weak Head Normal Form (WHNF)](https://nix.dev/manual/nix/latest/language/evaluation.html#values)
+//! evaluation model, not the kind of deep strictness that is exercised by functions such as `builtins.toJSON` or `builtins.deepSeq`.
+//!
+//! - **WHNF evaluation**: Values are evaluated just enough to determine their type and basic structure
+//! - **Deep evaluation**: All nested values are recursively forced (like `builtins.deepSeq`)
+//!
+//! For example, a list in WHNF has its length determined but individual elements may remain unevaluated thunks.
+//! Methods marked as "strict" in this API force WHNF evaluation of their results, but do not perform deep evaluation
+//! of arbitrarily nested structures unless explicitly documented otherwise.
+//!
+//! ### Thread Safety and Memory Management
+//!
+//! Before using [`EvalState`] in a thread, register it with the (process memory) garbage collector:
+//!
+//! ```rust,no_run
+//! # use nix_expr::eval_state::{init, gc_register_my_thread, test_init};
+//! # fn example() -> anyhow::Result<()> {
+//! # test_init(); // Use test_init() in tests
+//! init()?; // Initialize Nix library
+//! let guard = gc_register_my_thread()?; // Register thread with GC
+//! // Now safe to use EvalState in this thread
+//! drop(guard);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Error Handling
+//!
+//! Evaluation methods return [`Result`] types. Common error scenarios include:
+//! - **Type mismatches**: Expected type doesn't match actual value type
+//! - **Evaluation errors**: Nix expressions that throw or have undefined behavior
+//! - **Bounds errors**: Out-of-range access for indexed operations
+//!
+//! ## Examples
+//!
+//! ```rust
+//! use nix_expr::eval_state::{EvalState, test_init, gc_register_my_thread};
+//! use nix_store::store::Store;
+//! use std::collections::HashMap;
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! test_init(); // init() in non-test code
+//! let guard = gc_register_my_thread()?;
+//!
+//! let store = Store::open(None, HashMap::new())?;
+//! let mut es = EvalState::new(store, [])?;
+//!
+//! // Evaluate a list expression
+//! let list_value = es.eval_from_string("[1 2 3]", "<example>")?;
+//!
+//! // Check the size (lazy - doesn't evaluate elements)
+//! let size = es.require_list_size(&list_value)?;
+//! println!("List has {} elements", size);
+//!
+//! // Access specific elements (evaluates only accessed elements)
+//! if let Some(first) = es.require_list_select_idx_strict(&list_value, 0)? {
+//!     let value = es.require_int(&first)?;
+//!     println!("First element: {}", value);
+//! }
+//!
+//! // Process all elements (evaluates all elements)
+//! let all_elements: Vec<_> = es.require_list_strict(&list_value)?;
+//! for element in all_elements {
+//!     let value = es.require_int(&element)?;
+//!     println!("Element: {}", value);
+//! }
+//!
+//! drop(guard);
+//! # Ok(())
+//! # }
+//! ```
+
 use crate::primop;
 use crate::value::{Int, Value, ValueType};
 use anyhow::Context as _;
@@ -25,23 +155,29 @@ lazy_static! {
         }
     };
 }
+
 pub fn init() -> Result<()> {
     let x = INIT.as_ref();
     match x {
         Ok(_) => Ok(()),
         Err(e) => {
             // Couldn't just clone the error, so we have to print it here.
-            Err(anyhow::format_err!("nix_libstore_init error: {}", e))
+            Err(anyhow::format_err!("nix_expr::init error: {}", e))
         }
     }
 }
 
+/// A string value with its associated [store paths](https://nix.dev/manual/nix/stable/store/store-path.html).
+///
+/// Represents a Nix string with references to store paths.
 pub struct RealisedString {
+    /// The string content.
     pub s: String,
+    /// Store paths referenced by the string.
     pub paths: Vec<StorePath>,
 }
 
-/// A [Weak] reference to an [EvalState]
+/// A [Weak] reference to an [EvalState].
 pub struct EvalStateWeak {
     inner: Weak<EvalStateRef>,
     store: StoreWeak,
@@ -65,9 +201,11 @@ struct EvalStateRef {
     eval_state: NonNull<raw::EvalState>,
 }
 impl EvalStateRef {
+    /// Returns a raw pointer to the underlying EvalState.
+    ///
     /// # Safety
     ///
-    /// This function is unsafe because it returns a raw pointer. The caller must ensure that the pointer is not used beyond the lifetime of the underlying [raw::EvalState].
+    /// The caller must ensure that the pointer is not used beyond the lifetime of the underlying [raw::EvalState].
     unsafe fn as_ptr(&self) -> *mut raw::EvalState {
         self.eval_state.as_ptr()
     }
@@ -79,6 +217,31 @@ impl Drop for EvalStateRef {
         }
     }
 }
+/// Builder for configuring and creating an [`EvalState`].
+///
+/// Provides advanced configuration options for evaluation context setup.
+/// Use [`EvalState::new`] for simple cases or this builder for custom configuration.
+///
+/// # Examples
+///
+/// ```rust
+/// # use nix_expr::eval_state::{EvalState, EvalStateBuilder, test_init, gc_register_my_thread};
+/// # use nix_store::store::Store;
+/// # use std::collections::HashMap;
+/// # fn example() -> anyhow::Result<()> {
+/// # test_init();
+/// # let guard = gc_register_my_thread()?;
+/// let store = Store::open(None, HashMap::new())?;
+///
+/// let mut es: EvalState = EvalStateBuilder::new(store)?
+///     .lookup_path(["nixpkgs=/path/to/nixpkgs", "home-manager=/path/to/hm"])?
+///     .build()?;
+///
+/// let value = es.eval_from_string("<nixpkgs>", /* path display: */ "in-memory")?;
+/// # drop(guard);
+/// # Ok(())
+/// # }
+/// ```
 pub struct EvalStateBuilder {
     eval_state_builder: *mut raw::eval_state_builder,
     lookup_path: Vec<CString>,
@@ -92,6 +255,7 @@ impl Drop for EvalStateBuilder {
     }
 }
 impl EvalStateBuilder {
+    /// Creates a new [`EvalStateBuilder`].
     pub fn new(store: Store) -> Result<EvalStateBuilder> {
         let mut context = Context::new();
         let eval_state_builder =
@@ -102,6 +266,7 @@ impl EvalStateBuilder {
             lookup_path: Vec::new(),
         })
     }
+    /// Sets the [lookup path](https://nix.dev/manual/nix/latest/language/constructs/lookup-path.html) for Nix expression evaluation.
     pub fn lookup_path<'a>(mut self, path: impl IntoIterator<Item = &'a str>) -> Result<Self> {
         let lookup_path: Vec<CString> = path
             .into_iter()
@@ -114,6 +279,7 @@ impl EvalStateBuilder {
         self.lookup_path = lookup_path;
         Ok(self)
     }
+    /// Builds the configured [`EvalState`].
     pub fn build(&self) -> Result<EvalState> {
         // Make sure the library is initialized
         init()?;
@@ -148,6 +314,12 @@ impl EvalStateBuilder {
             context,
         })
     }
+    /// Returns a raw pointer to the underlying eval state builder.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the pointer is not used beyond the lifetime of this builder.
+    // TODO: This function should be marked `unsafe`.
     pub fn raw_ptr(&self) -> *mut raw::eval_state_builder {
         self.eval_state_builder
     }
@@ -159,6 +331,8 @@ pub struct EvalState {
     pub(crate) context: Context,
 }
 impl EvalState {
+    /// Creates a new EvalState with basic configuration.
+    ///
     /// For more options, use [EvalStateBuilder].
     pub fn new<'a>(store: Store, lookup_path: impl IntoIterator<Item = &'a str>) -> Result<Self> {
         EvalStateBuilder::new(store)?
@@ -166,15 +340,21 @@ impl EvalState {
             .build()
     }
 
+    /// Returns a raw pointer to the raw Nix C API EvalState.
+    ///
     /// # Safety
     ///
-    /// This function is unsafe because it returns a raw pointer. The caller must ensure that the pointer is not used beyond the lifetime of this `EvalState`.
+    /// The caller must ensure that the pointer is not used beyond the lifetime of this `EvalState`.
     pub unsafe fn raw_ptr(&self) -> *mut raw::EvalState {
         self.eval_state.as_ptr()
     }
+
+    /// Returns a reference to the Store that's used for instantiation, import from derivation, etc.
     pub fn store(&self) -> &Store {
         &self.store
     }
+
+    /// Creates a weak reference to this EvalState.
     pub fn weak_ref(&self) -> EvalStateWeak {
         EvalStateWeak {
             inner: Arc::downgrade(&self.eval_state),
@@ -189,18 +369,25 @@ impl EvalState {
     /// # Examples
     ///
     /// ```
-    /// # use nix_expr::eval_state::EvalState;
+    /// # use nix_expr::eval_state::{EvalState, test_init, gc_register_my_thread};
     /// use nix_store::store::Store;
     /// use nix_expr::value::Value;
+    /// use std::collections::HashMap;
     ///
     /// # fn main() -> anyhow::Result<()> {
-    /// # let mut es = EvalState::new(Store::open(None, [])?, [])?;
+    /// # test_init();
+    /// # let guard = gc_register_my_thread()?;
+    /// # let mut es = EvalState::new(Store::open(None, HashMap::new())?, [])?;
     /// let v: Value = es.eval_from_string("42", ".")?;
     /// assert_eq!(es.require_int(&v)?, 42);
+    /// # drop(guard);
     /// # Ok(())
     /// # }
     /// ```
     #[doc(alias = "nix_expr_eval_from_string")]
+    #[doc(alias = "parse")]
+    #[doc(alias = "eval")]
+    #[doc(alias = "evaluate")]
     pub fn eval_from_string(&mut self, expr: &str, path: &str) -> Result<Value> {
         let expr_ptr =
             CString::new(expr).with_context(|| "eval_from_string: expr contains null byte")?;
@@ -218,7 +405,14 @@ impl EvalState {
             Ok(value)
         }
     }
-    /// Try turn any Value into a Value that isn't a Thunk.
+
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) of a value to [weak head normal form](https://nix.dev/manual/nix/latest/language/evaluation.html?highlight=WHNF#values).
+    ///
+    /// Converts [thunks](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness) to their evaluated form. Does not modify already-evaluated values.
+    ///
+    /// Does not perform deep evaluation of nested structures.
+    #[doc(alias = "evaluate")]
+    #[doc(alias = "strict")]
     pub fn force(&mut self, v: &Value) -> Result<()> {
         unsafe {
             check_call!(raw::value_force(
@@ -229,11 +423,34 @@ impl EvalState {
         }?;
         Ok(())
     }
+
+    /// Returns the type of a value without forcing [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html).
+    ///
+    /// Returns [`None`] if the value is an unevaluated [thunk](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness).
+    ///
+    /// Returns [`Some`] if the value is already evaluated.
+    #[doc(alias = "type_of")]
+    #[doc(alias = "value_type_lazy")]
+    #[doc(alias = "nix_get_type")]
+    #[doc(alias = "get_type")]
+    #[doc(alias = "nix_value_type")]
     pub fn value_type_unforced(&mut self, value: &Value) -> Option<ValueType> {
         let r = unsafe { check_call!(raw::get_type(&mut self.context, value.raw_ptr())) };
         // .unwrap(): no reason for this to fail, as it does not evaluate
         ValueType::from_raw(r.unwrap())
     }
+    /// Returns the [type][`ValueType`] of a value, [forcing][`EvalState::force`] [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) if necessary.
+    ///
+    /// Forces evaluation if the value is an unevaluated [thunk](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness).
+    ///
+    /// Evaluation may fail, producing an [`Err`].
+    ///
+    /// Guarantees a definitive result if [`Ok`], thanks to the language being [pure](https://nix.dev/manual/nix/latest/language/index.html?highlight=pure#nix-language) and [lazy](https://nix.dev/manual/nix/latest/language/index.html?highlight=lazy#nix-language).
+    #[doc(alias = "type_of")]
+    #[doc(alias = "value_type_strict")]
+    #[doc(alias = "nix_get_type")]
+    #[doc(alias = "get_type")]
+    #[doc(alias = "nix_value_type_strict")]
     pub fn value_type(&mut self, value: &Value) -> Result<ValueType> {
         match self.value_type_unforced(value) {
             Some(a) => Ok(a),
@@ -248,6 +465,35 @@ impl EvalState {
             }
         }
     }
+    /// Extracts the value from an [integer][`ValueType::Int`] Nix value.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is an integer.
+    ///
+    /// Returns the integer value if successful, or an [`Err`] if evaluation failed or the value is not an integer.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use nix_expr::eval_state::{EvalState, test_init, gc_register_my_thread};
+    /// # use nix_store::store::Store;
+    /// # use std::collections::HashMap;
+    /// # fn example() -> anyhow::Result<()> {
+    /// # test_init();
+    /// # let guard = gc_register_my_thread()?;
+    /// let store = Store::open(None, HashMap::new())?;
+    /// let mut es = EvalState::new(store, [])?;
+    ///
+    /// let value = es.eval_from_string("42", "<example>")?;
+    /// let int_val = es.require_int(&value)?;
+    /// assert_eq!(int_val, 42);
+    /// # drop(guard);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[doc(alias = "integer")]
+    #[doc(alias = "number")]
+    #[doc(alias = "nix_get_int")]
+    #[doc(alias = "get_int")]
     pub fn require_int(&mut self, v: &Value) -> Result<Int> {
         let t = self.value_type(v)?;
         if t != ValueType::Int {
@@ -256,6 +502,14 @@ impl EvalState {
         unsafe { check_call!(raw::get_int(&mut self.context, v.raw_ptr())) }
     }
 
+    /// Extracts the value from a [boolean][`ValueType::Bool`] Nix value.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is a boolean.
+    ///
+    /// Returns the boolean value if successful, or an [`Err`] if evaluation failed or the value is not a boolean.
+    #[doc(alias = "boolean")]
+    #[doc(alias = "nix_get_bool")]
+    #[doc(alias = "get_bool")]
     pub fn require_bool(&mut self, v: &Value) -> Result<bool> {
         let t = self.value_type(v)?;
         if t != ValueType::Bool {
@@ -264,21 +518,31 @@ impl EvalState {
         unsafe { check_call!(raw::get_bool(&mut self.context, v.raw_ptr())) }
     }
 
-    /// Evaluate and require that the passed value is a list.
-    /// Returns the contained values in the specified container type.
-    /// This is strict - all list elements will be evaluated.
+    /// Extracts all elements from a [list][`ValueType::List`] Nix value.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is a list.
+    ///
+    /// Returns the contained values in the specified container type (e.g., [`Vec`], [`VecDeque`][`std::collections::VecDeque`], etc.).
+    ///
+    /// This is [strict](https://nix.dev/manual/nix/latest/language/evaluation.html#strictness) - all list elements will be evaluated.
     ///
     /// # Examples
     ///
     /// ```rust,no_run
     /// # use nix_expr::value::Value;
-    /// # use std::collections::VecDeque;
+    /// # use std::collections::{VecDeque, LinkedList};
     /// # fn example(es: &mut nix_expr::eval_state::EvalState, list_value: &Value) -> anyhow::Result<()> {
     /// let vec: Vec<Value> = es.require_list_strict(&list_value)?;
     /// let deque: VecDeque<Value> = es.require_list_strict(&list_value)?;
+    /// let linked_list = es.require_list_strict::<LinkedList<Value>>(&list_value)?;
     /// # Ok(())
     /// # }
     /// ```
+    #[doc(alias = "collect")]
+    #[doc(alias = "to_vec")]
+    #[doc(alias = "all")]
+    #[doc(alias = "nix_get_list_size")]
+    #[doc(alias = "nix_get_list_byidx")]
     pub fn require_list_strict<C>(&mut self, value: &Value) -> Result<C>
     where
         C: FromIterator<Value>,
@@ -304,10 +568,14 @@ impl EvalState {
             .collect()
     }
 
-    /// Evaluate, and require that the value is an attrset.
+    /// Evaluate, and require that the [`Value`] is a Nix [`ValueType::AttrSet`].
+    ///
     /// Returns a list of the keys in the attrset.
     ///
     /// NOTE: this currently implements its own sorting, which probably matches Nix's implementation, but is not guaranteed.
+    #[doc(alias = "keys")]
+    #[doc(alias = "attributes")]
+    #[doc(alias = "fields")]
     pub fn require_attrs_names(&mut self, v: &Value) -> Result<Vec<String>> {
         self.require_attrs_names_unsorted(v).map(|mut v| {
             v.sort();
@@ -315,8 +583,11 @@ impl EvalState {
         })
     }
 
-    /// For when [require_attrs_names] isn't fast enough.
+    /// For when [`EvalState::require_attrs_names`] isn't fast enough.
+    ///
     /// Only use when it's ok that the keys are returned in an arbitrary order.
+    #[doc(alias = "keys_unsorted")]
+    #[doc(alias = "attributes_unsorted")]
     pub fn require_attrs_names_unsorted(&mut self, v: &Value) -> Result<Vec<String>> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
@@ -342,7 +613,14 @@ impl EvalState {
         Ok(attrs)
     }
 
-    /// Evaluate, require that the value is an attrset, and select an attribute by name.
+    /// Extracts an attribute value from an [attribute set][`ValueType::AttrSet`] Nix value.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is an attribute set.
+    ///
+    /// Returns the attribute value if found, or an [`Err`] if evaluation failed, the attribute doesn't exist, or the value is not an attribute set.
+    #[doc(alias = "get_attr")]
+    #[doc(alias = "attribute")]
+    #[doc(alias = "field")]
     pub fn require_attrs_select(&mut self, v: &Value, attr_name: &str) -> Result<Value> {
         let t = self.value_type(v)?;
         if t != ValueType::AttrSet {
@@ -374,13 +652,20 @@ impl EvalState {
         }
     }
 
-    /// Evaluate, require that the value is an attrset, and select an attribute by name.
+    /// Extracts an optional attribute value from an [attribute set][`ValueType::AttrSet`] Nix value.
     ///
-    /// Return `Err(...)` if `v` is not an attrset, or if some other error occurred.
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is an attribute set.
     ///
-    /// Return `Ok(None)` if the attribute is not present.
+    /// Returns [`Err`] if evaluation failed or the value is not an attribute set.
     ///
-    /// Return `Ok(Some(value))` if the attribute is present.
+    /// Returns [`Ok(None)`] if the attribute is not present.
+    ///
+    /// Returns [`Ok(Some(value))`] if the attribute is present.
+    #[doc(alias = "nix_get_attr_byname")]
+    #[doc(alias = "get_attr_byname")]
+    #[doc(alias = "get_attr_opt")]
+    #[doc(alias = "try_get")]
+    #[doc(alias = "maybe_get")]
     pub fn require_attrs_select_opt(
         &mut self,
         v: &Value,
@@ -403,11 +688,16 @@ impl EvalState {
         Ok(v2.map(|x| unsafe { Value::new(x) }))
     }
 
-    /// Evaluates, require that the value is a list.
-    /// Returns the number of elements in the list.
+    /// Returns the number of elements in a [list][`ValueType::List`] Nix value.
     ///
-    /// This function only forces evaluation of the list structure itself,
-    /// not the individual elements. Elements remain as lazy thunks.
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) of the list structure and verifies the value is a list.
+    ///
+    /// Individual elements remain as lazy [thunks](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness) and are not evaluated.
+    #[doc(alias = "length")]
+    #[doc(alias = "count")]
+    #[doc(alias = "len")]
+    #[doc(alias = "nix_get_list_size")]
+    #[doc(alias = "get_list_size")]
     pub fn require_list_size(&mut self, v: &Value) -> Result<u32> {
         let t = self.value_type(v)?;
         if t != ValueType::List {
@@ -417,15 +707,21 @@ impl EvalState {
         Ok(ret)
     }
 
-    /// Evaluates, require that the value is a list, and select an element by index.
+    /// Extracts an element from a [list][`ValueType::List`] Nix value by index.
     ///
-    /// Returns `None` if the index is out of bounds.
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is a list.
+    /// Forces evaluation of the selected element, similar to [`require_attrs_select`].
     ///
-    /// # Strictness
+    /// Returns [`Ok(Some(value))`] if the element is found.
     ///
-    /// This function forces evaluation of the selected element, similar to
-    /// `require_attrs_select`. If the element contains an error (e.g., `throw`),
-    /// this function will return that error rather than a lazy thunk.
+    /// Returns [`Ok(None)`] if the index is out of bounds.
+    ///
+    /// Returns [`Err`] if evaluation failed, the element contains an error (e.g., `throw`), or the value is not a list.
+    #[doc(alias = "get")]
+    #[doc(alias = "index")]
+    #[doc(alias = "at")]
+    #[doc(alias = "nix_get_list_byidx")]
+    #[doc(alias = "get_list_byidx")]
     pub fn require_list_select_idx_strict(&mut self, v: &Value, idx: u32) -> Result<Option<Value>> {
         let t = self.value_type(v)?;
         if t != ValueType::List {
@@ -452,8 +748,12 @@ impl EvalState {
         Ok(v2.map(|x| unsafe { Value::new(x) }))
     }
 
-    /// Create a new value containing the passed string.
-    /// Returns a string value without any string context.
+    /// Creates a new [string][`ValueType::String`] Nix value.
+    ///
+    /// Returns a string value without any [string context](https://nix.dev/manual/nix/latest/language/string-context.html).
+    #[doc(alias = "make_string")]
+    #[doc(alias = "create_string")]
+    #[doc(alias = "string_value")]
     pub fn new_value_str(&mut self, s: &str) -> Result<Value> {
         let s = CString::new(s).with_context(|| "new_value_str: contains null byte")?;
         let v = unsafe {
@@ -468,6 +768,11 @@ impl EvalState {
         Ok(v)
     }
 
+    /// Creates a new [integer][`ValueType::Int`] Nix value.
+    #[doc(alias = "make_int")]
+    #[doc(alias = "create_int")]
+    #[doc(alias = "int_value")]
+    #[doc(alias = "integer_value")]
     pub fn new_value_int(&mut self, i: Int) -> Result<Value> {
         let v = unsafe {
             let value = self.new_value_uninitialized()?;
@@ -477,11 +782,15 @@ impl EvalState {
         Ok(v)
     }
 
-    /// Create a new thunk that will evaluate to the result of the given function.
-    /// The function will be called with the current EvalState.
-    /// The function must not return a thunk.
+    /// Creates a new [thunk](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness) Nix value.
+    ///
+    /// The [thunk](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness) will lazily evaluate to the result of the given Rust function when forced.
+    /// The Rust function will be called with the current [`EvalState`] and must not return a thunk.
     ///
     /// The name is shown in stack traces.
+    #[doc(alias = "make_thunk")]
+    #[doc(alias = "create_thunk")]
+    #[doc(alias = "lazy_value")]
     pub fn new_value_thunk(
         &mut self,
         name: &str,
@@ -520,7 +829,16 @@ impl EvalState {
         };
         r
     }
-    /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty
+    /// Extracts a string value from a [string][`ValueType::String`] Nix value.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) and verifies the value is a string.
+    /// Returns the string value if successful, or an [`Err`] if evaluation failed or the value is not a string.
+    ///
+    /// NOTE: this will be replaced by two methods, one that also returns the context, and one that checks that the context is empty.
+    #[doc(alias = "str")]
+    #[doc(alias = "text")]
+    #[doc(alias = "nix_get_string")]
+    #[doc(alias = "get_string")]
     pub fn require_string(&mut self, value: &Value) -> Result<String> {
         let t = self.value_type(value)?;
         if t != ValueType::String {
@@ -528,6 +846,13 @@ impl EvalState {
         }
         self.get_string(value)
     }
+    /// Realises a [string][`ValueType::String`] Nix value with context information.
+    ///
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html), verifies the value is a string, and builds any derivations
+    /// referenced in the [string context](https://nix.dev/manual/nix/latest/language/string-context.html) if required.
+    #[doc(alias = "realize_string")]
+    #[doc(alias = "string_with_context")]
+    #[doc(alias = "build_string")]
     pub fn realise_string(
         &mut self,
         value: &Value,
@@ -578,9 +903,15 @@ impl EvalState {
         Ok(RealisedString { s, paths })
     }
 
-    /// Eagerly apply a function to an argument.
+    /// Applies a function to an argument and returns the result.
     ///
-    /// For a lazy version, see [`new_value_apply`][`EvalState::new_value_apply`].
+    /// Forces [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) of the function application.
+    /// For a lazy version, see [`new_value_apply`].
+    #[doc(alias = "nix_value_call")]
+    #[doc(alias = "value_call")]
+    #[doc(alias = "apply")]
+    #[doc(alias = "invoke")]
+    #[doc(alias = "execute")]
     pub fn call(&mut self, f: Value, a: Value) -> Result<Value> {
         let value = self.new_value_uninitialized()?;
         unsafe {
@@ -595,8 +926,49 @@ impl EvalState {
         Ok(value)
     }
 
-    /// Eagerly apply a function with multiple curried arguments.
+    /// Apply a sequence of [function applications](https://nix.dev/manual/nix/latest/language/operators.html#function-application).
+    ///
+    /// When argument `f` is a curried function, this applies each argument in sequence.
+    /// Equivalent to the Nix expression `f arg1 arg2 arg3`.
+    ///
+    /// Returns a [`Value`] in at least weak head normal form if successful.
+    ///
+    /// Returns an [`Err`]
+    /// - if `f` did not evaluate to a function
+    /// - if `f arg1` had any problems
+    /// - if `f arg1` did not evaluate to a function (for `(f arg1) arg2`)
+    /// - etc
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use nix_expr::eval_state::{EvalState, test_init, gc_register_my_thread};
+    /// # use nix_store::store::Store;
+    /// # use std::collections::HashMap;
+    /// # fn example() -> anyhow::Result<()> {
+    /// # test_init();
+    /// # let guard = gc_register_my_thread()?;
+    /// let store = Store::open(None, HashMap::new())?;
+    /// let mut es = EvalState::new(store, [])?;
+    ///
+    /// // Create a curried function: x: y: x + y
+    /// let f = es.eval_from_string("x: y: x + y", "<example>")?;
+    /// let arg1 = es.eval_from_string("5", "<example>")?;
+    /// let arg2 = es.eval_from_string("3", "<example>")?;
+    ///
+    /// // Equivalent to: (x: y: x + y) 5 3
+    /// let result = es.call_multi(&f, &[arg1, arg2])?;
+    /// let value = es.require_int(&result)?;
+    /// assert_eq!(value, 8);
+    /// # drop(guard);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[doc(alias = "nix_value_call_multi")]
+    #[doc(alias = "value_call_multi")]
+    #[doc(alias = "apply_multi")]
+    #[doc(alias = "curry")]
+    #[doc(alias = "call_with_args")]
     pub fn call_multi(&mut self, f: &Value, args: &[Value]) -> Result<Value> {
         let value = self.new_value_uninitialized()?;
         unsafe {
@@ -613,9 +985,13 @@ impl EvalState {
         Ok(value)
     }
 
-    /// Apply a function to an argument, but don't evaluate the result just yet.
+    /// Applies a function to an argument lazily, creating a [thunk](https://nix.dev/manual/nix/latest/language/evaluation.html#laziness).
     ///
-    /// For an eager version, see [`call`][`EvalState::call`].
+    /// Does not force [evaluation](https://nix.dev/manual/nix/latest/language/evaluation.html) of the function application.
+    /// For an eager version, see [`call`].
+    #[doc(alias = "lazy_apply")]
+    #[doc(alias = "thunk_apply")]
+    #[doc(alias = "defer_call")]
     pub fn new_value_apply(&mut self, f: &Value, a: &Value) -> Result<Value> {
         let value = self.new_value_uninitialized()?;
         unsafe {
@@ -639,10 +1015,14 @@ impl EvalState {
         }
     }
 
-    /// Create a new Nix function that is implemented by a Rust function.
+    /// Creates a new [function][`ValueType::Function`] Nix value implemented by a Rust function.
+    ///
     /// This is also known as a "primop" in Nix, short for primitive operation.
-    /// Most of the `builtins.*` values are examples of primops, but
-    /// `new_value_primop` does not affect `builtins`.
+    /// Most of the `builtins.*` values are examples of primops, but this function
+    /// does not affect `builtins`.
+    #[doc(alias = "make_primop")]
+    #[doc(alias = "create_function")]
+    #[doc(alias = "builtin")]
     pub fn new_value_primop(&mut self, primop: primop::PrimOp) -> Result<Value> {
         let value = self.new_value_uninitialized()?;
         unsafe {
@@ -655,6 +1035,46 @@ impl EvalState {
         Ok(value)
     }
 
+    /// Creates a new [attribute set][`ValueType::Attrs`] Nix value from an iterator of name-value pairs.
+    ///
+    /// Accepts any iterator that yields `(String, Value)` pairs and has an exact size.
+    /// Common usage includes [`Vec`], [`HashMap`], and array literals.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use nix_expr::eval_state::{EvalState, test_init, gc_register_my_thread};
+    /// # use nix_store::store::Store;
+    /// # use std::collections::HashMap;
+    /// # fn example() -> anyhow::Result<()> {
+    /// # test_init();
+    /// # let guard = gc_register_my_thread()?;
+    /// let store = Store::open(None, HashMap::new())?;
+    /// let mut es = EvalState::new(store, [])?;
+    /// let a = es.new_value_int(1)?;
+    /// let b = es.new_value_int(2)?;
+    /// let c = es.new_value_int(3)?;
+    /// let d = es.new_value_int(4)?;
+    ///
+    /// // From array
+    /// let attrs1 = es.new_value_attrs([
+    ///     ("x".to_string(), a),
+    ///     ("y".to_string(), b)
+    /// ])?;
+    ///
+    /// // From HashMap
+    /// let mut map = HashMap::new();
+    /// map.insert("foo".to_string(), c);
+    /// map.insert("bar".to_string(), d);
+    /// let attrs2 = es.new_value_attrs(map)?;
+    /// # drop(guard);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[doc(alias = "make_attrs")]
+    #[doc(alias = "create_attrset")]
+    #[doc(alias = "object")]
+    #[doc(alias = "record")]
     pub fn new_value_attrs<I>(&mut self, attrs: I) -> Result<Value>
     where
         I: IntoIterator<Item = (String, Value)>,
@@ -687,6 +1107,7 @@ impl EvalState {
     }
 }
 
+// Internal RAII helper; could be refactored and made pub
 struct BindingsBuilder {
     ptr: *mut raw::BindingsBuilder,
 }
@@ -710,12 +1131,19 @@ impl BindingsBuilder {
     }
 }
 
+/// Triggers garbage collection immediately.
+#[doc(alias = "garbage_collect")]
+#[doc(alias = "collect")]
+#[doc(alias = "gc")]
 pub fn gc_now() {
     unsafe {
         raw::gc_now();
     }
 }
 
+/// RAII guard for thread registration with the garbage collector.
+///
+/// Automatically unregisters the thread when dropped.
 pub struct ThreadRegistrationGuard {
     must_unregister: bool,
 }
@@ -743,6 +1171,9 @@ fn gc_register_my_thread_do_it() -> Result<()> {
     }
 }
 
+#[doc(alias = "register_thread")]
+#[doc(alias = "thread_setup")]
+#[doc(alias = "gc_register")]
 pub fn gc_register_my_thread() -> Result<ThreadRegistrationGuard> {
     init()?;
     unsafe {
@@ -771,6 +1202,8 @@ impl Clone for EvalState {
 
 /// Initialize the Nix library for testing. This includes some modifications to the Nix settings, that must not be used in production.
 /// Use at your own peril, in rust test suites.
+#[doc(alias = "test_initialize")]
+#[doc(alias = "test_setup")]
 pub fn test_init() {
     init().unwrap();
 
