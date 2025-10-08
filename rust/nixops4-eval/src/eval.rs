@@ -495,7 +495,7 @@ mod tests {
     use nixops4_core::eval_api::{
         AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
     };
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::runtime;
 
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -604,7 +604,7 @@ mod tests {
     }
 
     fn generic_test_eval_driver_empty_flake(flake_nix: &str) {
-        let tmpdir = TempDir::new("test-nixops4-eval").unwrap();
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
         // write flake.nix
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
@@ -685,7 +685,7 @@ mod tests {
             }
         "#;
 
-        let tmpdir = TempDir::new("test-nixops4-eval").unwrap();
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
@@ -750,7 +750,7 @@ mod tests {
             }
             "#;
 
-        let tmpdir = TempDir::new("test-nixops4-eval").unwrap();
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
@@ -846,7 +846,7 @@ mod tests {
             }
             "#;
 
-        let tmpdir = TempDir::new("test-nixops4-eval").unwrap();
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
         let flake_path = tmpdir.path().join("flake.nix");
         std::fs::write(&flake_path, flake_nix).unwrap();
 
