@@ -181,6 +181,284 @@ impl ClientConnection {
         })
     }
 
+    /// Import resource state
+    pub async fn import(
+        &mut self,
+        resource_type: &str,
+        resource_id: &str,
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+        // Get resource schema to fill in missing optional attributes with null values
+        let raw_schema = self.get_provider_schema().await?;
+        let schema = crate::schema::ProviderSchema::from_raw_response(raw_schema);
+
+        eprintln!("DEBUG: resource_type: {:?}", resource_type);
+
+        // Helper function to get schema and terraform type name for resources vs data sources
+        let is_data_source = resource_type.starts_with("data-source-");
+
+        let (resource_schema, terraform_type_name) = if is_data_source {
+            let data_source_name = resource_type.strip_prefix("data-source-").unwrap();
+            let schema = schema
+                .data_source_schemas
+                .get(data_source_name)
+                .context(format!(
+                    "Data source type '{}' not found in provider schema",
+                    data_source_name
+                ))?;
+            (schema, data_source_name)
+        } else {
+            let schema = schema.resource_schemas.get(resource_type).context(format!(
+                "Resource type '{}' not found in provider schema",
+                resource_type
+            ))?;
+            (schema, resource_type)
+        };
+
+        match self {
+            ClientConnection::V5(client) => {
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin5_9::import_resource_state::Request {
+                        type_name: terraform_type_name.to_string(),
+                        id: resource_id.to_string(),
+                        client_capabilities: None,
+                        identity: None,
+                    });
+                let response = client
+                    .import_resource_state(request)
+                    .await
+                    .context("Failed to call ImportResource (v5)")?;
+
+                let response = response.into_inner();
+
+                // Check for error diagnostics
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin5_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+
+                let new_state = response.imported_resources;
+                let maps: Vec<std::collections::HashMap<String, serde_json::Value>> = new_state
+                    .into_iter()
+                    .filter_map(|resource| {
+                        Self::dynamic_value_v5_to_optional_json_map(resource.state.unwrap())
+                            .unwrap_or_else(|_| Some(std::collections::HashMap::new()))
+                    })
+                    .collect();
+
+                let mut combined = std::collections::HashMap::new();
+                for map in maps {
+                    combined.extend(map);
+                }
+                Ok(combined)
+            }
+            ClientConnection::V6(client) => {
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin6_9::import_resource_state::Request {
+                        type_name: terraform_type_name.to_string(),
+                        id: resource_id.to_string(),
+                        client_capabilities: None,
+                        identity: None,
+                    });
+
+                eprintln!("DEBUG: req: {:?}", request);
+
+                let response = client
+                    .import_resource_state(request)
+                    .await
+                    .context("Failed to call ImportResource (v6)")?;
+
+                let response = response.into_inner();
+
+                eprintln!("DEBUG: tf response: {:?}", response);
+
+                // Check for error diagnostics
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin6_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+
+                let new_state = response.imported_resources;
+                let maps: Vec<std::collections::HashMap<String, serde_json::Value>> = new_state
+                    .into_iter()
+                    .filter_map(|resource| {
+                        eprintln!("DEBUG: in map, resource: {:?}", resource);
+                        Self::dynamic_value_v6_to_optional_json_map(resource.state.unwrap())
+                            .unwrap_or_else(|_| Some(std::collections::HashMap::new()))
+                    })
+                    .collect();
+
+                let mut combined = std::collections::HashMap::new();
+                for map in maps {
+                    eprintln!("DEBUG: map: {:?}", map);
+                    combined.extend(map);
+                }
+                eprintln!("DEBUG: combined: {:?}", combined);
+                Ok(combined)
+            }
+        }
+    }
+
+    /// Read resource state
+    pub async fn read_resource(
+        &mut self,
+        resource_type: &str,
+        current_state: Option<std::collections::HashMap<String, serde_json::Value>>,
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+        // Get resource schema to fill in missing optional attributes with null values
+        let raw_schema = self.get_provider_schema().await?;
+        let schema = crate::schema::ProviderSchema::from_raw_response(raw_schema);
+
+        // Helper function to get schema and terraform type name for resources vs data sources
+        let is_data_source = resource_type.starts_with("data-source-");
+
+        let (resource_schema, terraform_type_name) = if is_data_source {
+            let data_source_name = resource_type.strip_prefix("data-source-").unwrap();
+            let schema = schema
+                .data_source_schemas
+                .get(data_source_name)
+                .context(format!(
+                    "Data source type '{}' not found in provider schema",
+                    data_source_name
+                ))?;
+            (schema, data_source_name)
+        } else {
+            let schema = schema.resource_schemas.get(resource_type).context(format!(
+                "Resource type '{}' not found in provider schema",
+                resource_type
+            ))?;
+            (schema, resource_type)
+        };
+
+        let resource_block = resource_schema
+            .block
+            .as_ref()
+            .context("Resource schema missing block definition")?;
+
+        let complete_current_state = match &current_state {
+            Some(state) => Some(Self::complete_resource_state(
+                state.clone(),
+                resource_block,
+            )?),
+            None => None,
+        };
+
+        match self {
+            ClientConnection::V5(client) => {
+                let current_state_dv = match &complete_current_state {
+                    Some(s) => Self::json_map_to_dynamic_value_v5(s.clone())?,
+                    None => Self::null_dynamic_value_v5()?, // Null state for creation
+                };
+
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin5_9::read_resource::Request {
+                        type_name: terraform_type_name.to_string(),
+                        current_state: Some(current_state_dv),
+                        provider_meta: None,
+                        client_capabilities: None,
+                        private: vec![], // TODO handle private state
+                        current_identity: None,
+                    });
+                let response = client
+                    .read_resource(request)
+                    .await
+                    .context("Failed to call ReadDataSource (v5)")?;
+
+                let response = response.into_inner();
+
+                // Check for error diagnostics
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin5_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+
+                // Convert new_state DynamicValue back to JSON
+                if let Some(new_state) = response.new_state {
+                    Self::dynamic_value_v5_to_optional_json_map(new_state).map(|opt| {
+                        opt.unwrap_or_else(|| {
+                            complete_current_state
+                                .clone()
+                                .unwrap_or_else(|| std::collections::HashMap::new())
+                        })
+                    })
+                } else {
+                    Ok(complete_current_state
+                        .clone()
+                        .unwrap_or_else(|| std::collections::HashMap::new()))
+                }
+            }
+            ClientConnection::V6(client) => {
+                let current_state_dv = match &complete_current_state {
+                    Some(s) => Self::json_map_to_dynamic_value_v6(s.clone())?,
+                    None => Self::null_dynamic_value_v6()?, // Null state for creation
+                };
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin6_9::read_resource::Request {
+                        type_name: terraform_type_name.to_string(),
+                        current_state: Some(current_state_dv),
+                        provider_meta: None,
+                        client_capabilities: None,
+                        private: vec![], // TODO handle private state
+                        current_identity: None,
+                    });
+                let response = client
+                    .read_resource(request)
+                    .await
+                    .context("Failed to call ReadDataSource (v6)")?;
+
+                let response = response.into_inner();
+
+                // Check for error diagnostics
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin6_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+
+                // Convert new_state DynamicValue back to JSON
+                if let Some(new_state) = response.new_state {
+                    Self::dynamic_value_v6_to_optional_json_map(new_state).map(|opt| {
+                        opt.unwrap_or_else(|| {
+                            complete_current_state
+                                .clone()
+                                .unwrap_or_else(|| std::collections::HashMap::new())
+                        })
+                    })
+                } else {
+                    Ok(complete_current_state
+                        .clone()
+                        .unwrap_or_else(|| std::collections::HashMap::new()))
+                }
+            }
+        }
+    }
+
     /// Apply resource changes (create or update)
     pub async fn apply_resource_change(
         &mut self,
