@@ -139,6 +139,30 @@
       ],
       "additionalProperties": false
     },
+    "ImportResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "ImportResourceResponse": {
+      "type": "object",
+      "properties": {
+        "outputProperties": {
+          "$ref": "#/definitions/outputProperties"
+        }
+      },
+      "required": [
+        "outputProperties"
+      ],
+      "additionalProperties": false
+    },
     "StateResourceEvent": {
       "type": "object",
       "properties": {
@@ -223,6 +247,18 @@
           "required": [
             "stateResourceReadRequest"
           ]
+        },
+        {
+          "type": "object",
+          "title": "ImportResourceRequest",
+          "properties": {
+            "importResourceRequest": {
+              "$ref": "#/definitions/ImportResourceRequest"
+            }
+          },
+          "required": [
+            "importResourceRequest"
+          ]
         }
       ]
     },
@@ -277,7 +313,20 @@
           "required": [
             "stateResourceReadResponse"
           ]
+        },
+        {
+          "type": "object",
+          "title": "ImportResourceResponse",
+          "properties": {
+            "importResourceResponse": {
+              "$ref": "#/definitions/ImportResourceResponse"
+            }
+          },
+          "required": [
+            "importResourceResponse"
+          ]
         }
+
       ]
     }
   },

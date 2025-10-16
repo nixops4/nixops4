@@ -144,6 +144,33 @@ impl ResourceProviderClient {
         }
     }
 
+    pub async fn import(
+        &mut self,
+        type_: &str,
+        input_properties: serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>> {
+        let req = v0::ImportResourceRequest {
+            resource: v0::ExtantResource {
+                type_: v0::ResourceType(type_.to_string()),
+                input_properties: v0::InputProperties(input_properties.clone()),
+                output_properties: Some(v0::OutputProperties(input_properties.clone())),
+            },
+        };
+
+        // Write the request
+        self.write_request(v0::Request::ImportResourceRequest(req))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::ImportResourceResponse(r) => Ok(r.output_properties.0),
+            _ => anyhow::bail!(
+                "Expected ImportResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
     pub async fn state_read(
         &mut self,
         resource: v0::ExtantResource,

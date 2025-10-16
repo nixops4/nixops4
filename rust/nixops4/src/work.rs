@@ -38,6 +38,7 @@ pub enum Goal {
     GetResourceOutputValue(Id<ResourceType>, ResourcePath, String),
     ApplyResource(Id<ResourceType>, ResourcePath),
     RunState(Id<ResourceType>, ResourcePath),
+    ImportResource(Id<ResourceType>, ResourcePath, String),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -74,6 +75,13 @@ impl Display for Goal {
             Goal::RunState(_, name) => {
                 write!(f, "Run state provider resource {}", name)
             }
+            Goal::ImportResource(_, name, props) => {
+                write!(
+                    f,
+                    "Import resource {} with input properties {}",
+                    name, props
+                )
+            }
         }
     }
 }
@@ -90,6 +98,7 @@ pub enum Outcome {
     ResourceOutputValue, /*Value ignored because passed eagerly before ResourceOutputs, a dependency of this.*/
     ResourceOutputs(nixops4_resource::schema::v0::ExtantResource),
     RunState(Arc<crate::state::StateHandle>),
+    ImportedResource(nixops4_resource::schema::v0::ExtantResource),
 }
 
 pub struct WorkContext {
@@ -780,6 +789,88 @@ impl WorkContext {
 
         Ok(Outcome::ResourceOutputs(resource))
     }
+
+    async fn perform_import_resource(
+        &self,
+        context: TaskContext<Self>,
+        id: Id<ResourceType>,
+        name: ResourcePath,
+        input_properties: String,
+    ) -> Result<Outcome> {
+        let provider_info_thunk = context
+            .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+            .await?;
+
+        let provider_info = {
+            let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
+            match outcome {
+                Outcome::ResourceProviderInfo(i) => i,
+                _ => panic!(
+                    "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                    outcome
+                ),
+            }
+        };
+
+        let span = info_span!("importing resource", name = name.to_string().as_str());
+
+        if self.options.verbose {
+            eprintln!("Provider details for {}: {:?}", name, &provider_info);
+            eprintln!("Resource inputs for {}: {:?}", name, input_properties);
+        }
+
+        let provider_argv = provider::parse_provider(&provider_info.provider)?;
+        // Run the provider
+        let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+            provider_executable: provider_argv.executable,
+            provider_args: provider_argv.args,
+        })
+        .await?;
+
+        let outputs = provider
+            .import(
+                provider_info.resource_type.as_str(),
+                serde_json::from_str(&input_properties).unwrap(),
+            )
+            .await
+            .with_context(|| format!("Failed to import resource {}", name))?;
+
+        drop(span);
+
+        if self.options.verbose {
+            eprintln!("Resource outputs: {:?}", outputs);
+        }
+
+        // Send the outputs eagerly, to avoid roundtrips and costly
+        // re-evaluation when some output is "missing" but not really
+        for (output_name, output_value) in outputs.iter() {
+            let output_prop = NamedProperty {
+                resource: name.clone(),
+                name: output_name.clone(),
+            };
+            self.eval_sender
+                .send(&EvalRequest::PutResourceOutput(
+                    output_prop,
+                    output_value.clone(),
+                ))
+                .await?;
+        }
+
+        // Close the provider properly
+        // We might want to reuse them in the future, but for now we launch one
+        // per resource, except when it's a state provider (elsewhere).
+        provider.close_wait().await?;
+
+        let resource = nixops4_resource::schema::v0::ExtantResource {
+            input_properties: nixops4_resource::schema::v0::InputProperties(
+                serde_json::from_str(&input_properties).unwrap(),
+            ),
+            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
+            type_: nixops4_resource::schema::v0::ResourceType(provider_info.resource_type),
+        };
+
+        Ok(Outcome::ImportedResource(resource))
+    }
 }
 
 #[async_trait::async_trait]
@@ -861,6 +952,14 @@ impl TaskWork for WorkContext {
                 let context = context.clone();
                 self.perform_apply_resource(context, id, name)
                     .instrument(info_span!("Applying resource", resource = ?name_2))
+                    .await
+            }
+
+            Goal::ImportResource(id, name, input_properties) => {
+                let name_2 = name.clone();
+                let context = context.clone();
+                self.perform_import_resource(context, id, name, input_properties)
+                    .instrument(info_span!("Importing resource", resource = ?name_2))
                     .await
             }
 

@@ -32,6 +32,13 @@ pub trait ResourceProvider {
         let _ = request;
         anyhow::bail!("State event not implemented by resource provider")
     }
+    async fn import(
+        &self,
+        request: v0::ImportResourceRequest,
+    ) -> Result<v0::ImportResourceResponse> {
+        let _ = request;
+        anyhow::bail!("Import operation not implemented by resource provider")
+    }
 }
 
 fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
@@ -94,6 +101,16 @@ pub async fn run_main(provider: impl ResourceProvider + Sync) {
                     .with_context(|| "Could not update resource")
                     .unwrap_or_exit();
                 write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
+                    .context("writing response")
+                    .unwrap_or_exit();
+            }
+            v0::Request::ImportResourceRequest(r) => {
+                let resp = provider
+                    .import(r)
+                    .await
+                    .with_context(|| "Could not import resource")
+                    .unwrap_or_exit();
+                write_response(&mut out, &v0::Response::ImportResourceResponse(resp))
                     .context("writing response")
                     .unwrap_or_exit();
             }
