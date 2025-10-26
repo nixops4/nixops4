@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use base64::engine::Engine;
 use cstr::cstr;
-use nix_expr::{
+use nix_bindings_expr::{
     eval_state::EvalState,
     primop::{PrimOp, PrimOpMeta},
     value::{Value, ValueType},
@@ -23,8 +23,8 @@ pub trait Respond {
 
 pub struct EvaluationDriver {
     eval_state: EvalState,
-    fetch_settings: nix_fetchers::FetchersSettings,
-    flake_settings: nix_flake::FlakeSettings,
+    fetch_settings: nix_bindings_fetchers::FetchersSettings,
+    flake_settings: nix_bindings_flake::FlakeSettings,
     values: HashMap<IdNum, Result<Value, String>>,
     respond: Box<dyn Respond>,
     known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
@@ -33,8 +33,8 @@ pub struct EvaluationDriver {
 impl EvaluationDriver {
     pub fn new(
         eval_state: EvalState,
-        fetch_settings: nix_fetchers::FetchersSettings,
-        flake_settings: nix_flake::FlakeSettings,
+        fetch_settings: nix_bindings_fetchers::FetchersSettings,
+        flake_settings: nix_bindings_flake::FlakeSettings,
         respond: Box<dyn Respond>,
     ) -> EvaluationDriver {
         EvaluationDriver {
@@ -57,7 +57,8 @@ impl EvaluationDriver {
         flakeref_str: &str,
         input_overrides: &Vec<(String, String)>,
     ) -> Result<Value> {
-        let mut parse_flags = nix_flake::FlakeReferenceParseFlags::new(&self.flake_settings)?;
+        let mut parse_flags =
+            nix_bindings_flake::FlakeReferenceParseFlags::new(&self.flake_settings)?;
 
         let cwd = std::env::current_dir()
             .map_err(|e| anyhow::anyhow!("failed to get current directory: {}", e))?;
@@ -68,10 +69,10 @@ impl EvaluationDriver {
 
         let parse_flags = parse_flags;
 
-        let mut lock_flags = nix_flake::FlakeLockFlags::new(&self.flake_settings)?;
+        let mut lock_flags = nix_bindings_flake::FlakeLockFlags::new(&self.flake_settings)?;
         lock_flags.set_mode_write_as_needed()?;
         for (override_path, override_ref_str) in input_overrides {
-            let (override_ref, fragment) = nix_flake::FlakeReference::parse_with_fragment(
+            let (override_ref, fragment) = nix_bindings_flake::FlakeReference::parse_with_fragment(
                 &self.fetch_settings,
                 &self.flake_settings,
                 &parse_flags,
@@ -88,7 +89,7 @@ impl EvaluationDriver {
         }
         let lock_flags = lock_flags;
 
-        let (flakeref, fragment) = nix_flake::FlakeReference::parse_with_fragment(
+        let (flakeref, fragment) = nix_bindings_flake::FlakeReference::parse_with_fragment(
             &self.fetch_settings,
             &self.flake_settings,
             &parse_flags,
@@ -101,7 +102,7 @@ impl EvaluationDriver {
                 fragment
             );
         }
-        let flake = nix_flake::LockedFlake::lock(
+        let flake = nix_bindings_flake::LockedFlake::lock(
             &self.fetch_settings,
             &self.flake_settings,
             &self.eval_state,
@@ -365,7 +366,7 @@ fn perform_load_deployment(
     )?;
     let load_resource_attr = es.new_value_primop(prim_load_resource_attr)?;
     // let extra_args = es.new_value_attrs(HashMap::new())?;
-    let resource_provider_system = nix_util::settings::get("system")?;
+    let resource_provider_system = nix_bindings_util::settings::get("system")?;
     let resource_provider_system_value = es.new_value_str(resource_provider_system.as_str())?;
     let extra_args = es.new_value_attrs([(
         "resourceProviderSystem".to_string(),
@@ -487,11 +488,11 @@ mod tests {
 
     use super::*;
     use ctor::ctor;
-    use nix_expr::eval_state::{gc_register_my_thread, EvalState, EvalStateBuilder};
-    use nix_fetchers::FetchersSettings;
-    use nix_flake::EvalStateBuilderExt as _;
-    use nix_flake::FlakeSettings;
-    use nix_store::store::Store;
+    use nix_bindings_expr::eval_state::{gc_register_my_thread, EvalState, EvalStateBuilder};
+    use nix_bindings_fetchers::FetchersSettings;
+    use nix_bindings_flake::EvalStateBuilderExt as _;
+    use nix_bindings_flake::FlakeSettings;
+    use nix_bindings_store::store::Store;
     use nixops4_core::eval_api::{
         AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
     };
@@ -519,8 +520,8 @@ mod tests {
 
     #[ctor]
     fn setup() {
-        nix_util::settings::set("experimental-features", "flakes").unwrap();
-        nix_expr::eval_state::test_init();
+        nix_bindings_util::settings::set("experimental-features", "flakes").unwrap();
+        nix_bindings_expr::eval_state::test_init();
     }
 
     fn new_eval_state() -> Result<(EvalState, FetchersSettings, FlakeSettings)> {

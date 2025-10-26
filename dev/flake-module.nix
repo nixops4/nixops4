@@ -34,6 +34,7 @@
         inherit (inputs) flake-parts nixpkgs nix-cargo-integration;
         "flake-parts/nixpkgs-lib" = inputs.flake-parts.inputs.nixpkgs-lib;
         "nix-cargo-integration/treefmt" = inputs.nix-cargo-integration.inputs.treefmt;
+        "nix-bindings-rust" = inputs.nix-bindings-rust;
       };
       nix-unit.allowNetwork = true;
 
@@ -81,9 +82,9 @@
               else
                 pkg;
           in
-          "${getDebug config.packages.nix}/lib/debug";
+          "${getDebug config.nix-bindings-rust.nixPackage}/lib/debug";
         buildInputs = [
-          config.packages.nix
+          config.nix-bindings-rust.nixPackage
         ];
         nativeBuildInputs = [
           pkgs.rust-analyzer
@@ -103,7 +104,7 @@
         ++ config.packages.manual.externalBuildTools;
         shellHook = ''
           ${config.pre-commit.installationScript}
-          source ${../rust/bindgen-gcc.sh}
+          source ${inputs.nix-bindings-rust + "/bindgen-gcc.sh"}
           source ${../rust/artifact-shell.sh}
           echo 1>&2 "Welcome to the development shell!"
         '';

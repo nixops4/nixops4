@@ -11,6 +11,7 @@
     nixops4.inputs.flake-parts.follows = "flake-parts";
     nixops4.inputs.nix-cargo-integration.follows = "prebuilt-nix-cargo-integration";
     nixops4.inputs.nix.follows = "null";
+    nixops4.inputs.nix-bindings-rust.follows = "null";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
   };
 

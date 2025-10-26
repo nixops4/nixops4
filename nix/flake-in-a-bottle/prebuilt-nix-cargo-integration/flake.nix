@@ -17,6 +17,8 @@
                 nci = mkOption {
                   type = types.anything;
                 };
+                # not technically nci, but the bindings' flake module
+                nix-bindings-rust.nixPackage = lib.mkOption { };
               };
               config.packages =
                 let
