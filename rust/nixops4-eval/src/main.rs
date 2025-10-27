@@ -1,7 +1,7 @@
 use anyhow::Result;
-use nix_expr::eval_state::{self, gc_register_my_thread, EvalStateBuilder};
-use nix_flake::EvalStateBuilderExt as _;
-use nix_store::store::Store;
+use nix_bindings_expr::eval_state::{self, gc_register_my_thread, EvalStateBuilder};
+use nix_bindings_flake::EvalStateBuilderExt as _;
+use nix_bindings_store::store::Store;
 use std::process::exit;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{channel, Sender};
@@ -154,8 +154,8 @@ async fn async_main() -> Result<()> {
 
     let local: tokio::task::LocalSet = tokio::task::LocalSet::new();
 
-    let flake_settings = nix_flake::FlakeSettings::new()?;
-    let fetch_settings = nix_fetchers::FetchersSettings::new()?;
+    let flake_settings = nix_bindings_flake::FlakeSettings::new()?;
+    let fetch_settings = nix_bindings_fetchers::FetchersSettings::new()?;
 
     let queue_done: JoinHandle<Result<()>> = local.spawn_local(async move {
         let span = tracing::trace_span!("nixops4-eval-queue-worker");

@@ -898,74 +898,80 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-c-raw"
+name = "nix-bindings-bindgen-raw"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "bindgen",
  "pkg-config",
 ]
 
 [[package]]
-name = "nix-expr"
+name = "nix-bindings-expr"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "anyhow",
  "cstr",
  "ctor",
  "lazy_static",
- "nix-c-raw",
- "nix-store",
- "nix-util",
+ "nix-bindings-bindgen-raw",
+ "nix-bindings-store",
+ "nix-bindings-util",
  "tempfile",
 ]
 
 [[package]]
-name = "nix-fetchers"
+name = "nix-bindings-fetchers"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "anyhow",
  "cstr",
  "ctor",
- "nix-c-raw",
- "nix-store",
- "nix-util",
+ "nix-bindings-bindgen-raw",
+ "nix-bindings-store",
+ "nix-bindings-util",
  "tempfile",
 ]
 
 [[package]]
-name = "nix-flake"
+name = "nix-bindings-flake"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "anyhow",
  "cstr",
  "ctor",
  "lazy_static",
- "nix-c-raw",
- "nix-expr",
- "nix-fetchers",
- "nix-store",
- "nix-util",
+ "nix-bindings-bindgen-raw",
+ "nix-bindings-expr",
+ "nix-bindings-fetchers",
+ "nix-bindings-store",
+ "nix-bindings-util",
  "tempfile",
 ]
 
 [[package]]
-name = "nix-store"
+name = "nix-bindings-store"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "anyhow",
  "lazy_static",
- "nix-c-raw",
- "nix-util",
+ "nix-bindings-bindgen-raw",
+ "nix-bindings-util",
  "pkg-config",
 ]
 
 [[package]]
-name = "nix-util"
+name = "nix-bindings-util"
 version = "0.1.0"
+source = "git+https://github.com/nixops4/nix-bindings-rust#62d4eb37a2f3e1c05bedab5142c20eeecb011761"
 dependencies = [
  "anyhow",
  "ctor",
- "nix-c-raw",
+ "nix-bindings-bindgen-raw",
 ]
 
 [[package]]
@@ -1015,11 +1021,11 @@ dependencies = [
  "cstr",
  "ctor",
  "ctrlc",
- "nix-expr",
- "nix-fetchers",
- "nix-flake",
- "nix-store",
- "nix-util",
+ "nix-bindings-expr",
+ "nix-bindings-fetchers",
+ "nix-bindings-flake",
+ "nix-bindings-store",
+ "nix-bindings-util",
  "nixops4-core",
  "serde",
  "serde_json",

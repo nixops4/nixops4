@@ -8,6 +8,10 @@
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nix-bindings-rust.url = "github:nixops4/nix-bindings-rust";
+    nix-bindings-rust.inputs.flake-parts.follows = "flake-parts";
+    nix-bindings-rust.inputs.nix-cargo-integration.follows = "nix-cargo-integration";
+    nix-bindings-rust.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -24,6 +28,7 @@
           inputs.nix-cargo-integration.flakeModule
           inputs.flake-parts.flakeModules.partitions
           inputs.flake-parts.flakeModules.modules
+          inputs.nix-bindings-rust.modules.flake.default
           ./rust/nci.nix
           ./doc/manual/flake-module.nix
           ./test/nixos/flake-module.nix
@@ -53,7 +58,6 @@
             packages.nixops4-resource-runner = pkgs.callPackage ./rust/nixops4-resource-runner/package.nix {
               nixops4-resource-runner = config.packages.nixops4-resource-runner-release;
             };
-            packages.nix = inputs'.nix.packages.nix;
 
             packages.flake-in-a-bottle = pkgs.callPackage ./nix/flake-in-a-bottle/package.nix {
               nixops4Flake = self;
@@ -64,6 +68,10 @@
               printf "%s" "$*" >&2
               exit 1
             '';
+
+            packages.nix = config.nix-bindings-rust.nixPackage;
+
+            nix-bindings-rust.nixPackage = inputs'.nix.packages.nix;
 
             checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
             checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {

@@ -12,11 +12,11 @@ license = "LGPL-2.1"
 
 [dependencies]
 nixops4-core = { path = "../nixops4-core" }
-nix-expr = { path = "../nix-expr" }
-nix-fetchers = { path = "../nix-fetchers" }
-nix-flake = { path = "../nix-flake" }
-nix-store = { path = "../nix-store" }
-nix-util = { path = "../nix-util" }
+nix-bindings-expr = { git = "https://github.com/nixops4/nix-bindings-rust" }
+nix-bindings-fetchers = { git = "https://github.com/nixops4/nix-bindings-rust" }
+nix-bindings-flake = { git = "https://github.com/nixops4/nix-bindings-rust" }
+nix-bindings-store = { git = "https://github.com/nixops4/nix-bindings-rust" }
+nix-bindings-util = { git = "https://github.com/nixops4/nix-bindings-rust" }
 anyhow = "1.0"
 tempfile = "3.21"
 ctor = "0.2"

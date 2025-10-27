@@ -1,11 +1,5 @@
 [workspace]
 members = [
-    "nix-c-raw",
-    "nix-expr",
-    "nix-fetchers",
-    "nix-flake",
-    "nix-store",
-    "nix-util",
     "nixops4-core",
     "nixops4-eval",
     "nixops4-resource",
