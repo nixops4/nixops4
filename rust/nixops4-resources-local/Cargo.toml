@@ -11,6 +11,7 @@ license = "LGPL-2.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1"
 nixops4-resource = { path = "../nixops4-resource" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

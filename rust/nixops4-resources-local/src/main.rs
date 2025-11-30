@@ -53,6 +53,7 @@ struct StateFileInProperties {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 struct StateFileOutProperties {}
 
+#[async_trait::async_trait]
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     async fn create(
         &self,
