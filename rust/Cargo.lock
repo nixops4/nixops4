@@ -1729,14 +1729,12 @@ dependencies = [
  "clap_complete",
  "clap_derive",
  "clap_mangen",
- "futures-util",
  "json-patch",
  "jsonrpsee",
  "nixops4-resource",
  "serde",
  "serde_json",
  "tokio",
- "tokio-util",
  "tracing",
 ]
 

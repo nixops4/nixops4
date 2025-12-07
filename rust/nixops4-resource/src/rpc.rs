@@ -1,12 +1,23 @@
+use std::fmt::Formatter;
+
 use async_trait::async_trait;
+use futures_util::{SinkExt as _, StreamExt as _};
 use jsonrpsee::{
-    core::RpcResult,
+    core::{
+        client::{ReceivedMessage, TransportReceiverT, TransportSenderT},
+        RpcResult,
+    },
     proc_macros::rpc,
     types::{ErrorCode, ErrorObject, ErrorObjectOwned},
 };
 use serde_json::Value;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::{framework::ResourceProvider, schema::v0};
+use crate::{
+    framework::{ContentLengthCodec, ResourceProvider},
+    schema::v0,
+};
 
 #[rpc(client, server, namespace = "resource")]
 pub trait ResourceProviderRpc {
@@ -97,4 +108,83 @@ fn handle_error(error: anyhow::Error) -> ErrorObjectOwned {
         "Resource provider encountered an error",
         Some(error.to_string()),
     )
+}
+
+pub struct ContentLengthSender<T> {
+    inner: FramedWrite<T, ContentLengthCodec>,
+}
+
+impl<T: AsyncWrite> ContentLengthSender<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: FramedWrite::new(inner, ContentLengthCodec::default()),
+        }
+    }
+}
+
+impl<T> TransportSenderT for ContentLengthSender<T>
+where
+    T: AsyncWrite + Unpin + Send + 'static,
+{
+    type Error = AnyhowError;
+
+    async fn send(&mut self, msg: String) -> std::result::Result<(), Self::Error> {
+        self.inner.send(&msg).await?;
+        Ok(())
+    }
+}
+
+pub struct ContentLengthReceiver<T> {
+    inner: FramedRead<T, ContentLengthCodec>,
+}
+
+impl<T: AsyncRead> ContentLengthReceiver<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: FramedRead::new(inner, ContentLengthCodec::default()),
+        }
+    }
+}
+
+impl<T> TransportReceiverT for ContentLengthReceiver<T>
+where
+    T: AsyncRead + Unpin + Send + 'static,
+{
+    type Error = AnyhowError;
+
+    async fn receive(&mut self) -> Result<ReceivedMessage, Self::Error> {
+        match self.inner.next().await {
+            Some(Ok(msg)) => Ok(ReceivedMessage::Text(msg)),
+            Some(Err(e)) => Err(e.into()),
+            None => Err(anyhow::anyhow!("EOF reached while reading response").into()),
+        }
+    }
+}
+
+// Annoying hack because anyhow:Error doesn't implement StdError and
+// the TransportSender/Receiver traits require an StdError
+pub struct AnyhowError(anyhow::Error);
+
+impl From<anyhow::Error> for AnyhowError {
+    fn from(value: anyhow::Error) -> Self {
+        Self(value)
+    }
+}
+
+impl std::error::Error for AnyhowError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+impl std::fmt::Display for AnyhowError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::fmt::Debug for AnyhowError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }

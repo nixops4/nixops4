@@ -85,15 +85,12 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                         )
                     })?;
 
-                match p.stdin {
-                    Some(stdinstr) => {
-                        child
-                            .stdin
-                            .as_mut()
-                            .unwrap()
-                            .write_all(stdinstr.as_bytes())?;
-                    }
-                    None => {}
+                if let Some(stdinstr) = p.stdin {
+                    child
+                        .stdin
+                        .as_mut()
+                        .unwrap()
+                        .write_all(stdinstr.as_bytes())?;
                 }
 
                 // Read stdout

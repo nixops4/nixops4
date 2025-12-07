@@ -1,16 +1,12 @@
-use std::{
-    io::{BufRead, BufReader},
-    os::fd::{AsRawFd, FromRawFd},
-};
+use std::os::fd::{AsRawFd, FromRawFd};
 
 use anyhow::{Context, Error, Result};
 use async_trait::async_trait;
-use futures_util::{Sink, SinkExt, StreamExt};
-use jsonrpsee::core::client::TransportSenderT;
+use futures_util::{SinkExt, StreamExt};
 use nix::unistd::{dup, dup2};
 use tokio_util::{
     bytes::{BufMut, BytesMut},
-    codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite},
+    codec::{Decoder, Encoder, FramedRead, FramedWrite},
 };
 
 use crate::{rpc::ResourceProviderRpcServer, schema::v0};
@@ -41,17 +37,6 @@ pub trait ResourceProvider: Send + Sync + 'static {
     }
 }
 
-fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
-    out.write_all(
-        serde_json::to_string(resp)
-            .with_context(|| "Could not serialize response")
-            .unwrap()
-            .as_bytes(),
-    )?;
-    out.write_all(b"\n").context("writing newline")?;
-    out.flush().context("flushing response")
-}
-
 #[derive(Default)]
 pub struct ContentLengthCodec {
     content_length: Option<usize>,
@@ -59,9 +44,9 @@ pub struct ContentLengthCodec {
 
 impl ContentLengthCodec {
     fn decode_headers(&mut self, src: &mut BytesMut) -> Result<(), Error> {
-        if let Some(pos) = src.windows(2).position(|w| w == b"\n\n") {
+        if let Some(pos) = src.windows(4).position(|w| w == b"\r\n\r\n") {
             // Extract headers
-            let headers = src.split_to(pos + 2);
+            let headers = src.split_to(pos + 4);
             let text = String::from_utf8(headers.to_vec()).context("Decoding UTF-8 payload")?;
 
             // Find Content-Length
@@ -83,9 +68,9 @@ impl ContentLengthCodec {
             // Allocate space for the payload
             src.reserve(content_length.saturating_sub(src.len()));
 
-            return Ok(());
+            Ok(())
         } else {
-            return Ok(()); // Need more data
+            Ok(()) // Need more data
         }
     }
 }
@@ -144,7 +129,7 @@ pub async fn run_main(provider: impl ResourceProvider) {
         pipe_fds_to_files(pipe)
     };
 
-    let in_ = tokio::io::BufReader::new(tokio::fs::File::from_std(pipe.in_));
+    let in_ = tokio::fs::File::from_std(pipe.in_);
 
     let mut out = FramedWrite::new(
         tokio::fs::File::from_std(pipe.out),
@@ -156,7 +141,6 @@ pub async fn run_main(provider: impl ResourceProvider) {
     // Loop to handle multiple requests
     let mut framed = FramedRead::new(in_, ContentLengthCodec::default());
     while let Some(Ok(request)) = framed.next().await {
-        eprintln!("Request received: {}", &request);
         let (resp, _) = rpc_module
             .raw_json_request(&request, 1)
             .await
