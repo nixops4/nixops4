@@ -15,7 +15,6 @@ use tokio::sync::Mutex;
 /// to spawn new tasks and add dependencies to the current task.
 /// The `Key` type is used to identify tasks, and the `Output` type is the result
 /// of the work done by the task.
-#[async_trait::async_trait]
 pub trait TaskWork {
     type Output: Send + Sync;
     type Key: Clone + Ord + std::fmt::Display + Send;
@@ -26,7 +25,11 @@ pub trait TaskWork {
     ///
     /// The `context` parameter provides the capability to spawn new tasks and
     /// add dependencies to the current task.
-    async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output;
+    fn work(
+        &self,
+        context: TaskContext<Self>,
+        key: Self::Key,
+    ) -> impl std::future::Future<Output = Self::Output> + Send;
 
     /// Convert a Cycle error into an error type of your choice.
     fn cycle_error(&self, cycle: Cycle<Self::Key>) -> Self::CycleError;
@@ -288,13 +291,10 @@ impl<Key: std::fmt::Debug> std::fmt::Debug for Cycle<Key> {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-
     use super::*;
 
     // Fibonacci function has empty closure, so the `Fibonacci` value (a TaskWork) is also empty.
     struct Fibonacci {}
-    #[async_trait]
     impl TaskWork for Fibonacci {
         type Output = u128;
         type Key = u64;
@@ -339,7 +339,6 @@ mod tests {
     struct Cyclic {
         modulo: u64,
     }
-    #[async_trait]
     impl TaskWork for Cyclic {
         type Output = Result<u64, Cycle<u64>>;
         type Key = u64;

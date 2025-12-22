@@ -15,10 +15,12 @@ pub trait ResourceProvider {
         &self,
         request: v0::CreateResourceRequest,
     ) -> Result<v0::CreateResourceResponse>;
+
     async fn update(
         &self,
         request: v0::UpdateResourceRequest,
     ) -> Result<v0::UpdateResourceResponse>;
+
     async fn state_read(
         &self,
         request: v0::StateResourceReadRequest,
@@ -26,6 +28,7 @@ pub trait ResourceProvider {
         let _ = request;
         anyhow::bail!("State read operation not implemented by resource provider")
     }
+
     async fn state_event(
         &self,
         request: v0::StateResourceEvent,

@@ -625,7 +625,6 @@ impl WorkContext {
     }
 }
 
-#[async_trait::async_trait]
 impl TaskWork for WorkContext {
     type Output = Arc<std::result::Result<Outcome, Arc<anyhow::Error>>>;
 

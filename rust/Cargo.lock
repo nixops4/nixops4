@@ -1049,7 +1049,6 @@ version = "0.1.0"
 dependencies = [
  "ansi-parser",
  "anyhow",
- "async-trait",
  "clap",
  "clap-markdown",
  "clap_complete",
