@@ -53,6 +53,7 @@ struct StateFileInProperties {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 struct StateFileOutProperties {}
 
+#[async_trait::async_trait]
 impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
     async fn create(
         &self,
@@ -84,15 +85,12 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                         )
                     })?;
 
-                match p.stdin {
-                    Some(stdinstr) => {
-                        child
-                            .stdin
-                            .as_mut()
-                            .unwrap()
-                            .write_all(stdinstr.as_bytes())?;
-                    }
-                    None => {}
+                if let Some(stdinstr) = p.stdin {
+                    child
+                        .stdin
+                        .as_mut()
+                        .unwrap()
+                        .write_all(stdinstr.as_bytes())?;
                 }
 
                 // Read stdout

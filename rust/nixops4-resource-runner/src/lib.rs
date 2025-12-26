@@ -1,12 +1,14 @@
+mod rpc;
+
 use anyhow::{Context, Result};
 use nixops4_resource::schema::v0;
 use serde_json::Value;
 use std::process::ExitStatus;
-use tokio::{
-    io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, BufWriter},
-    process,
-};
-use tracing::warn;
+use tokio::process;
+
+use nixops4_resource::rpc::ResourceProviderRpcClient;
+
+use crate::rpc::build_rpc_client_from_child;
 
 pub struct ResourceProviderConfig {
     pub provider_executable: String,
@@ -15,9 +17,7 @@ pub struct ResourceProviderConfig {
 
 pub struct ResourceProviderClient {
     process: process::Child,
-    child_reader: BufReader<process::ChildStdout>,
-    /// `None` to close stdin and let the provider shut down
-    child_writer: Option<BufWriter<process::ChildStdin>>,
+    rpc_client: Option<jsonrpsee::async_client::Client>,
 }
 
 impl ResourceProviderClient {
@@ -34,152 +34,69 @@ impl ResourceProviderClient {
                     provider_config.provider_executable
                 )
             })?;
-        let child_reader = BufReader::new(process.stdout.take().unwrap());
-        let child_writer = BufWriter::new(process.stdin.take().unwrap());
+
+        let rpc_client = build_rpc_client_from_child(&mut process);
+
         Ok(ResourceProviderClient {
             process,
-            child_reader,
-            child_writer: Some(child_writer),
+            rpc_client: Some(rpc_client),
         })
     }
     pub async fn close_wait(&mut self) -> Result<ExitStatus> {
         // Close stdin to let the provider shut down
-        let _ = self.child_writer.take();
+        let _ = self.rpc_client.take();
         // Wait for the process to finish
         self.process
             .wait()
             .await
             .context("waiting for provider process to finish")
     }
-    fn get_writer(&mut self) -> Result<&mut BufWriter<process::ChildStdin>> {
-        self.child_writer.as_mut().ok_or_else(|| {
+    fn get_client(&self) -> Result<&jsonrpsee::async_client::Client> {
+        self.rpc_client.as_ref().ok_or_else(|| {
             anyhow::anyhow!("Can not write to provider while provider is shutting down.")
         })
     }
-    async fn write_request(&mut self, req: v0::Request) -> Result<()> {
-        let req_str = serde_json::to_string(&req).unwrap();
-        let writer = self.get_writer()?;
-        writer.write_all(req_str.as_bytes()).await.unwrap();
-        writer.write_all(b"\n").await.unwrap();
-        writer.flush().await.unwrap();
-        Ok(())
-    }
-    async fn read_response(&mut self) -> Result<v0::Response> {
-        let mut response = String::new();
-        let n = self.child_reader.read_line(&mut response).await;
-        match n {
-            Err(e) => {
-                anyhow::bail!("Error reading from provider process: {}", e);
-            }
-            // EOF
-            Ok(0) => {
-                // Log it
-                warn!("Provider process did not return any output");
-
-                // Wait for the process to finish
-                let r = self.process.wait().await?;
-
-                if r.success() {
-                    anyhow::bail!("Provider process did not return any output");
-                } else {
-                    bail_provider_exit_code(r)?
-                }
-            }
-            Ok(_) => Ok(serde_json::from_str(&response)?),
-        }
-    }
     pub async fn create(
-        &mut self,
+        &self,
         type_: &str,
         inputs: &serde_json::Map<String, Value>,
         is_stateful: bool,
     ) -> Result<serde_json::Map<String, Value>> {
-        let req = v0::CreateResourceRequest {
-            input_properties: v0::InputProperties(inputs.clone()),
-            type_: v0::ResourceType(type_.to_string()),
-            is_stateful,
-        };
-
-        // Write the request
-        self.write_request(v0::Request::CreateResourceRequest(req))
+        let response = self
+            .get_client()?
+            .create(type_.to_string(), inputs.clone(), is_stateful)
             .await?;
 
-        let response = self.read_response().await?;
-        match response {
-            v0::Response::CreateResourceResponse(r) => Ok(r.output_properties.0),
-            _ => anyhow::bail!(
-                "Expected CreateResourceResponse from provider but got: {:?}",
-                response
-            ),
-        }
+        Ok(response.output_properties.0)
     }
 
     pub async fn update(
-        &mut self,
+        &self,
         type_: &str,
         inputs: &serde_json::Map<String, Value>,
         previous_inputs: &serde_json::Map<String, Value>,
         previous_outputs: &serde_json::Map<String, Value>,
     ) -> Result<serde_json::Map<String, Value>> {
-        let req = v0::UpdateResourceRequest {
-            resource: v0::ExtantResource {
-                type_: v0::ResourceType(type_.to_string()),
-                input_properties: v0::InputProperties(previous_inputs.clone()),
-                output_properties: Some(v0::OutputProperties(previous_outputs.clone())),
-            },
-            input_properties: v0::InputProperties(inputs.clone()),
+        let resource = v0::ExtantResource {
+            type_: v0::ResourceType(type_.to_string()),
+            input_properties: v0::InputProperties(previous_inputs.clone()),
+            output_properties: Some(v0::OutputProperties(previous_outputs.clone())),
         };
+        let response = self.get_client()?.update(resource, inputs.clone()).await?;
 
-        // Write the request
-        self.write_request(v0::Request::UpdateResourceRequest(req))
-            .await?;
-
-        let response = self.read_response().await?;
-        match response {
-            v0::Response::UpdateResourceResponse(r) => Ok(r.output_properties.0),
-            _ => anyhow::bail!(
-                "Expected UpdateResourceResponse from provider but got: {:?}",
-                response
-            ),
-        }
+        Ok(response.output_properties.0)
     }
 
     pub async fn state_read(
-        &mut self,
+        &self,
         resource: v0::ExtantResource,
     ) -> Result<serde_json::Map<String, Value>> {
-        let req = v0::StateResourceReadRequest { resource };
-
-        // Write the request
-        self.write_request(v0::Request::StateResourceReadRequest(req))
-            .await?;
-
-        let response = self.read_response().await?;
-        match response {
-            v0::Response::StateResourceReadResponse(r) => Ok(r.state),
-            _ => anyhow::bail!(
-                "Expected StateResourceReadResponse from provider but got: {:?}",
-                response
-            ),
-        }
+        let response = self.get_client()?.state_read(resource).await?;
+        Ok(response.state)
     }
 
-    pub async fn state_event(&mut self, request: v0::StateResourceEvent) -> Result<()> {
-        // Write the request
-        self.write_request(v0::Request::StateResourceEvent(request))
-            .await?;
-
-        let response = self.read_response().await?;
-        match response {
-            v0::Response::StateResourceEventResponse(_) => Ok(()),
-            _ => anyhow::bail!(
-                "Expected StateResourceEventResponse from provider but got: {:?}",
-                response
-            ),
-        }
+    pub async fn state_event(&self, request: v0::StateResourceEvent) -> Result<()> {
+        let _ = self.get_client()?.state_event(request).await?;
+        Ok(())
     }
-}
-
-fn bail_provider_exit_code<Absurd>(r: std::process::ExitStatus) -> Result<Absurd> {
-    anyhow::bail!("Provider process failed with exit code: {}", r);
 }

@@ -1,14 +1,18 @@
-use std::{
-    io::{BufRead, BufReader},
-    os::fd::{AsRawFd, FromRawFd},
+use std::os::fd::{AsRawFd, FromRawFd};
+
+use anyhow::{Context, Error, Result};
+use async_trait::async_trait;
+use futures_util::{SinkExt, StreamExt};
+use nix::unistd::{dup, dup2};
+use tokio_util::{
+    bytes::{BufMut, BytesMut},
+    codec::{Decoder, Encoder, FramedRead, FramedWrite},
 };
 
-use anyhow::{Context, Result};
-use nix::unistd::{dup, dup2};
+use crate::{rpc::ResourceProviderRpcServer, schema::v0};
 
-use crate::schema::v0;
-
-pub trait ResourceProvider {
+#[async_trait]
+pub trait ResourceProvider: Send + Sync + 'static {
     async fn create(
         &self,
         request: v0::CreateResourceRequest,
@@ -33,15 +37,90 @@ pub trait ResourceProvider {
     }
 }
 
-fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
-    out.write_all(
-        serde_json::to_string(resp)
-            .with_context(|| "Could not serialize response")
-            .unwrap()
-            .as_bytes(),
-    )?;
-    out.write_all(b"\n").context("writing newline")?;
-    out.flush().context("flushing response")
+#[derive(Default)]
+pub struct ContentLengthCodec {
+    content_length: Option<usize>,
+}
+
+impl ContentLengthCodec {
+    fn decode_headers(&mut self, src: &mut BytesMut) -> Result<(), Error> {
+        if let Some(pos) = src.windows(4).position(|w| w == b"\r\n\r\n") {
+            // Extract headers
+            let headers = src.split_to(pos + 4);
+            let text = String::from_utf8(headers.to_vec()).context("Decoding UTF-8 payload")?;
+
+            // Find Content-Length
+            for line in text.lines() {
+                if let Some(v) = line.strip_prefix("Content-Length:") {
+                    let len = v
+                        .trim()
+                        .parse::<usize>()
+                        .context("Parsing Content-Length value")?;
+                    self.content_length = Some(len);
+                    break;
+                }
+            }
+
+            let Some(content_length) = self.content_length else {
+                return Err(anyhow::anyhow!("Missing Content-Length header"));
+            };
+
+            // Allocate space for the payload
+            src.reserve(content_length.saturating_sub(src.len()));
+
+            Ok(())
+        } else {
+            Ok(()) // Need more data
+        }
+    }
+}
+
+impl Decoder for ContentLengthCodec {
+    type Item = String;
+
+    type Error = anyhow::Error;
+
+    fn decode(
+        &mut self,
+        src: &mut BytesMut,
+    ) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        // Step 1: parse the headers
+        self.decode_headers(src)?;
+
+        let Some(content_length) = self.content_length else {
+            // Headers not complete yet
+            return Ok(None);
+        };
+
+        // Step 2: check if we have enough data for the payload
+        if src.len() < content_length {
+            // Not enough data yet
+            return Ok(None);
+        }
+
+        // Step 3: extract the payload
+        let body = src.split_to(content_length);
+        self.content_length = None;
+
+        let text = String::from_utf8(body.to_vec()).context("Decoding UTF-8 payload")?;
+
+        Ok(Some(text))
+    }
+}
+
+impl Encoder<&str> for ContentLengthCodec {
+    type Error = anyhow::Error;
+
+    fn encode(&mut self, item: &str, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+        let header = format!("Content-Length: {}\r\n\r\n", item.len());
+        // Pre-allocate so we ensure only one allocation
+        dst.reserve(header.len() + item.len() + 1);
+        dst.put(header.as_bytes());
+        dst.put(item.as_bytes());
+        dst.put("\n".as_bytes());
+
+        Ok(())
+    }
 }
 
 pub async fn run_main(provider: impl ResourceProvider) {
@@ -50,73 +129,28 @@ pub async fn run_main(provider: impl ResourceProvider) {
         pipe_fds_to_files(pipe)
     };
 
-    // Read the request from the input
+    let in_ = tokio::fs::File::from_std(pipe.in_);
 
-    let mut in_ = BufReader::new(pipe.in_);
+    let mut out = FramedWrite::new(
+        tokio::fs::File::from_std(pipe.out),
+        ContentLengthCodec::default(),
+    );
 
-    let mut out = pipe.out;
+    let rpc_module = provider.into_rpc();
 
     // Loop to handle multiple requests
-    loop {
-        let request: v0::Request = {
-            let mut line = String::new();
-            match in_.read_line(&mut line) {
-                Ok(0) => {
-                    // EOF - client closed stdin, exit gracefully
-                    break;
-                }
-                Ok(_) => serde_json::from_str(&line)
-                    .with_context(|| "Could not parse request message")
-                    .unwrap_or_exit(),
-                Err(e) => {
-                    eprintln!("Error reading request: {}", e);
-                    break;
-                }
-            }
-        };
+    let mut framed = FramedRead::new(in_, ContentLengthCodec::default());
+    while let Some(Ok(request)) = framed.next().await {
+        let (resp, _) = rpc_module
+            .raw_json_request(&request, 1)
+            .await
+            .with_context(|| "Could not parse request message")
+            .unwrap_or_exit();
 
-        match request {
-            v0::Request::CreateResourceRequest(r) => {
-                let resp = provider
-                    .create(r)
-                    .await
-                    .with_context(|| "Could not create resource")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::UpdateResourceRequest(r) => {
-                let resp = provider
-                    .update(r)
-                    .await
-                    .with_context(|| "Could not update resource")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::StateResourceEvent(r) => {
-                let resp = provider
-                    .state_event(r)
-                    .await
-                    .with_context(|| "Could not handle state event")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::StateResourceReadRequest(r) => {
-                let resp = provider
-                    .state_read(r)
-                    .await
-                    .with_context(|| "Could not read state")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-        }
+        out.send(resp.get())
+            .await
+            .context("writing response")
+            .unwrap_or_exit();
     }
 }
 
