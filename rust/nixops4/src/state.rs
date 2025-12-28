@@ -70,7 +70,7 @@ impl StateHandle {
     ) -> Result<Arc<StateHandle>> {
         let provider_argv = provider::parse_provider(&provider_info.provider)?;
         // Run the provider
-        let mut provider =
+        let provider =
             ResourceProviderClient::new(nixops4_resource_runner::ResourceProviderConfig {
                 provider_executable: provider_argv.executable,
                 provider_args: provider_argv.args,
