@@ -93,13 +93,6 @@
             pkgs.gdb
             pkgs.hci
             inputs'.nix-unit.packages.nix-unit
-            # TODO: set up cargo-valgrind in shell and build
-            #       currently both this and `cargo install cargo-valgrind`
-            #       produce a binary that says ENOENT.
-            # pkgs.cargo-valgrind
-          ]
-          ++ lib.optionals pkgs.stdenv.isLinux [
-            pkgs.valgrind
           ]
           ++ config.packages.manual.externalBuildTools;
           shellHook = ''
