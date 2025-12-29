@@ -62,55 +62,59 @@
         ''}";
       };
 
-      devShells.default = pkgs.mkShell {
-        name = "nixops4-devshell";
-        strictDeps = true;
-        inputsFrom = [ config.nci.outputs.nixops4-project.devShell ];
-        inherit (config.nci.outputs.nixops4-project.devShell.env)
-          LIBCLANG_PATH
-          NIX_CC_UNWRAPPED
-          ;
-        NIX_DEBUG_INFO_DIRS =
-          let
-            # TODO: add to Nixpkgs lib
-            getDebug =
-              pkg:
-              if pkg ? debug then
-                pkg.debug
-              else if pkg ? lib then
-                pkg.lib
-              else
-                pkg;
-          in
-          "${getDebug config.nix-bindings-rust.nixPackage}/lib/debug";
-        buildInputs = [
-          config.nix-bindings-rust.nixPackage
-        ];
-        nativeBuildInputs = [
-          pkgs.rust-analyzer
-          pkgs.nixfmt-rfc-style
-          pkgs.rustfmt
-          pkgs.pkg-config
-          pkgs.clang-tools # clangd
-          pkgs.valgrind
-          pkgs.gdb
-          pkgs.hci
-          inputs'.nix-unit.packages.nix-unit
-          # TODO: set up cargo-valgrind in shell and build
-          #       currently both this and `cargo install cargo-valgrind`
-          #       produce a binary that says ENOENT.
-          # pkgs.cargo-valgrind
-        ]
-        ++ config.packages.manual.externalBuildTools;
-        shellHook = ''
-          ${config.pre-commit.installationScript}
-          source ${inputs.nix-bindings-rust + "/bindgen-gcc.sh"}
-          source ${../rust/artifact-shell.sh}
-          echo 1>&2 "Welcome to the development shell!"
-        '';
-        # rust-analyzer needs a NIX_PATH for some reason
-        NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
-      };
+      devShells.default = pkgs.mkShell (
+        {
+          name = "nixops4-devshell";
+          strictDeps = true;
+          inputsFrom = [ config.nci.outputs.nixops4-project.devShell ];
+          inherit (config.nci.outputs.nixops4-project.devShell.env) LIBCLANG_PATH;
+          NIX_DEBUG_INFO_DIRS =
+            let
+              # TODO: add to Nixpkgs lib
+              getDebug =
+                pkg:
+                if pkg ? debug then
+                  pkg.debug
+                else if pkg ? lib then
+                  pkg.lib
+                else
+                  pkg;
+            in
+            "${getDebug config.nix-bindings-rust.nixPackage}/lib/debug";
+          buildInputs = [
+            config.nix-bindings-rust.nixPackage
+          ];
+          nativeBuildInputs = [
+            pkgs.rust-analyzer
+            pkgs.nixfmt-rfc-style
+            pkgs.rustfmt
+            pkgs.pkg-config
+            pkgs.clang-tools # clangd
+            pkgs.gdb
+            pkgs.hci
+            inputs'.nix-unit.packages.nix-unit
+            # TODO: set up cargo-valgrind in shell and build
+            #       currently both this and `cargo install cargo-valgrind`
+            #       produce a binary that says ENOENT.
+            # pkgs.cargo-valgrind
+          ]
+          ++ lib.optionals pkgs.stdenv.isLinux [
+            pkgs.valgrind
+          ]
+          ++ config.packages.manual.externalBuildTools;
+          shellHook = ''
+            ${config.pre-commit.installationScript}
+            source ${inputs.nix-bindings-rust + "/bindgen-gcc.sh"}
+            source ${../rust/artifact-shell.sh}
+            echo 1>&2 "Welcome to the development shell!"
+          '';
+          # rust-analyzer needs a NIX_PATH for some reason
+          NIX_PATH = "nixpkgs=${inputs.nixpkgs}";
+        }
+        // lib.optionalAttrs (config.nci.outputs.nixops4-project.devShell.env ? NIX_CC_UNWRAPPED) {
+          inherit (config.nci.outputs.nixops4-project.devShell.env) NIX_CC_UNWRAPPED;
+        }
+      );
     };
   hercules-ci.flake-update = {
     enable = true;
