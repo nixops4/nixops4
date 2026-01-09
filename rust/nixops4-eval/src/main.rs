@@ -93,10 +93,9 @@ async fn async_main() -> Result<()> {
                 if tx
                     .try_send(nixops4_core::eval_api::EvalResponse::TracingEvent(json))
                     .is_err()
+                    && !log_fail_warned.swap(true, std::sync::atomic::Ordering::Relaxed)
                 {
-                    if !log_fail_warned.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                        eprintln!("warning: couldn't submit log event to log channel; some structured logs may be lost");
-                    }
+                    eprintln!("warning: couldn't submit log event to log channel; some structured logs may be lost");
                 }
                 drop(tx_guard);
             } else if !log_fail_warned.load(std::sync::atomic::Ordering::Relaxed) {
@@ -210,8 +209,8 @@ async fn async_main() -> Result<()> {
 }
 
 fn has_prio(request: &nixops4_core::eval_api::EvalRequest) -> bool {
-    match request {
-        nixops4_core::eval_api::EvalRequest::PutResourceOutput(_, _) => true,
-        _ => false,
-    }
+    matches!(
+        request,
+        nixops4_core::eval_api::EvalRequest::PutResourceOutput(_, _)
+    )
 }

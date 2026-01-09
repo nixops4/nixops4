@@ -141,7 +141,7 @@ impl StateHandle {
             resource: self.state_provider_resource.clone(),
             event: event.to_string(),
             nixops_version: "0.1.0".to_string(),
-            patch: patch,
+            patch,
         };
 
         self.state_provider

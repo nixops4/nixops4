@@ -189,7 +189,7 @@ async fn write_eval_request(
     command_handle: &mut tokio::process::ChildStdin,
     request: &EvalRequest,
 ) -> Result<()> {
-    let json = eval_api::eval_request_to_json(&request)?;
+    let json = eval_api::eval_request_to_json(request)?;
     if verbose {
         eprintln!("\x1b[35msending: {}\x1b[0m", json);
     }

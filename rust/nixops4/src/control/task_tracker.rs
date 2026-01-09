@@ -77,7 +77,7 @@ where
 
     /// Create a new task for the given key. Work is not performed or started -
     /// instead, a `Thunk` is returned that can be used to force the task to run.
-    pub async fn create(self: &Self, key: Work::Key) -> Thunk<Work::Output> {
+    pub async fn create(&self, key: Work::Key) -> Thunk<Work::Output> {
         // Look up the task
         let mut state = self.state.lock().await;
         let task = state.tasks.get(&key);
@@ -105,7 +105,7 @@ where
     }
 
     /// Run the task for the given key. This will block until the task completes.
-    pub async fn run(self: &Self, key: Work::Key) -> Work::Output {
+    pub async fn run(&self, key: Work::Key) -> Work::Output {
         // Look up the task
         let thunk = self.create(key).await;
         // ^ closed the lock on tasks
@@ -260,7 +260,10 @@ impl<Key> Cycle<Key> {
         &self.path
     }
     fn check(&self) {
-        assert!(self.path.len() > 0, "Cycle must have at least one element");
+        assert!(
+            !self.path.is_empty(),
+            "Cycle must have at least one element"
+        );
     }
 }
 impl<Key: std::fmt::Display> std::fmt::Display for Cycle<Key> {

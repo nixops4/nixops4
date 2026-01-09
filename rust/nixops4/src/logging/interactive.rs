@@ -572,22 +572,19 @@ impl<W: Write> TuiState<W> {
 
             // Check for user input
             if event::poll(Duration::from_millis(125))? {
-                match event::read()? {
-                    event::Event::Key(key) => {
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                interrupt_state.set_interrupted();
-                            }
-                            // Ctrl+C   (in raw mode, this is not a SIGINT)
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                            {
-                                interrupt_state.set_interrupted();
-                            }
-                            _ => {}
+                if let event::Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => {
+                            interrupt_state.set_interrupted();
                         }
+                        // Ctrl+C   (in raw mode, this is not a SIGINT)
+                        KeyCode::Char('c')
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            interrupt_state.set_interrupted();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -648,12 +645,9 @@ fn save_color(log: &str, graphics_mode: &mut String) {
             ansi_parser::Output::Escape(e) => {
                 // We ignore reverse video because it's not reliably emulated.
                 // (https://en.wikipedia.org/wiki/ANSI_escape_code)
-                match e {
-                    ansi_parser::AnsiSequence::SetGraphicsMode(_) => {
-                        let s = e.to_string();
-                        *graphics_mode = s;
-                    }
-                    _ => {}
+                if let ansi_parser::AnsiSequence::SetGraphicsMode(_) = e {
+                    let s = e.to_string();
+                    *graphics_mode = s;
                 }
             }
         }

@@ -78,7 +78,7 @@ impl EvaluationDriver {
                 &parse_flags,
                 override_ref_str,
             )?;
-            if fragment != "" {
+            if !fragment.is_empty() {
                 bail!(
                     "input override {} has unexpected fragment: {}",
                     override_path,
@@ -95,7 +95,7 @@ impl EvaluationDriver {
             &parse_flags,
             flakeref_str,
         )?;
-        if fragment != "" {
+        if !fragment.is_empty() {
             bail!(
                 "flake reference {} has unexpected fragment: {}",
                 flakeref_str,
