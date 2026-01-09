@@ -24,6 +24,8 @@ use std::{
     thread::{self, sleep},
     time::Duration,
 };
+
+type RenderCallback = Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>;
 use tracing_subscriber::{
     fmt::{format::DefaultFields, FormattedFields},
     layer::SubscriberExt as _,
@@ -440,7 +442,7 @@ impl<W: Write> TuiState<W> {
     fn run(
         &mut self,
         interrupt_state: InterruptState,
-        render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+        render_callback: RenderCallback,
     ) -> Result<()> {
         let mut tui_height = self.compute_tui_height();
         let mut input_active = true;
@@ -625,7 +627,7 @@ fn spawn_log_ui<W: Write + Send + 'static>(
     crashing: Arc<AtomicBool>,
     writer: W,
     log_receiver: mpsc::Receiver<String>,
-    render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+    render_callback: RenderCallback,
 ) -> Result<thread::JoinHandle<Result<()>>, anyhow::Error> {
     let mut tui_state = TuiState::new(log_receiver, crashing, writer)?;
     Ok(thread::spawn(move || {

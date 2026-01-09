@@ -24,6 +24,8 @@ use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 use tracing::{info_span, Instrument as _};
 
+type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>;
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
     Apply(),
@@ -94,8 +96,7 @@ pub struct WorkContext {
 #[derive(Default)]
 pub struct WorkState {
     resource_ids: BTreeMap<String, Id<ResourceType>>,
-    cleanup_tasks:
-        Vec<Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>>,
+    cleanup_tasks: Vec<CleanupTask>,
 }
 
 impl WorkContext {

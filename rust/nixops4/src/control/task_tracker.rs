@@ -186,6 +186,7 @@ where
         Ok(thunk)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn require(
         &self,
         key: Work::Key,
