@@ -563,13 +563,13 @@ mod tests {
                         assert_eq!(id, &flake_id.any());
                         if msg.contains("/non-existent/path/to/flake") {
                             drop(guard);
-                            return Ok(());
+                            Ok(())
                         } else {
                             panic!("unexpected error message: {}", msg);
                         }
                     }
                     _ => panic!("expected EvalResponse::Error"),
-                };
+                }
             }
         })()
         .unwrap();
@@ -636,7 +636,7 @@ mod tests {
             .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -776,7 +776,7 @@ mod tests {
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -872,7 +872,7 @@ mod tests {
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -888,7 +888,7 @@ mod tests {
             .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             };
