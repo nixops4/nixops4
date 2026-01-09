@@ -164,7 +164,7 @@ impl StateHandle {
     }
     fn lock_write(
         locking: &mut fd_lock::RwLock<Arc<File>>,
-    ) -> Result<fd_lock::RwLockWriteGuard<Arc<File>>> {
+    ) -> Result<fd_lock::RwLockWriteGuard<'_, Arc<File>>> {
         let lock_wait_mon = WaitMonitor::new("Waiting for state file write lock".to_owned());
         let lock = locking.write()?;
         lock_wait_mon.done();

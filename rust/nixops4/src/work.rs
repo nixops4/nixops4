@@ -91,18 +91,11 @@ pub struct WorkContext {
     pub state: Mutex<WorkState>,
     pub id_subscriptions: Pubsub<IdNum, EvalResponse>,
 }
+#[derive(Default)]
 pub struct WorkState {
     resource_ids: BTreeMap<String, Id<ResourceType>>,
     cleanup_tasks:
         Vec<Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>>,
-}
-impl Default for WorkState {
-    fn default() -> Self {
-        Self {
-            resource_ids: BTreeMap::new(),
-            cleanup_tasks: Vec::new(),
-        }
-    }
 }
 
 impl WorkContext {
@@ -358,14 +351,13 @@ impl WorkContext {
                                     break Ok(Outcome::ResourceInputValue(value))
                                 }
                                 ResourceInputState::ResourceInputDependency(x) => {
-                                    let dep_id = self
+                                    let dep_id = *self
                                         .state
                                         .lock()
                                         .await
                                         .resource_ids
                                         .get(&x.dependency.resource)
-                                        .unwrap()
-                                        .clone();
+                                        .unwrap();
                                     let property = x.dependency.name.clone();
                                     let resource = x.dependency.resource.clone();
                                     let r = context
@@ -479,14 +471,13 @@ impl WorkContext {
 
         let state_provider = match &provider_info.state {
             Some(state_resource_name) => {
-                let state_resource_id = self
+                let state_resource_id = *self
                     .state
                     .lock()
                     .await
                     .resource_ids
                     .get(state_resource_name)
-                    .unwrap()
-                    .clone();
+                    .unwrap();
                 let thunk = context
                     .spawn(Goal::RunState(
                         state_resource_id,

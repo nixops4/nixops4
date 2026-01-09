@@ -140,7 +140,7 @@ impl<Work: TaskWork + ?Sized> Clone for TaskContext<Work> {
         }
     }
 }
-impl<'a, Work: TaskWork + Send + Sync + 'static> TaskContext<Work>
+impl<Work: TaskWork + Send + Sync + 'static> TaskContext<Work>
 where
     Work::Output: Clone + Send + Sync,
     Work::Key: Clone + Send + Sync,
@@ -160,7 +160,7 @@ where
                 &mut BTreeSet::new(),
                 &state.tasks,
                 &self.key,
-                &[key.clone()],
+                std::slice::from_ref(&key),
             ) {
                 path.reverse();
                 Err(state.work_context.cycle_error(Cycle { path }))?;

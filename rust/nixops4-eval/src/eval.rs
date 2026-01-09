@@ -119,8 +119,8 @@ impl EvaluationDriver {
     /// - handler: Performs the work and returns a Value. Errors are stored and reported to the client.
     ///
     // We may need more of these helper functions for different types of requests.
-    async fn handle_assign_request<'a, R: RequestIdType>(
-        &'a mut self,
+    async fn handle_assign_request<R: RequestIdType>(
+        &mut self,
         request: &AssignRequest<R>,
         handler: impl FnOnce(&mut Self, &R) -> Result<Value>,
     ) -> Result<()> {
