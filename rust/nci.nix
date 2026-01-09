@@ -13,6 +13,10 @@
         depsDrvConfig = {
           imports = [ config.nix-bindings-rust.nciBuildConfig ];
         };
+        profiles = {
+          dev.drvConfig.env.RUSTFLAGS = "-D warnings";
+          release.runTests = true;
+        };
       };
       nci.crates.nixops4-eval.drvConfig = {
         imports = [ config.nix-bindings-rust.nciBuildConfig ];
