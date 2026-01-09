@@ -1,4 +1,9 @@
-include!(concat!(env!("OUT_DIR"), "/generated/schema/state/v0.rs"));
+mod generated {
+    // This module only contains generated code.
+    #![allow(clippy::all)]
+    include!(concat!(env!("OUT_DIR"), "/generated/schema/state/v0.rs"));
+}
+pub use generated::*;
 
 #[cfg(test)]
 mod tests {
