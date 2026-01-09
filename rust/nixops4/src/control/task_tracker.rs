@@ -43,7 +43,7 @@ struct InnerState<Work: TaskWork + ?Sized> {
 
     // This isn't mutated, so it could be moved to `TaskTracker`. It's only here
     // because it saves another Arc indirection.
-    work_context: Arc<Box<Work>>,
+    work_context: Arc<Work>,
 }
 
 /// Task scheduling with memoization and cycle detection.
@@ -62,17 +62,13 @@ where
     Work::Output: Clone + Send + Sync,
     Work::Key: Clone + Send + Sync,
 {
-    pub fn new_arc(work_context: Arc<Box<Work>>) -> Self {
+    pub fn new(work_context: Arc<Work>) -> Self {
         TaskTracker {
             state: Arc::new(Mutex::new(InnerState {
                 tasks: BTreeMap::new(),
                 work_context,
             })),
         }
-    }
-
-    pub fn new(closure: Work) -> Self {
-        TaskTracker::new_arc(Arc::new(Box::new(closure)))
     }
 
     /// Create a new task for the given key. Work is not performed or started -
@@ -322,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fibonacci() {
-        let fib = TaskTracker::new(Fibonacci {});
+        let fib = TaskTracker::new(Arc::new(Fibonacci {}));
         assert_eq!(fib.run(0).await, 0);
         assert_eq!(fib.run(1).await, 1);
         assert_eq!(fib.run(2).await, 1);
@@ -359,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cyclic() {
-        let tasks = TaskTracker::new(Cyclic { modulo: 10 });
+        let tasks = TaskTracker::new(Arc::new(Cyclic { modulo: 10 }));
         let r = tasks.run(0).await;
         let e = r.unwrap_err();
         let expected: Vec<u64> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];

@@ -62,8 +62,8 @@ pub(crate) async fn apply(
         };
 
         let id_subscriptions = work_context.id_subscriptions.clone();
-        let work_context = Arc::new(Box::new(work_context));
-        let tasks = TaskTracker::new_arc(work_context.clone());
+        let work_context = Arc::new(work_context);
+        let tasks = TaskTracker::new(work_context.clone());
 
         let r = {
             let h: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
