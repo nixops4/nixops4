@@ -24,6 +24,8 @@ use std::{
     thread::{self, sleep},
     time::Duration,
 };
+
+type RenderCallback = Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>;
 use tracing_subscriber::{
     fmt::{format::DefaultFields, FormattedFields},
     layer::SubscriberExt as _,
@@ -440,7 +442,7 @@ impl<W: Write> TuiState<W> {
     fn run(
         &mut self,
         interrupt_state: InterruptState,
-        render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+        render_callback: RenderCallback,
     ) -> Result<()> {
         let mut tui_height = self.compute_tui_height();
         let mut input_active = true;
@@ -572,22 +574,19 @@ impl<W: Write> TuiState<W> {
 
             // Check for user input
             if event::poll(Duration::from_millis(125))? {
-                match event::read()? {
-                    event::Event::Key(key) => {
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                interrupt_state.set_interrupted();
-                            }
-                            // Ctrl+C   (in raw mode, this is not a SIGINT)
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                            {
-                                interrupt_state.set_interrupted();
-                            }
-                            _ => {}
+                if let event::Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => {
+                            interrupt_state.set_interrupted();
                         }
+                        // Ctrl+C   (in raw mode, this is not a SIGINT)
+                        KeyCode::Char('c')
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            interrupt_state.set_interrupted();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -628,7 +627,7 @@ fn spawn_log_ui<W: Write + Send + 'static>(
     crashing: Arc<AtomicBool>,
     writer: W,
     log_receiver: mpsc::Receiver<String>,
-    render_callback: Arc<Box<dyn Fn(&mut Frame) + Send + Sync>>,
+    render_callback: RenderCallback,
 ) -> Result<thread::JoinHandle<Result<()>>, anyhow::Error> {
     let mut tui_state = TuiState::new(log_receiver, crashing, writer)?;
     Ok(thread::spawn(move || {
@@ -648,12 +647,9 @@ fn save_color(log: &str, graphics_mode: &mut String) {
             ansi_parser::Output::Escape(e) => {
                 // We ignore reverse video because it's not reliably emulated.
                 // (https://en.wikipedia.org/wiki/ANSI_escape_code)
-                match e {
-                    ansi_parser::AnsiSequence::SetGraphicsMode(_) => {
-                        let s = e.to_string();
-                        *graphics_mode = s;
-                    }
-                    _ => {}
+                if let ansi_parser::AnsiSequence::SetGraphicsMode(_) = e {
+                    let s = e.to_string();
+                    *graphics_mode = s;
                 }
             }
         }

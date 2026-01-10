@@ -153,7 +153,7 @@ async fn deployments_list(options: &Options) -> Result<Vec<String>> {
                     _,
                     QueryResponseValue::ListDeployments((_id, deployments)),
                 )) => {
-                    break deployments.iter().cloned().collect::<Vec<_>>();
+                    break deployments.to_vec();
                 }
                 Some(EvalResponse::QueryResponse(_, _)) => {
                     // Ignore other query responses

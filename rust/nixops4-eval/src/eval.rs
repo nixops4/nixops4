@@ -14,7 +14,8 @@ use nixops4_core::eval_api::{
     QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
     ResourceProviderInfo, ResourceType,
 };
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[async_trait]
 pub trait Respond {
@@ -27,7 +28,7 @@ pub struct EvaluationDriver {
     flake_settings: nix_bindings_flake::FlakeSettings,
     values: HashMap<IdNum, Result<Value, String>>,
     respond: Box<dyn Respond>,
-    known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
+    known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
     resource_names: HashMap<Id<ResourceType>, String>,
 }
 impl EvaluationDriver {
@@ -43,7 +44,7 @@ impl EvaluationDriver {
             fetch_settings,
             flake_settings,
             respond,
-            known_outputs: Arc::new(Mutex::new(HashMap::new())),
+            known_outputs: Rc::new(RefCell::new(HashMap::new())),
             resource_names: HashMap::new(),
         }
     }
@@ -78,7 +79,7 @@ impl EvaluationDriver {
                 &parse_flags,
                 override_ref_str,
             )?;
-            if fragment != "" {
+            if !fragment.is_empty() {
                 bail!(
                     "input override {} has unexpected fragment: {}",
                     override_path,
@@ -95,7 +96,7 @@ impl EvaluationDriver {
             &parse_flags,
             flakeref_str,
         )?;
-        if fragment != "" {
+        if !fragment.is_empty() {
             bail!(
                 "flake reference {} has unexpected fragment: {}",
                 flakeref_str,
@@ -119,8 +120,8 @@ impl EvaluationDriver {
     /// - handler: Performs the work and returns a Value. Errors are stored and reported to the client.
     ///
     // We may need more of these helper functions for different types of requests.
-    async fn handle_assign_request<'a, R: RequestIdType>(
-        &'a mut self,
+    async fn handle_assign_request<R: RequestIdType>(
+        &mut self,
         request: &AssignRequest<R>,
         handler: impl FnOnce(&mut Self, &R) -> Result<Value>,
     ) -> Result<()> {
@@ -210,7 +211,7 @@ impl EvaluationDriver {
                 .await
             }
             EvalRequest::LoadDeployment(req) => {
-                let known_outputs = Arc::clone(&self.known_outputs);
+                let known_outputs = Rc::clone(&self.known_outputs);
                 self.handle_assign_request(req, |this, req| {
                     perform_load_deployment(this, req, known_outputs)
                 })
@@ -274,8 +275,7 @@ impl EvaluationDriver {
                 let value = json_to_value(&mut self.eval_state, value)?;
                 {
                     self.known_outputs
-                        .lock()
-                        .unwrap()
+                        .borrow_mut()
                         .insert(named_prop.clone(), value);
                 }
                 Ok(())
@@ -287,7 +287,7 @@ impl EvaluationDriver {
 fn perform_load_deployment(
     driver: &mut EvaluationDriver,
     req: &nixops4_core::eval_api::DeploymentRequest,
-    known_outputs: Arc<Mutex<HashMap<NamedProperty, Value>>>,
+    known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
 ) -> Result<Value, anyhow::Error> {
     let deployments = { driver.get_flake_deployments_value(req.flake)? }.clone();
     let es = &mut driver.eval_state;
@@ -339,10 +339,7 @@ fn perform_load_deployment(
                 resource: resource_name.to_string(),
                 name: attr_name.to_string(),
             };
-            let val = {
-                let known_outputs = known_outputs.lock().unwrap();
-                known_outputs.get(&property).cloned()
-            };
+            let val = { known_outputs.borrow().get(&property).cloned() };
             match val {
                 Some(val) => Ok(val),
                 None =>
@@ -566,13 +563,13 @@ mod tests {
                         assert_eq!(id, &flake_id.any());
                         if msg.contains("/non-existent/path/to/flake") {
                             drop(guard);
-                            return Ok(());
+                            Ok(())
                         } else {
                             panic!("unexpected error message: {}", msg);
                         }
                     }
                     _ => panic!("expected EvalResponse::Error"),
-                };
+                }
             }
         })()
         .unwrap();
@@ -639,7 +636,7 @@ mod tests {
             .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -779,7 +776,7 @@ mod tests {
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -875,7 +872,7 @@ mod tests {
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             }
@@ -891,7 +888,7 @@ mod tests {
             .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 0 {
+                if !r.is_empty() {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             };

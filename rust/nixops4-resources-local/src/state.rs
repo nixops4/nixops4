@@ -126,7 +126,6 @@ impl StateHandle {
     pub fn open<P: AsRef<Path>>(name: P, create_new: bool) -> Result<StateHandle> {
         let file = OpenOptions::new()
             .read(true)
-            .write(true)
             .append(true)
             .create_new(create_new)
             .open(name)?;
@@ -165,7 +164,7 @@ impl StateHandle {
     }
     fn lock_write(
         locking: &mut fd_lock::RwLock<Arc<File>>,
-    ) -> Result<fd_lock::RwLockWriteGuard<Arc<File>>> {
+    ) -> Result<fd_lock::RwLockWriteGuard<'_, Arc<File>>> {
         let lock_wait_mon = WaitMonitor::new("Waiting for state file write lock".to_owned());
         let lock = locking.write()?;
         lock_wait_mon.done();
@@ -198,7 +197,7 @@ impl StateHandle {
         }
         writer.flush()?;
 
-        self.expected_size = Some(self.file.seek(io::SeekFrom::Current(0))?);
+        self.expected_size = Some(self.file.stream_position()?);
 
         drop(lock_guard);
         Ok(())

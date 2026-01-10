@@ -8,6 +8,8 @@ use nix::unistd::{dup, dup2};
 
 use crate::schema::v0;
 
+// TODO: we'll probably want Send bounds on these futures later.
+#[allow(async_fn_in_trait)]
 pub trait ResourceProvider {
     async fn create(
         &self,

@@ -12,6 +12,8 @@ pub struct Ids {
     counter: Arc<AtomicU64>,
 }
 impl Ids {
+    // new_without_default: Not a value type. Equal instances are not interchangeable, so default() is not an appropriate constructor method.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Ids {
             counter: Arc::new(AtomicU64::new(0)),

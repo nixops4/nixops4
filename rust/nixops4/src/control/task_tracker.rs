@@ -43,7 +43,7 @@ struct InnerState<Work: TaskWork + ?Sized> {
 
     // This isn't mutated, so it could be moved to `TaskTracker`. It's only here
     // because it saves another Arc indirection.
-    work_context: Arc<Box<Work>>,
+    work_context: Arc<Work>,
 }
 
 /// Task scheduling with memoization and cycle detection.
@@ -62,7 +62,7 @@ where
     Work::Output: Clone + Send + Sync,
     Work::Key: Clone + Send + Sync,
 {
-    pub fn new_arc(work_context: Arc<Box<Work>>) -> Self {
+    pub fn new(work_context: Arc<Work>) -> Self {
         TaskTracker {
             state: Arc::new(Mutex::new(InnerState {
                 tasks: BTreeMap::new(),
@@ -71,13 +71,9 @@ where
         }
     }
 
-    pub fn new(closure: Work) -> Self {
-        TaskTracker::new_arc(Arc::new(Box::new(closure)))
-    }
-
     /// Create a new task for the given key. Work is not performed or started -
     /// instead, a `Thunk` is returned that can be used to force the task to run.
-    pub async fn create(self: &Self, key: Work::Key) -> Thunk<Work::Output> {
+    pub async fn create(&self, key: Work::Key) -> Thunk<Work::Output> {
         // Look up the task
         let mut state = self.state.lock().await;
         let task = state.tasks.get(&key);
@@ -105,7 +101,7 @@ where
     }
 
     /// Run the task for the given key. This will block until the task completes.
-    pub async fn run(self: &Self, key: Work::Key) -> Work::Output {
+    pub async fn run(&self, key: Work::Key) -> Work::Output {
         // Look up the task
         let thunk = self.create(key).await;
         // ^ closed the lock on tasks
@@ -140,7 +136,7 @@ impl<Work: TaskWork + ?Sized> Clone for TaskContext<Work> {
         }
     }
 }
-impl<'a, Work: TaskWork + Send + Sync + 'static> TaskContext<Work>
+impl<Work: TaskWork + Send + Sync + 'static> TaskContext<Work>
 where
     Work::Output: Clone + Send + Sync,
     Work::Key: Clone + Send + Sync,
@@ -160,7 +156,7 @@ where
                 &mut BTreeSet::new(),
                 &state.tasks,
                 &self.key,
-                &[key.clone()],
+                std::slice::from_ref(&key),
             ) {
                 path.reverse();
                 Err(state.work_context.cycle_error(Cycle { path }))?;
@@ -190,6 +186,7 @@ where
         Ok(thunk)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn require(
         &self,
         key: Work::Key,
@@ -260,7 +257,10 @@ impl<Key> Cycle<Key> {
         &self.path
     }
     fn check(&self) {
-        assert!(self.path.len() > 0, "Cycle must have at least one element");
+        assert!(
+            !self.path.is_empty(),
+            "Cycle must have at least one element"
+        );
     }
 }
 impl<Key: std::fmt::Display> std::fmt::Display for Cycle<Key> {
@@ -319,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fibonacci() {
-        let fib = TaskTracker::new(Fibonacci {});
+        let fib = TaskTracker::new(Arc::new(Fibonacci {}));
         assert_eq!(fib.run(0).await, 0);
         assert_eq!(fib.run(1).await, 1);
         assert_eq!(fib.run(2).await, 1);
@@ -356,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cyclic() {
-        let tasks = TaskTracker::new(Cyclic { modulo: 10 });
+        let tasks = TaskTracker::new(Arc::new(Cyclic { modulo: 10 }));
         let r = tasks.run(0).await;
         let e = r.unwrap_err();
         let expected: Vec<u64> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
