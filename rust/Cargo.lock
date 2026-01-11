@@ -900,7 +900,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-bindgen-raw"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -909,7 +909,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-expr"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "anyhow",
  "cstr",
@@ -924,7 +924,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-fetchers"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "anyhow",
  "cstr",
@@ -938,7 +938,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-flake"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "anyhow",
  "cstr",
@@ -955,7 +955,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-store"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -967,7 +967,7 @@ dependencies = [
 [[package]]
 name = "nix-bindings-util"
 version = "0.1.0"
-source = "git+https://github.com/nixops4/nix-bindings-rust?rev=3b9ee17d545590e9484c44c24ec9f3fdcb242a0d#3b9ee17d545590e9484c44c24ec9f3fdcb242a0d"
+source = "git+https://github.com/nixops4/nix-bindings-rust#795dfddc0469865670e238b3437cca4234f83a35"
 dependencies = [
  "anyhow",
  "ctor",
