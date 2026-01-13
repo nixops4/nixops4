@@ -12,11 +12,11 @@ license = "LGPL-2.1"
 
 [dependencies]
 nixops4-core = { path = "../nixops4-core" }
-nix-bindings-expr = "0.1.0"
-nix-bindings-fetchers = "0.1.0"
-nix-bindings-flake = "0.1.0"
-nix-bindings-store = "0.1.0"
-nix-bindings-util = "0.1.0"
+nix-bindings-expr = "0.2.0"
+nix-bindings-fetchers = "0.2.0"
+nix-bindings-flake = "0.2.0"
+nix-bindings-store = "0.2.0"
+nix-bindings-util = "0.2.0"
 anyhow = "1.0"
 tempfile = "3.21"
 ctor = "0.2"
