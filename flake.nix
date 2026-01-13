@@ -8,7 +8,7 @@
     nix-cargo-integration.url = "github:yusdacra/nix-cargo-integration";
     nix-cargo-integration.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nix-bindings-rust.url = "github:nixops4/nix-bindings-rust";
+    nix-bindings-rust.url = "github:nixops4/nix-bindings-rust/0.1.0";
     nix-bindings-rust.inputs.flake-parts.follows = "flake-parts";
     nix-bindings-rust.inputs.nix-cargo-integration.follows = "nix-cargo-integration";
     nix-bindings-rust.inputs.nixpkgs.follows = "nixpkgs";
