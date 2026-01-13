@@ -6,12 +6,20 @@
       pkgs,
       ...
     }:
+
+    let
+      nciBuildConfig = config.nix-bindings-rust.nciBuildConfig;
+    in
+
     {
       # https://flake.parts/options/nix-cargo-integration
       nci.projects.nixops4-project = {
         path = ./.;
         depsDrvConfig = {
-          imports = [ config.nix-bindings-rust.nciBuildConfig ];
+          imports = [ nciBuildConfig ];
+        };
+        drvConfig = {
+          imports = [ nciBuildConfig ];
         };
         profiles = {
           dev.drvConfig.env.RUSTFLAGS = "-D warnings";
@@ -19,7 +27,6 @@
         };
       };
       nci.crates.nixops4-eval.drvConfig = {
-        imports = [ config.nix-bindings-rust.nciBuildConfig ];
         mkDerivation = {
           # Prepare the environment for Nix to work.
           # Nix does not provide a suitable environment for running itself in
