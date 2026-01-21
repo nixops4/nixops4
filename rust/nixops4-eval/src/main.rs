@@ -66,7 +66,6 @@ async fn async_main() -> Result<()> {
         sender: Sender<nixops4_core::eval_api::EvalResponse>,
     }
 
-    #[async_trait::async_trait]
     impl eval::Respond for Session {
         async fn call(&mut self, response: nixops4_core::eval_api::EvalResponse) -> Result<()> {
             self.sender.send(response).await?;
@@ -165,12 +164,8 @@ async fn async_main() -> Result<()> {
             let eval_state = EvalStateBuilder::new(store)?
                 .flakes(&flake_settings)?
                 .build()?;
-            let mut driver = eval::EvaluationDriver::new(
-                eval_state,
-                fetch_settings,
-                flake_settings,
-                Box::new(session),
-            );
+            let mut driver =
+                eval::EvaluationDriver::new(eval_state, fetch_settings, flake_settings, session);
             loop {
                 while let Ok(request) = high_prio_rx.try_recv() {
                     let ed = span.enter();
