@@ -288,7 +288,7 @@ in
               providers.example = testProviderModule;
               resources.myStateful = {
                 type = providers.example.stateful;
-                state = "myStateHandler";
+                state = [ "myStateHandler" ];
                 inputs.data = "world";
               };
             }
@@ -333,7 +333,7 @@ in
             };
             resourceProviderSystem = system;
           }).resources.myStateful.state;
-        expected = "myStateHandler";
+        expected = [ "myStateHandler" ];
       };
 
       "test stateful resource without state throws error" = {

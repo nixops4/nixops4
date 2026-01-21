@@ -107,7 +107,7 @@
 
                 resources.initial_version = {
                   type = providers.local.memo;
-                  state = "state";
+                  state = [ "state" ];
                   inputs.initialize_with = config.currentVersion;
                 };
 

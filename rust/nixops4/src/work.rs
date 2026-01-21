@@ -513,11 +513,7 @@ impl WorkContext {
         };
 
         let state_provider = match &provider_info.state {
-            Some(state_resource_name) => {
-                let state_resource_path = ResourcePath {
-                    deployment_path: DeploymentPath::root(),
-                    resource_name: state_resource_name.clone(),
-                };
+            Some(state_resource_path) => {
                 // Get the state resource ID using the task tracker
                 let state_id_thunk = context
                     .require(Goal::AssignResourceId(state_resource_path.clone()))
@@ -532,12 +528,15 @@ impl WorkContext {
                 };
 
                 let thunk = context
-                    .spawn(Goal::RunState(state_resource_id, state_resource_path))
+                    .spawn(Goal::RunState(
+                        state_resource_id,
+                        state_resource_path.clone(),
+                    ))
                     .await
                     .map_err(|e| {
                         anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
                     })?;
-                Some((state_resource_name, state_resource_id, thunk))
+                Some((state_resource_path, state_resource_id, thunk))
             }
             None => None,
         };

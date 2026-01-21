@@ -414,16 +414,30 @@ fn parse_resource(
     let resource_type_str = eval_state.require_string(&resource_type_value)?;
     let resource_state_value = eval_state.require_attrs_select(&resource, "state")?;
     let resource_state_value_type = eval_state.value_type(&resource_state_value)?;
-    let resource_state_opt_str = match resource_state_value_type {
+    let resource_state_opt = match resource_state_value_type {
         ValueType::Null => None,
-        ValueType::String => Some(eval_state.require_string(&resource_state_value)?),
-        _ => bail!("expected state to be a string or null"),
+        ValueType::List => {
+            let state_list: Vec<_> = eval_state.require_list_strict(&resource_state_value)?;
+            if state_list.is_empty() {
+                bail!("expected state list to be non-empty");
+            }
+            let mut deployment_path = Vec::new();
+            for value in &state_list[..state_list.len() - 1] {
+                deployment_path.push(eval_state.require_string(value)?);
+            }
+            let resource_name = eval_state.require_string(&state_list[state_list.len() - 1])?;
+            Some(nixops4_core::eval_api::ResourcePath {
+                deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
+                resource_name,
+            })
+        }
+        _ => bail!("expected state to be a list of strings or null"),
     };
     Ok(ResourceProviderInfo {
         id: req.to_owned(),
         provider: provider_json,
         resource_type: resource_type_str,
-        state: resource_state_opt_str,
+        state: resource_state_opt,
     })
 }
 
@@ -914,7 +928,7 @@ mod tests {
                 r#"{
                 provider = { example = "config"; };
                 type = "example";
-                state = "stateful";
+                state = ["stateful"];
             }"#,
                 "<test-resource-with-state>",
             )
@@ -933,7 +947,13 @@ mod tests {
 
         assert_eq!(result.id, req_id);
         assert_eq!(result.resource_type, "example");
-        assert_eq!(result.state, Some("stateful".to_string()));
+        assert_eq!(
+            result.state,
+            Some(nixops4_core::eval_api::ResourcePath {
+                deployment_path: nixops4_core::eval_api::DeploymentPath::root(),
+                resource_name: "stateful".to_string(),
+            })
+        );
         assert_eq!(
             result.provider.get("example").unwrap().as_str().unwrap(),
             "config"

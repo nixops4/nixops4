@@ -9,7 +9,7 @@
   # A generated unique ID (for example) will be stored in myStateFile.
   resources.myReverseProxy = {
     type = providers.cloud.reverse_proxy;
-    state = "myStateFile"; # References the state provider resource above
+    state = [ "myStateFile" ]; # References the state provider resource above
     inputs = {
       rules = [
         # ...

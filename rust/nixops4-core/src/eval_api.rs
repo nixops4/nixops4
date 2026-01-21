@@ -241,7 +241,7 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
-    pub state: Option<String>,
+    pub state: Option<ResourcePath>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,7 +405,10 @@ mod tests {
             id: Id::new(2),
             provider: serde_json::json!({"executable": "/bin/memo", "type": "stdio"}),
             resource_type: "memo".to_string(),
-            state: Some("myStateHandler".to_string()),
+            state: Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myStateHandler".to_string(),
+            }),
         };
 
         // Test serialization/deserialization
@@ -414,12 +417,18 @@ mod tests {
         assert_eq!(info, info2);
 
         // Verify state field contains the expected value
-        assert_eq!(info.state, Some("myStateHandler".to_string()));
+        assert_eq!(
+            info.state,
+            Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myStateHandler".to_string(),
+            })
+        );
     }
 
     #[test]
     fn test_resource_provider_info_json_compatibility() {
-        // Test that old JSON without state field can still be deserialized
+        // Test that JSON without state field can still be deserialized
         let json_without_state = r#"{
             "id": {"id": 3},
             "provider": {"executable": "/bin/test", "type": "stdio"},
@@ -430,16 +439,22 @@ mod tests {
         assert_eq!(info.state, None);
         assert_eq!(info.resource_type, "file");
 
-        // Test that new JSON with state field works correctly
+        // Test that JSON with state field works correctly
         let json_with_state = r#"{
             "id": {"id": 4},
             "provider": {"executable": "/bin/memo", "type": "stdio"},
             "resource_type": "memo",
-            "state": "myState"
+            "state": {"deployment_path": [], "resource_name": "myState"}
         }"#;
 
         let info: ResourceProviderInfo = serde_json::from_str(json_with_state).unwrap();
-        assert_eq!(info.state, Some("myState".to_string()));
+        assert_eq!(
+            info.state,
+            Some(ResourcePath {
+                deployment_path: DeploymentPath::root(),
+                resource_name: "myState".to_string(),
+            })
+        );
         assert_eq!(info.resource_type, "memo");
     }
 }
