@@ -207,7 +207,7 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     file_contents.as_bytes(),
                 ))?;
                 let mut state = serde_json::json!({});
-                state::apply_state_events(&mut state, stream).unwrap();
+                state::apply_state_events(&mut state, stream)?;
                 Ok(v0::StateResourceReadResponse {
                     state: serde_json::from_value(state)?,
                 })
@@ -331,4 +331,41 @@ fn parse_input_properties<T: for<'de> Deserialize<'de>>(
 #[tokio::main]
 async fn main() {
     run_main(LocalResourceProvider {}).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nixops4_resource::framework::ResourceProvider;
+    use std::io::Write;
+
+    #[tokio::test]
+    async fn test_state_read_invalid_state_file() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, "{{ invalid json").unwrap();
+
+        let provider = LocalResourceProvider {};
+        let request = v0::StateResourceReadRequest {
+            resource: v0::ExtantResource {
+                type_: v0::ResourceType("state_file".to_string()),
+                input_properties: v0::InputProperties(serde_json::Map::from_iter([(
+                    "name".to_string(),
+                    serde_json::json!(file.path().to_str().unwrap()),
+                )])),
+                output_properties: None,
+            },
+        };
+
+        let result = provider.state_read(request).await;
+        let err = result.expect_err("Expected error for invalid state file");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("State file invalid"),
+            "Expected 'State file invalid' in error, got: {msg}"
+        );
+        assert!(
+            msg.contains("error parsing initial state event"),
+            "Expected 'error parsing initial state event' in error, got: {msg}"
+        );
+    }
 }
