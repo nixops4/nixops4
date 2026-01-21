@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Result};
-use async_trait::async_trait;
 use base64::engine::Engine;
 use cstr::cstr;
 use nix_bindings_expr::{
@@ -17,27 +16,29 @@ use nixops4_core::eval_api::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[async_trait]
 pub trait Respond {
-    async fn call(&mut self, response: EvalResponse) -> Result<()>;
+    fn call(
+        &mut self,
+        response: EvalResponse,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
-pub struct EvaluationDriver {
+pub struct EvaluationDriver<R: Respond> {
     eval_state: EvalState,
     fetch_settings: nix_bindings_fetchers::FetchersSettings,
     flake_settings: nix_bindings_flake::FlakeSettings,
     values: HashMap<IdNum, Result<Value, String>>,
-    respond: Box<dyn Respond>,
+    respond: R,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
     resource_names: HashMap<Id<ResourceType>, String>,
 }
-impl EvaluationDriver {
+impl<R: Respond> EvaluationDriver<R> {
     pub fn new(
         eval_state: EvalState,
         fetch_settings: nix_bindings_fetchers::FetchersSettings,
         flake_settings: nix_bindings_flake::FlakeSettings,
-        respond: Box<dyn Respond>,
-    ) -> EvaluationDriver {
+        respond: R,
+    ) -> EvaluationDriver<R> {
         EvaluationDriver {
             values: HashMap::new(),
             eval_state,
@@ -120,10 +121,10 @@ impl EvaluationDriver {
     /// - handler: Performs the work and returns a Value. Errors are stored and reported to the client.
     ///
     // We may need more of these helper functions for different types of requests.
-    async fn handle_assign_request<R: RequestIdType>(
+    async fn handle_assign_request<T: RequestIdType>(
         &mut self,
-        request: &AssignRequest<R>,
-        handler: impl FnOnce(&mut Self, &R) -> Result<Value>,
+        request: &AssignRequest<T>,
+        handler: impl FnOnce(&mut Self, &T) -> Result<Value>,
     ) -> Result<()> {
         // Check for duplicate ID assignment
         if let Some(_value) = self.values.get(&request.assign_to.num()) {
@@ -284,8 +285,8 @@ impl EvaluationDriver {
     }
 }
 
-fn perform_load_deployment(
-    driver: &mut EvaluationDriver,
+fn perform_load_deployment<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::DeploymentRequest,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
 ) -> Result<Value, anyhow::Error> {
@@ -377,8 +378,8 @@ fn perform_load_deployment(
     Ok(fixpoint)
 }
 
-fn perform_get_resource(
-    this: &mut EvaluationDriver,
+fn perform_get_resource<R: Respond>(
+    this: &mut EvaluationDriver<R>,
     req: &Id<nixops4_core::eval_api::ResourceType>,
 ) -> Result<ResourceProviderInfo> {
     let resource = this.get_value(req.to_owned())?.clone();
@@ -420,8 +421,8 @@ fn parse_resource(
     })
 }
 
-fn perform_get_resource_input(
-    this: &mut EvaluationDriver,
+fn perform_get_resource_input<R: Respond>(
+    this: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::Property,
 ) -> std::result::Result<ResourceInputState, anyhow::Error> {
     let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
@@ -506,7 +507,6 @@ mod tests {
     struct TestRespond {
         responses: Arc<Mutex<Vec<EvalResponse>>>,
     }
-    #[async_trait]
     impl Respond for TestRespond {
         async fn call(&mut self, response: EvalResponse) -> Result<()> {
             let mut responses = self.responses.lock().unwrap();
@@ -537,9 +537,9 @@ mod tests {
             let guard = gc_register_my_thread().unwrap();
             let (eval_state, fetch_settings, flake_settings) = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = Box::new(TestRespond {
+            let respond = TestRespond {
                 responses: responses.clone(),
-            });
+            };
             let mut driver =
                 EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
@@ -611,9 +611,9 @@ mod tests {
             let guard = gc_register_my_thread().unwrap();
             let (eval_state, fetch_settings, flake_settings) = new_eval_state()?;
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = Box::new(TestRespond {
+            let respond = TestRespond {
                 responses: responses.clone(),
-            });
+            };
             let mut driver =
                 EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
@@ -691,9 +691,9 @@ mod tests {
             let guard = gc_register_my_thread().unwrap();
             let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = Box::new(TestRespond {
+            let respond = TestRespond {
                 responses: responses.clone(),
-            });
+            };
             let mut driver =
                 EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
@@ -756,9 +756,9 @@ mod tests {
             let guard = gc_register_my_thread().unwrap();
             let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = Box::new(TestRespond {
+            let respond = TestRespond {
                 responses: responses.clone(),
-            });
+            };
             let mut driver =
                 EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
@@ -852,9 +852,9 @@ mod tests {
             let guard = gc_register_my_thread().unwrap();
             let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
             let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = Box::new(TestRespond {
+            let respond = TestRespond {
                 responses: responses.clone(),
-            });
+            };
             let mut driver =
                 EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
 
