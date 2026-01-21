@@ -1,18 +1,15 @@
-<html class="navy" lang="en" dir="ltr">
-
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
 <head>
-
-
-  <!-- Book generated using mdBook -->
+  <!-- Styled to match mdBook -->
   <meta charset="UTF-8">
-  <title>Introduction - NixOps4 Reference Manual</title>
-
+  <title>NixOps4</title>
 
   <!-- Custom HTML head -->
 
   <meta name="description" content="">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="rgb(22, 25, 35)">
+  <meta name="theme-color" content="#ffffff">
 
   <link rel="icon" href="static/favicon.svg">
   <link rel="shortcut icon" href="static/favicon.png">
@@ -24,64 +21,154 @@
   <link rel="stylesheet" href="static/fonts/fonts.css">
 
   <!-- Highlight.js Stylesheets -->
-  <link rel="stylesheet" href="static/highlight.css" disabled="">
-  <link rel="stylesheet" href="static/tomorrow-night.css">
-  <link rel="stylesheet" href="static/ayu-highlight.css" disabled="">
+  <link rel="stylesheet" id="highlight-css" href="static/highlight.css">
+  <link rel="stylesheet" id="tomorrow-night-css" href="static/tomorrow-night.css">
+  <link rel="stylesheet" id="ayu-highlight-css" href="static/ayu-highlight.css">
 
+  <!-- Provide site root and default themes to javascript -->
+  <script>
+    const path_to_root = "";
+    const default_light_theme = "light";
+    const default_dark_theme = "navy";
+  </script>
 </head>
+<body>
+<div id="mdbook-body-container">
+  <!-- Set the theme before any content is loaded, prevents flash -->
+  <script>
+    const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+    let theme;
+    try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+    if (theme === null || theme === undefined) { theme = default_theme; }
+    const html = document.documentElement;
+    html.classList.remove('light')
+    html.classList.add(theme);
+    html.classList.add("js");
+  </script>
 
-<body class="sidebar-visible no-js">
-  <div id="body-container">
-    <!-- Provide site root to javascript -->
-    <script>
-      var path_to_root = "";
-      var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
-    </script>
-    <!-- Set the theme before any content is loaded, prevents flash -->
-    <script>
-      var theme;
-      try { theme = localStorage.getItem('mdbook-theme'); } catch (e) { }
-      if (theme === null || theme === undefined) { theme = default_theme; }
-      var html = document.querySelector('html');
-      html.classList.remove('light')
-      html.classList.add(theme);
-      var body = document.querySelector('body');
-      body.classList.remove('no-js')
-      body.classList.add('js');
-    </script>
-
-    <!-- <nav id="sidebar" class="sidebar" aria-label="Table of contents">
-    </nav> -->
-
-    <div id="page-wrapper" class="page-wrapper">
-
-      <div class="page">
-
-        <div id="menu-bar-hover-placeholder"></div>
-
-
-        <div id="menu-bar" class="menu-bar sticky">
-          <h1 class="menu-title">NixOps4</h1>
+  <div id="mdbook-page-wrapper" class="page-wrapper">
+    <div class="page">
+      <div id="mdbook-menu-bar-hover-placeholder"></div>
+      <div id="mdbook-menu-bar" class="menu-bar sticky">
+        <div class="left-buttons">
+          <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+            <span class="fa-svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+          </button>
+          <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+          </ul>
         </div>
 
+        <h1 class="menu-title">NixOps4</h1>
 
-        <div id="content" class="content">
-          <main>
-
-            <h1>NixOps</h1>
-
-            <p>
-              NixOps4 is currently in development.
-            </p>
-
-            <p>
-              You can find the in-progress manual in <a href="manual/development">manual/development</a>
-            </p>
-          </main>
+        <div class="right-buttons">
+          <a href="https://github.com/nixops4/nixops4" title="Git repository" aria-label="Git repository">
+            <span class="fa-svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+          </a>
         </div>
+      </div>
+
+      <div id="mdbook-content" class="content">
+        <main style="padding-top: 3em;">
+          <div style="text-align: center;">
+            <img src="static/favicon.svg" alt="NixOps4" style="width: 200px; height: 200px;">
+          </div>
+
+          <p style="margin-top: 2em;">
+            NixOps4 is currently in development.
+          </p>
+
+          <p>
+            This site will host documentation for the various components that make up the core of the NixOps4 ecosystem.
+            See the <a href="manual/development">Introduction</a> for an overview.
+          </p>
+
+          <h2>nixops4</h2>
+          <ul>
+            <li><a href="manual/development">Manual</a> (latest development)</li>
+          </ul>
+
+          <h2>nixops4-nixos</h2>
+          <ul>
+            <li><a href="https://github.com/nixops4/nixops4-nixos#readme">README</a></li>
+          </ul>
+        </main>
       </div>
     </div>
   </div>
-</body>
+</div>
 
+<script>
+  (function() {
+    const themeToggleButton = document.getElementById('mdbook-theme-toggle');
+    const themePopup = document.getElementById('mdbook-theme-list');
+    const themes = ['light', 'rust', 'coal', 'navy', 'ayu'];
+
+    function get_theme() {
+      let theme;
+      try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+      if (theme === null || theme === undefined) {
+        return default_theme;
+      }
+      return theme;
+    }
+
+    function set_theme(theme) {
+      const html = document.documentElement;
+      themes.forEach(function(t) { html.classList.remove(t); });
+      html.classList.add(theme);
+      try { localStorage.setItem('mdbook-theme', theme); } catch(e) {}
+    }
+
+    function showThemes() {
+      themePopup.style.display = 'block';
+      themeToggleButton.setAttribute('aria-expanded', true);
+      themePopup.querySelector('button#mdbook-theme-' + get_theme()).focus();
+    }
+
+    function hideThemes() {
+      themePopup.style.display = 'none';
+      themeToggleButton.setAttribute('aria-expanded', false);
+      themeToggleButton.focus();
+    }
+
+    themeToggleButton.addEventListener('click', function() {
+      if (themePopup.style.display === 'block') {
+        hideThemes();
+      } else {
+        showThemes();
+      }
+    });
+
+    themePopup.querySelectorAll('button.theme').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        let theme = this.id.replace(/^mdbook-theme-/, '');
+        if (theme === 'default_theme') {
+          theme = default_theme;
+          try { localStorage.removeItem('mdbook-theme'); } catch(e) {}
+          const html = document.documentElement;
+          themes.forEach(function(t) { html.classList.remove(t); });
+          html.classList.add(theme);
+        } else {
+          set_theme(theme);
+        }
+        hideThemes();
+      });
+    });
+
+    document.addEventListener('click', function(e) {
+      if (themePopup.style.display === 'block' &&
+          !themeToggleButton.contains(e.target) &&
+          !themePopup.contains(e.target)) {
+        hideThemes();
+      }
+    });
+  })();
+</script>
+</body>
 </html>
