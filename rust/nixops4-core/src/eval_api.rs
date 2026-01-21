@@ -163,6 +163,7 @@ pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
+    LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
     ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
     LoadResource(AssignRequest<ResourceRequest>),
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
@@ -281,6 +282,17 @@ pub struct DeploymentRequest {
     pub name: String,
 }
 impl RequestIdType for DeploymentRequest {
+    type IdType = DeploymentType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NestedDeploymentRequest {
+    /// The parent deployment to load the nested deployment from.
+    pub parent_deployment: Id<DeploymentType>,
+    /// The name of the nested deployment to load.
+    pub name: String,
+}
+impl RequestIdType for NestedDeploymentRequest {
     type IdType = DeploymentType;
 }
 

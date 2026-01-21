@@ -218,6 +218,19 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
+            EvalRequest::LoadNestedDeployment(req) => {
+                self.handle_assign_request(req, |this, req| {
+                    let parent_deployment = this.get_value(req.parent_deployment)?.clone();
+                    let deployments_attrset = this
+                        .eval_state
+                        .require_attrs_select(&parent_deployment, "deployments")?;
+                    let deployment = this
+                        .eval_state
+                        .require_attrs_select(&deployments_attrset, &req.name)?;
+                    Ok(deployment)
+                })
+                .await
+            }
             EvalRequest::ListResources(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
