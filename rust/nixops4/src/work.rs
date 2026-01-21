@@ -10,8 +10,8 @@ use crate::{
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
     self, AssignRequest, DeploymentPath, DeploymentType, EvalRequest, EvalResponse, Id, IdNum,
-    NamedProperty, Property, QueryResponseValue, ResourceInputState, ResourcePath, ResourceRequest,
-    ResourceType,
+    NamedProperty, NestedDeploymentRequest, Property, QueryResponseValue, ResourceInputState,
+    ResourcePath, ResourceRequest, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -29,8 +29,10 @@ type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> +
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
-    Apply(),
-    ListResources(),
+    Apply(DeploymentPath),
+    ListResources(DeploymentPath),
+    ListNestedDeployments(DeploymentPath),
+    AssignDeploymentId(DeploymentPath),
     AssignResourceId(ResourcePath),
     GetResourceProviderInfo(Id<ResourceType>, ResourcePath),
     ListResourceInputs(Id<ResourceType>, ResourcePath),
@@ -43,8 +45,14 @@ pub enum Goal {
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Goal::Apply() => write!(f, "Apply"),
-            Goal::ListResources() => write!(f, "List resources"),
+            Goal::Apply(path) => write!(f, "Apply deployment {:?}", path.0),
+            Goal::ListResources(path) => write!(f, "List resources in deployment {:?}", path.0),
+            Goal::ListNestedDeployments(path) => {
+                write!(f, "List nested deployments in {:?}", path.0)
+            }
+            Goal::AssignDeploymentId(path) => {
+                write!(f, "Assign deployment ID for path {:?}", path.0)
+            }
             Goal::AssignResourceId(name) => write!(f, "Assign resource ID to {}", name),
             Goal::GetResourceProviderInfo(_, name) => {
                 write!(f, "Get resource provider info for {}", name)
@@ -80,6 +88,8 @@ impl Display for Goal {
 pub enum Outcome {
     Done(),
     ResourcesListed(Vec<ResourcePath>),
+    NestedDeploymentsListed(Vec<String>),
+    DeploymentId(Id<DeploymentType>),
     ResourceId(Id<ResourceType>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
@@ -92,7 +102,7 @@ pub enum Outcome {
 pub struct WorkContext {
     pub options: crate::Options,
     pub eval_sender: eval_client::EvalSender,
-    pub deployment_id: Id<DeploymentType>,
+    pub root_deployment_id: Id<DeploymentType>,
     pub interrupt_state: InterruptState,
     pub state: Mutex<WorkState>,
     pub id_subscriptions: Pubsub<IdNum, EvalResponse>,
@@ -128,8 +138,14 @@ impl WorkContext {
         Ok(())
     }
 
-    async fn list_resources(&self, context: &TaskContext<Self>) -> Result<Vec<ResourcePath>> {
-        let r = context.require(Goal::ListResources()).await;
+    async fn list_resources(
+        &self,
+        context: &TaskContext<Self>,
+        deployment_path: &DeploymentPath,
+    ) -> Result<Vec<ResourcePath>> {
+        let r = context
+            .require(Goal::ListResources(deployment_path.clone()))
+            .await;
         let outcome = match r {
             Err(e) => {
                 bail!("Error while listing resources: {}", e);
@@ -145,23 +161,66 @@ impl WorkContext {
         Ok(resources)
     }
 
+    async fn list_nested_deployments(
+        &self,
+        context: &TaskContext<Self>,
+        deployment_path: &DeploymentPath,
+    ) -> Result<Vec<String>> {
+        let r = context
+            .require(Goal::ListNestedDeployments(deployment_path.clone()))
+            .await;
+        let outcome = match r {
+            Err(e) => {
+                bail!("Error while listing nested deployments: {}", e);
+            }
+            Ok(v) => clone_result(v.as_ref()),
+        }?;
+        let nested = match outcome {
+            Outcome::NestedDeploymentsListed(items) => items,
+            outcome => {
+                bail!(
+                    "Unexpected outcome from ListNestedDeployments, {:?}",
+                    outcome
+                )
+            }
+        };
+        Ok(nested)
+    }
+
     // -----------------------------------------------------------------------
     // NOTE: perform_* functions should only be called from the work() function
     // and should not be called directly, so that we can ensure that work is
     // deduplicated and that we don't have cycles.
     // -----------------------------------------------------------------------
 
-    async fn perform_apply(&self, context: TaskContext<Self>) -> Result<Outcome> {
-        let resources = self.list_resources(&context).await?;
+    async fn perform_apply(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        let resources = self.list_resources(&context, &deployment_path).await?;
+
         if resources.is_empty() {
             eprintln!("Deployment contains no resources; nothing to apply.");
         } else {
-            eprintln!("The following resources will be checked, created and/or updated:");
+            // TODO: We can't list nested deployments here because structural
+            // dependencies mean they may not be evaluable until parent resource
+            // outputs are available. A plan-only mode would handle this by
+            // disallowing create and update operations during the first pass
+            // whose purpose is to announce what will happen.
+            eprintln!("The following resources (and nested deployments, if any) will be applied:");
             for r in &resources {
                 eprintln!("  - {}", r);
             }
         }
         self.interrupt_state.check_interrupted()?;
+
+        // List nested deployments early so they can start expanding structure
+        // while resources are being processed.
+        // TODO: is that even the current behavior?
+        let nested_deployments = self
+            .list_nested_deployments(&context, &deployment_path)
+            .await?;
 
         // Get resource IDs using the task tracker
         let mut resource_id_thunks = BTreeMap::new();
@@ -192,6 +251,15 @@ impl WorkContext {
                 .await?;
             resource_thunk_map.insert(*id, r);
         }
+
+        // Apply nested deployments
+        let mut nested_thunks = Vec::new();
+        for nested_name in &nested_deployments {
+            let nested_path = deployment_path.child(nested_name.clone());
+            let thunk = context.spawn(Goal::Apply(nested_path)).await?;
+            nested_thunks.push(thunk);
+        }
+
         let mut resource_map = BTreeMap::new();
         for (id, outcome) in Thunk::force_into_map(resource_thunk_map).await {
             match clone_result(&outcome)? {
@@ -199,6 +267,14 @@ impl WorkContext {
                     resource_map.insert(id, i);
                 }
                 _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+            }
+        }
+
+        // Wait for nested deployments to complete
+        for thunk in nested_thunks {
+            match clone_result(thunk.force().await.as_ref())? {
+                Outcome::Done() => {}
+                outcome => panic!("Unexpected outcome from Apply: {:?}", outcome),
             }
         }
 
@@ -224,11 +300,24 @@ impl WorkContext {
         Ok(Outcome::Done())
     }
 
-    async fn perform_list_resources(&self, _context: TaskContext<Self>) -> Result<Outcome> {
+    async fn perform_list_resources(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        // First resolve the deployment ID from the deployment path
+        let deployment_id_thunk = context
+            .require(Goal::AssignDeploymentId(deployment_path.clone()))
+            .await?;
+        let deployment_id = match clone_result(&deployment_id_thunk)? {
+            Outcome::DeploymentId(id) => id,
+            _ => panic!("Unexpected outcome from AssignDeploymentId"),
+        };
+
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
-            .query(msg_id, EvalRequest::ListResources, self.deployment_id)
+            .query(msg_id, EvalRequest::ListResources, deployment_id)
             .await?;
 
         loop {
@@ -244,7 +333,7 @@ impl WorkContext {
                             let resource_paths = resource_names
                                 .into_iter()
                                 .map(|name| ResourcePath {
-                                    deployment_path: DeploymentPath::root(),
+                                    deployment_path: deployment_path.clone(),
                                     resource_name: name,
                                 })
                                 .collect();
@@ -261,22 +350,112 @@ impl WorkContext {
         }
     }
 
+    async fn perform_list_nested_deployments(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        // First resolve the deployment ID from the deployment path
+        let deployment_id_thunk = context
+            .require(Goal::AssignDeploymentId(deployment_path.clone()))
+            .await?;
+        let deployment_id = match clone_result(&deployment_id_thunk)? {
+            Outcome::DeploymentId(id) => id,
+            _ => panic!("Unexpected outcome from AssignDeploymentId"),
+        };
+
+        let msg_id = self.eval_sender.next_id();
+        let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+        self.eval_sender
+            .query(msg_id, EvalRequest::ListNestedDeployments, deployment_id)
+            .await?;
+
+        loop {
+            let (_id, r) = rx
+                .recv()
+                .await
+                .context("waiting for ListNestedDeployments response")?;
+            match r {
+                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::QueryResponse(_id, query_response_value) => {
+                    match query_response_value {
+                        QueryResponseValue::ListNestedDeployments((_dt, deployment_names)) => {
+                            break Ok(Outcome::NestedDeploymentsListed(deployment_names));
+                        }
+                        _ => bail!(
+                            "Unexpected response to ListNestedDeployments, {:?}",
+                            query_response_value
+                        ),
+                    }
+                }
+                EvalResponse::TracingEvent(_) => {}
+            }
+        }
+    }
+
     async fn perform_get_resource_id(
         &self,
-        _context: TaskContext<Self>,
+        context: TaskContext<Self>,
         name: ResourcePath,
     ) -> Result<Outcome> {
+        // First resolve the deployment ID from the deployment path
+        let deployment_id_thunk = context
+            .require(Goal::AssignDeploymentId(name.deployment_path.clone()))
+            .await?;
+        let deployment_id = match clone_result(&deployment_id_thunk)? {
+            Outcome::DeploymentId(id) => id,
+            _ => panic!("Unexpected outcome from AssignDeploymentId"),
+        };
+
         let id = self.eval_sender.next_id();
         self.eval_sender
             .send(&EvalRequest::LoadResource(AssignRequest {
                 assign_to: id,
                 payload: ResourceRequest {
-                    deployment: self.deployment_id,
+                    deployment: deployment_id,
                     name: name.resource_name.clone(),
                 },
             }))
             .await?;
         Ok(Outcome::ResourceId(id))
+    }
+
+    async fn perform_assign_deployment_id(
+        &self,
+        context: TaskContext<Self>,
+        deployment_path: DeploymentPath,
+    ) -> Result<Outcome> {
+        if deployment_path.is_root() {
+            // For root deployment, return the root deployment ID
+            Ok(Outcome::DeploymentId(self.root_deployment_id))
+        } else {
+            // For nested deployments, recursively resolve the parent first
+            let mut parent_path = deployment_path.0.clone();
+            let current_name = parent_path.pop().unwrap(); // Get the last component
+            let parent_deployment_path = DeploymentPath(parent_path);
+
+            // Get the parent deployment ID
+            let parent_id_thunk = context
+                .require(Goal::AssignDeploymentId(parent_deployment_path))
+                .await?;
+            let parent_id = match clone_result(&parent_id_thunk)? {
+                Outcome::DeploymentId(id) => id,
+                _ => panic!("Unexpected outcome from AssignDeploymentId"),
+            };
+
+            // Now load the nested deployment from the parent
+            let id = self.eval_sender.next_id();
+            self.eval_sender
+                .send(&EvalRequest::LoadNestedDeployment(AssignRequest {
+                    assign_to: id,
+                    payload: NestedDeploymentRequest {
+                        parent_deployment: parent_id,
+                        name: current_name,
+                    },
+                }))
+                .await?;
+            Ok(Outcome::DeploymentId(id))
+        }
     }
 
     async fn perform_get_resource_provider_info(
@@ -569,14 +748,11 @@ impl WorkContext {
             inputs
         };
 
-        let span = info_span!("creating resource", name = name.resource_name.as_str());
+        let span = info_span!("creating resource", name = name.to_string().as_str());
 
         if self.options.verbose {
-            eprintln!(
-                "Provider details for {}: {:?}",
-                name.resource_name, &provider_info
-            );
-            eprintln!("Resource inputs for {}: {:?}", name.resource_name, inputs);
+            eprintln!("Provider details for {}: {:?}", name, &provider_info);
+            eprintln!("Resource inputs for {}: {:?}", name, inputs);
         }
 
         let provider_argv = provider::parse_provider(&provider_info.provider)?;
@@ -592,52 +768,66 @@ impl WorkContext {
                 .create(provider_info.resource_type.as_str(), &inputs, false)
                 .await
                 .with_context(|| format!("Failed to create stateless resource {}", name))?,
-            Some(ref state_handle) => match state_handle.past.deployment.get_resource(&name) {
-                Some(past_resource) => {
-                    if past_resource.type_ != provider_info.resource_type {
-                        bail!(
-                            "Resource type change is not supported: {} != {}",
-                            past_resource.type_,
-                            provider_info.resource_type
-                        );
+            Some(ref state_handle) => {
+                let past_resource_opt = state_handle
+                    .current
+                    .lock()
+                    .await
+                    .deployment
+                    .get_resource(&name)
+                    .cloned();
+                match past_resource_opt {
+                    Some(past_resource) => {
+                        if past_resource.type_ != provider_info.resource_type {
+                            bail!(
+                                "Resource type change is not supported: {} != {}",
+                                past_resource.type_,
+                                provider_info.resource_type
+                            );
+                        }
+                        let outputs = provider
+                            .update(
+                                provider_info.resource_type.as_str(),
+                                &inputs,
+                                &past_resource.input_properties,
+                                &past_resource.output_properties,
+                            )
+                            .await
+                            .with_context(|| format!("Failed to update resource {}", name))?;
+                        let current_resource = crate::state::ResourceState {
+                            type_: provider_info.resource_type.clone(),
+                            input_properties: inputs.clone(),
+                            output_properties: outputs.clone(),
+                        };
+                        if current_resource != past_resource {
+                            state_handle
+                                .resource_event(
+                                    &name,
+                                    "update",
+                                    Some(&past_resource),
+                                    &current_resource,
+                                )
+                                .await?;
+                        }
+                        outputs
                     }
-                    let outputs = provider
-                        .update(
-                            provider_info.resource_type.as_str(),
-                            &inputs,
-                            &past_resource.input_properties,
-                            &past_resource.output_properties,
-                        )
-                        .await
-                        .with_context(|| format!("Failed to update resource {}", name))?;
-                    let current_resource = crate::state::ResourceState {
-                        type_: provider_info.resource_type.clone(),
-                        input_properties: inputs.clone(),
-                        output_properties: outputs.clone(),
-                    };
-                    if &current_resource != past_resource {
+                    None => {
+                        let outputs = provider
+                            .create(provider_info.resource_type.as_str(), &inputs, true)
+                            .await
+                            .with_context(|| format!("Failed to create resource {}", name))?;
+                        let current_resource = crate::state::ResourceState {
+                            type_: provider_info.resource_type.clone(),
+                            input_properties: inputs.clone(),
+                            output_properties: outputs.clone(),
+                        };
                         state_handle
-                            .resource_event(&name, "update", Some(past_resource), &current_resource)
+                            .resource_event(&name, "create", None, &current_resource)
                             .await?;
+                        outputs
                     }
-                    outputs
                 }
-                None => {
-                    let outputs = provider
-                        .create(provider_info.resource_type.as_str(), &inputs, true)
-                        .await
-                        .with_context(|| format!("Failed to create resource {}", name))?;
-                    let current_resource = crate::state::ResourceState {
-                        type_: provider_info.resource_type.clone(),
-                        input_properties: inputs.clone(),
-                        output_properties: outputs.clone(),
-                    };
-                    state_handle
-                        .resource_event(&name, "create", None, &current_resource)
-                        .await?;
-                    outputs
-                }
-            },
+            }
         };
 
         drop(span);
@@ -689,14 +879,24 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
-            Goal::Apply() => {
-                self.perform_apply(context)
+            Goal::Apply(deployment_path) => {
+                self.perform_apply(context, deployment_path)
                     .instrument(info_span!("Applying deployment"))
                     .await
             }
-            Goal::ListResources() => {
-                self.perform_list_resources(context)
+            Goal::ListResources(deployment_path) => {
+                self.perform_list_resources(context, deployment_path)
                     .instrument(info_span!("Listing resources"))
+                    .await
+            }
+            Goal::ListNestedDeployments(deployment_path) => {
+                self.perform_list_nested_deployments(context, deployment_path)
+                    .instrument(info_span!("Listing nested deployments"))
+                    .await
+            }
+            Goal::AssignDeploymentId(path) => {
+                self.perform_assign_deployment_id(context, path)
+                    .instrument(info_span!("Assigning deployment ID"))
                     .await
             }
             Goal::AssignResourceId(name) => {
