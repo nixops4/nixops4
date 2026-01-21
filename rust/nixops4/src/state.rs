@@ -39,10 +39,12 @@ where
 }
 
 /// The state of a set of resources
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct DeploymentState {
+    #[serde(default)]
     pub resources: BTreeMap<String, ResourceState>,
     /// State of resources in nested deployments
+    #[serde(default)]
     pub deployments: BTreeMap<String, DeploymentState>,
 }
 
@@ -180,5 +182,90 @@ impl StateHandle {
 impl std::fmt::Debug for StateHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State {{ ... }}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deployment_state_serde_roundtrip() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "myresource".to_string(),
+            ResourceState {
+                type_: "file".to_string(),
+                input_properties: serde_json::Map::from_iter([(
+                    "name".to_string(),
+                    serde_json::json!("test.txt"),
+                )]),
+                output_properties: serde_json::Map::new(),
+            },
+        );
+
+        let mut nested_resources = BTreeMap::new();
+        nested_resources.insert(
+            "nested_res".to_string(),
+            ResourceState {
+                type_: "memo".to_string(),
+                input_properties: serde_json::Map::new(),
+                output_properties: serde_json::Map::from_iter([(
+                    "value".to_string(),
+                    serde_json::json!("hello"),
+                )]),
+            },
+        );
+
+        let mut deployments = BTreeMap::new();
+        deployments.insert(
+            "child".to_string(),
+            DeploymentState {
+                resources: nested_resources,
+                deployments: BTreeMap::new(),
+            },
+        );
+
+        let state = DeploymentState {
+            resources,
+            deployments,
+        };
+
+        // Verify serialization produces expected JSON format
+        let json = serde_json::to_value(&state).unwrap();
+        let expected = serde_json::json!({
+            "resources": {
+                "myresource": {
+                    "type": "file",
+                    "input_properties": {"name": "test.txt"},
+                    "output_properties": {}
+                }
+            },
+            "deployments": {
+                "child": {
+                    "resources": {
+                        "nested_res": {
+                            "type": "memo",
+                            "input_properties": {},
+                            "output_properties": {"value": "hello"}
+                        }
+                    },
+                    "deployments": {}
+                }
+            }
+        });
+        assert_eq!(json, expected);
+
+        // Verify deserialization roundtrip
+        let roundtripped: DeploymentState = serde_json::from_value(json).unwrap();
+        assert_eq!(state, roundtripped);
+    }
+
+    #[test]
+    fn test_deployment_state_empty_defaults() {
+        let json = serde_json::json!({});
+        let state: DeploymentState = serde_json::from_value(json).unwrap();
+        assert!(state.resources.is_empty());
+        assert!(state.deployments.is_empty());
     }
 }
