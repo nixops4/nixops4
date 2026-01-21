@@ -9,9 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, DeploymentPath, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty,
-    QueryRequest, QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
-    ResourcePath, ResourceProviderInfo, ResourceType,
+    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
+    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    ResourceProviderInfo, ResourceType,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -231,6 +231,21 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
+            EvalRequest::ListNestedDeployments(req) => {
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ListNestedDeployments,
+                    |this, req| {
+                        let deployment = this.get_value(req.to_owned())?.clone();
+                        let deployments = this
+                            .eval_state
+                            .require_attrs_select_opt(&deployment, "deployments")?
+                            .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
+                        Ok((*req, deployments))
+                    },
+                )
+                .await
+            }
             EvalRequest::ListResources(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
@@ -321,20 +336,27 @@ fn perform_load_deployment<R: Respond>(
                         # other args, such as resourceProviderSystem
                         extraArgs:
                         let
-                          arg = {
-                            inherit resources;
-                          } // extraArgs;
-                          resources =
-                            builtins.mapAttrs
-                              (name: value:
-                                builtins.mapAttrs
-                                  (loadResourceAttr name)
-                                  (value.outputsSkeleton
-                                    or value.provider.types.${value.type}.outputs
-                                    or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
-                              )
-                              fixpoint.resources;
-                          fixpoint = deploymentFunction arg;
+                          inherit (builtins) mapAttrs;
+
+                          makeArguments = subdeploymentPath: declarations:
+                            extraArgs // {
+                              resources =
+                                mapAttrs
+                                  (name: value:
+                                    mapAttrs
+                                      (loadResourceAttr subdeploymentPath name)
+                                      (value.outputsSkeleton
+                                        or value.provider.types.${value.type}.outputs
+                                        or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
+                                  )
+                                  declarations.resources or {};
+                              deployments =
+                                mapAttrs
+                                  (name: value:
+                                    makeArguments (subdeploymentPath ++ [name]) value)
+                                  declarations.deployments or {};
+                            };
+                          fixpoint = deploymentFunction (makeArguments [] fixpoint);
                         in
                           fixpoint
                     "#;
@@ -344,14 +366,28 @@ fn perform_load_deployment<R: Respond>(
         PrimOpMeta {
             name: cstr!("nixopsLoadResourceAttr"),
             doc: cstr!("Internal function that loads a resource attribute."),
-            args: [cstr!("resourceName"), cstr!("attrName"), cstr!("ignored")],
+            args: [
+                cstr!("deploymentNestingPath"),
+                cstr!("resourceName"),
+                cstr!("attrName"),
+                cstr!("ignored"),
+            ],
         },
-        Box::new(move |es, [resource_name, attr_name, _]| {
+        Box::new(move |es, [deployment_path, resource_name, attr_name, _]| {
+            let deployment_path = {
+                let value_list: Vec<_> = es.require_list_strict(deployment_path)?;
+                let mut path = Vec::new();
+                for value in value_list {
+                    let deployment_name = es.require_string(&value)?;
+                    path.push(deployment_name);
+                }
+                path
+            };
             let resource_name = es.require_string(resource_name)?;
             let attr_name = es.require_string(attr_name)?;
             let property = NamedProperty {
-                resource: ResourcePath {
-                    deployment_path: DeploymentPath::root(),
+                resource: nixops4_core::eval_api::ResourcePath {
+                    deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
                     resource_name: resource_name.to_string(),
                 },
                 name: attr_name.to_string(),
@@ -366,16 +402,8 @@ fn perform_load_deployment<R: Respond>(
                 {
                     Err(anyhow::anyhow!(
                         "__internal_exception_load_resource_property_#{}#",
-                        base64::engine::general_purpose::STANDARD.encode(
-                            serde_json::to_string(&NamedProperty {
-                                resource: ResourcePath {
-                                    deployment_path: DeploymentPath::root(),
-                                    resource_name: resource_name.to_string(),
-                                },
-                                name: attr_name.to_string()
-                            })
-                            .unwrap()
-                        ),
+                        base64::engine::general_purpose::STANDARD
+                            .encode(serde_json::to_string(&property).unwrap()),
                     ))
                 }
             }
@@ -851,7 +879,7 @@ mod tests {
                     nixops4Deployments = {
                         example = {
                             _type = "nixops4Deployment";
-                            deploymentFunction = { resources, resourceProviderSystem }:
+                            deploymentFunction = { resources, resourceProviderSystem, deployments, ... }:
                             assert resourceProviderSystem == builtins.currentSystem;
                             {
                                 resources = {

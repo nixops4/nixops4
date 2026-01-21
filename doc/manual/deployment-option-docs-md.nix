@@ -17,6 +17,7 @@ let
       {
         resources = { };
         resourceProviderSystem = "<resourceProviderSystem>";
+        deployments = { };
       };
   hideModuleArgs =
     { lib, ... }:

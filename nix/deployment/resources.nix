@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   resources,
   resourceProviderSystem,
@@ -39,6 +40,11 @@ in
       description = ''
         The resources to deploy.
       '';
+    };
+  };
+  config = {
+    _export = {
+      resources = lib.mapAttrs (_: res: res._resourceForNixOps) config.resources;
     };
   };
 }

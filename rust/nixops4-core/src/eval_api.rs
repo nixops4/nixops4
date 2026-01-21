@@ -164,6 +164,7 @@ pub enum EvalRequest {
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
     LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
+    ListNestedDeployments(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
     ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
     LoadResource(AssignRequest<ResourceRequest>),
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
@@ -225,6 +226,7 @@ pub enum EvalResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
     ListDeployments((Id<FlakeType>, Vec<String>)),
+    ListNestedDeployments((Id<DeploymentType>, Vec<String>)),
     ListResources((Id<DeploymentType>, Vec<String>)),
     ResourceProviderInfo(ResourceProviderInfo),
     ListResourceInputs((Id<ResourceType>, Vec<String>)),
