@@ -9,8 +9,9 @@ use crate::{
 };
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
-    self, AssignRequest, DeploymentType, EvalRequest, EvalResponse, Id, IdNum, NamedProperty,
-    Property, QueryResponseValue, ResourceInputState, ResourcePath, ResourceRequest, ResourceType,
+    self, AssignRequest, DeploymentPath, DeploymentType, EvalRequest, EvalResponse, Id, IdNum,
+    NamedProperty, Property, QueryResponseValue, ResourceInputState, ResourcePath, ResourceRequest,
+    ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -240,8 +241,13 @@ impl WorkContext {
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
                         QueryResponseValue::ListResources((_dt, resource_names)) => {
-                            let resource_paths =
-                                resource_names.into_iter().map(ResourcePath).collect();
+                            let resource_paths = resource_names
+                                .into_iter()
+                                .map(|name| ResourcePath {
+                                    deployment_path: DeploymentPath::root(),
+                                    resource_name: name,
+                                })
+                                .collect();
                             break Ok(Outcome::ResourcesListed(resource_paths));
                         }
                         _ => bail!(
@@ -266,7 +272,7 @@ impl WorkContext {
                 assign_to: id,
                 payload: ResourceRequest {
                     deployment: self.deployment_id,
-                    name: name.0.clone(),
+                    name: name.resource_name.clone(),
                 },
             }))
             .await?;
@@ -508,11 +514,13 @@ impl WorkContext {
 
         let state_provider = match &provider_info.state {
             Some(state_resource_name) => {
+                let state_resource_path = ResourcePath {
+                    deployment_path: DeploymentPath::root(),
+                    resource_name: state_resource_name.clone(),
+                };
                 // Get the state resource ID using the task tracker
                 let state_id_thunk = context
-                    .require(Goal::AssignResourceId(ResourcePath(
-                        state_resource_name.clone(),
-                    )))
+                    .require(Goal::AssignResourceId(state_resource_path.clone()))
                     .await
                     .map_err(|e| {
                         anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
@@ -524,10 +532,7 @@ impl WorkContext {
                 };
 
                 let thunk = context
-                    .spawn(Goal::RunState(
-                        state_resource_id,
-                        ResourcePath(state_resource_name.clone()),
-                    ))
+                    .spawn(Goal::RunState(state_resource_id, state_resource_path))
                     .await
                     .map_err(|e| {
                         anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
@@ -565,11 +570,14 @@ impl WorkContext {
             inputs
         };
 
-        let span = info_span!("creating resource", name = name.0.as_str());
+        let span = info_span!("creating resource", name = name.resource_name.as_str());
 
         if self.options.verbose {
-            eprintln!("Provider details for {}: {:?}", name.0, &provider_info);
-            eprintln!("Resource inputs for {}: {:?}", name.0, inputs);
+            eprintln!(
+                "Provider details for {}: {:?}",
+                name.resource_name, &provider_info
+            );
+            eprintln!("Resource inputs for {}: {:?}", name.resource_name, inputs);
         }
 
         let provider_argv = provider::parse_provider(&provider_info.provider)?;

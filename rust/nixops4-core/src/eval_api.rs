@@ -93,23 +93,65 @@ pub struct DeploymentType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
 
-/// A resource path within a deployment
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ResourcePath(pub String);
+/// A path to a deployment within nested deployments.
+/// An empty path represents the root deployment.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
+)]
+pub struct DeploymentPath(pub Vec<String>);
 
-impl std::fmt::Display for ResourcePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+impl DeploymentPath {
+    /// Create a new root deployment path
+    pub fn root() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Check if this is the root deployment
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Create a path to a child deployment
+    pub fn child(&self, name: String) -> Self {
+        let mut path = self.0.clone();
+        path.push(name);
+        Self(path)
     }
 }
 
-impl valuable::Valuable for ResourcePath {
-    fn as_value(&self) -> valuable::Value<'_> {
-        valuable::Value::String(&self.0)
+impl std::fmt::Display for DeploymentPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            write!(f, "(root)")
+        } else {
+            write!(f, "{}", self.0.join("."))
+        }
     }
+}
 
-    fn visit(&self, visit: &mut dyn valuable::Visit) {
-        visit.visit_value(self.as_value())
+/// A resource path within a deployment
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
+)]
+pub struct ResourcePath {
+    /// Path to the deployment containing the resource
+    pub deployment_path: DeploymentPath,
+    /// Name of the resource within the deployment
+    pub resource_name: String,
+}
+
+impl std::fmt::Display for ResourcePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.deployment_path.0.is_empty() {
+            write!(f, "{}", self.resource_name)
+        } else {
+            write!(
+                f,
+                "{}.{}",
+                self.deployment_path.0.join("."),
+                self.resource_name
+            )
+        }
     }
 }
 

@@ -9,9 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
-    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
-    ResourceProviderInfo, ResourceType,
+    AssignRequest, DeploymentPath, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty,
+    QueryRequest, QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    ResourcePath, ResourceProviderInfo, ResourceType,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -337,7 +337,10 @@ fn perform_load_deployment<R: Respond>(
             let resource_name = es.require_string(resource_name)?;
             let attr_name = es.require_string(attr_name)?;
             let property = NamedProperty {
-                resource: nixops4_core::eval_api::ResourcePath(resource_name.to_string()),
+                resource: ResourcePath {
+                    deployment_path: DeploymentPath::root(),
+                    resource_name: resource_name.to_string(),
+                },
                 name: attr_name.to_string(),
             };
             let val = { known_outputs.borrow().get(&property).cloned() };
@@ -352,8 +355,11 @@ fn perform_load_deployment<R: Respond>(
                         "__internal_exception_load_resource_property_#{}#",
                         base64::engine::general_purpose::STANDARD.encode(
                             serde_json::to_string(&NamedProperty {
-                                resource: nixops4_core::eval_api::ResourcePath(resource_name),
-                                name: attr_name
+                                resource: ResourcePath {
+                                    deployment_path: DeploymentPath::root(),
+                                    resource_name: resource_name.to_string(),
+                                },
+                                name: attr_name.to_string()
                             })
                             .unwrap()
                         ),

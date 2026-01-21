@@ -50,7 +50,7 @@ pub struct DeploymentState {
 
 impl DeploymentState {
     pub fn get_resource(&self, path: &ResourcePath) -> Option<&ResourceState> {
-        self.resources.get(&path.0)
+        self.resources.get(&path.resource_name)
     }
 }
 
@@ -110,12 +110,12 @@ impl StateHandle {
         let current_json = serde_json::to_value(current_resource).with_context(|| {
             format!(
                 "Failed to serialize current resource state for '{}'",
-                resource_name.0
+                resource_name.resource_name
             )
         })?;
         let current_json = serde_json::json!({
             "resources": {
-                &resource_name.0: current_json
+                &resource_name.resource_name: current_json
             }
         });
         let past_json = match past_resource {
@@ -126,12 +126,12 @@ impl StateHandle {
                 let past_json = serde_json::to_value(past).with_context(|| {
                     format!(
                         "Failed to serialize past resource state for '{}'",
-                        resource_name.0
+                        resource_name.resource_name
                     )
                 })?;
                 serde_json::json!({
                     "resources": {
-                        &resource_name.0: past_json
+                        &resource_name.resource_name: past_json
                     }
                 })
             }
