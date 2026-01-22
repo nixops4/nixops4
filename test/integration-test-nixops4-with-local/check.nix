@@ -198,6 +198,28 @@ runCommand "itest-nixops4-with-local"
       rm -f initial-version.md current-version.md nixops4-state.json
     )
 
+    h1 UNREFERENCED NESTED DEPLOYMENT
+    (
+      set -x
+      echo "=== Testing unreferenced nested deployment ==="
+
+      # Apply the deployment - the nested deployment has resources
+      # that are not referenced by any parent resource
+      nixops4 apply -v unreferencedNesting --show-trace 2>&1 | tee unreferenced-output.log
+
+      # Verify state file was created
+      test -f unreferenced-nesting-state.json
+
+      # The parent resource should be applied
+      grep -E "parentResource.*parent-value" unreferenced-output.log
+
+      # The nested deployment's orphanedResource should ALSO be applied
+      grep -E "orphanedResource.*orphan-value" unreferenced-output.log
+
+      # Clean up
+      rm -f unreferenced-nesting-state.json unreferenced-output.log
+    )
+
     h1 NESTED DEPLOYMENTS
     (
       set -x

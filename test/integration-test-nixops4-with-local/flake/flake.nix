@@ -237,6 +237,42 @@
                 ];
               };
             };
+
+          # Test case: nested deployment with unreferenced resources.
+          # The nested deployment has resources that are NOT referenced by
+          # any parent resource input. ListNestedDeployments discovers them.
+          # Test: UNREFERENCED NESTED DEPLOYMENT in check.nix
+          unreferencedNesting =
+            {
+              providers,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              # Parent state file
+              resources.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "unreferenced-nesting-state.json";
+              };
+
+              # A simple parent resource - does NOT reference nested deployment
+              resources.parentResource = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = "parent-value";
+              };
+
+              # Nested deployment with resources that should be applied
+              # but are never referenced by the parent
+              deployments.orphan = {
+                resources.orphanedResource = {
+                  type = providers.local.memo;
+                  state = [ "stateFile" ];
+                  inputs.initialize_with = "orphan-value";
+                };
+              };
+            };
         };
       }
     );
