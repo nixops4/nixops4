@@ -260,6 +260,9 @@ runCommand "itest-nixops4-with-local"
       grep -E 'conditionalChild.*childResource.*child-value' structural-deployments.log || \
         grep -E 'childResource.*child-value' structural-deployments.log
 
+      # Verify structural dependency was shown before resolution
+      grep -F '(deployments depend on selector.value)' structural-deployments.log
+
       # Clean up
       rm -f structural-deployments-state.json structural-deployments.log
     )
@@ -281,6 +284,9 @@ runCommand "itest-nixops4-with-local"
 
       # The child's conditionalResource should be applied
       grep -E 'conditionalResource.*conditional-value' structural-resources.log
+
+      # Verify structural dependency was shown before resolution
+      grep -F 'child.*  (depends on selector.value)' structural-resources.log
 
       # Clean up
       rm -f structural-resources-state.json structural-resources.log

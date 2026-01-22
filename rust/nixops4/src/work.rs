@@ -400,6 +400,14 @@ impl WorkContext {
                         )
                     })?;
 
+                    // Note: structural dependency on root resources is impossible
+                    // (would be circular, caught in nixops4-eval), so deployment_path
+                    // is always non-root here.
+                    eprintln!(
+                        "  - {}.*  (depends on {}.{})",
+                        deployment_path, dep.resource, dep.name
+                    );
+
                     // Get the resource ID
                     let dep_id_thunk = context
                         .require(Goal::AssignResourceId(dep.resource.clone()))
@@ -482,6 +490,18 @@ impl WorkContext {
                             dep.resource
                         )
                     })?;
+
+                    if deployment_path.is_root() {
+                        eprintln!(
+                            "  - *  (deployments depend on {}.{})",
+                            dep.resource, dep.name
+                        );
+                    } else {
+                        eprintln!(
+                            "  - {}.*  (depends on {}.{})",
+                            deployment_path, dep.resource, dep.name
+                        );
+                    }
 
                     // Get the resource ID
                     let dep_id_thunk = context
