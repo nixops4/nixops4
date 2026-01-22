@@ -238,6 +238,82 @@
               };
             };
 
+          # Test case: structural dependency on deployments attribute.
+          # The SET of nested deployments depends on a resource output.
+          # ListNestedDeployments will fail in discovery mode because it
+          # needs the resource output to determine which deployments exist.
+          structuralDeploymentsAttr =
+            {
+              lib,
+              providers,
+              resources,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              resources.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "structural-deployments-state.json";
+              };
+
+              # This resource's output determines which nested deployments exist
+              resources.selector = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = "enabled";
+              };
+
+              # The deployments attribute is strict in resources.selector.value
+              # because optionalAttrs evaluates its condition
+              deployments = lib.optionalAttrs (resources.selector.value == "enabled") {
+                conditionalChild = {
+                  resources.childResource = {
+                    type = providers.local.memo;
+                    state = [ "stateFile" ];
+                    inputs.initialize_with = "child-value";
+                  };
+                };
+              };
+            };
+
+          # Test case: structural dependency on resources within a nested deployment.
+          # The SET of resources in a nested deployment depends on a parent resource output.
+          # ListResources for the nested deployment will fail in discovery mode.
+          structuralResourcesAttr =
+            {
+              lib,
+              providers,
+              resources,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              resources.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "structural-resources-state.json";
+              };
+
+              # This resource's output determines which resources exist in the child
+              resources.selector = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = "enabled";
+              };
+
+              deployments.child = {
+                # The resources attribute is strict in resources.selector.value
+                resources = lib.optionalAttrs (resources.selector.value == "enabled") {
+                  conditionalResource = {
+                    type = providers.local.memo;
+                    state = [ "stateFile" ];
+                    inputs.initialize_with = "conditional-value";
+                  };
+                };
+              };
+            };
+
           # Test case: nested deployment with unreferenced resources.
           # The nested deployment has resources that are NOT referenced by
           # any parent resource input. ListNestedDeployments discovers them.

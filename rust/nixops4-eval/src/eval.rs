@@ -9,9 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest,
-    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
-    ResourceProviderInfo, ResourceType,
+    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, ListNestedDeploymentsState,
+    ListResourcesState, NamedProperty, QueryRequest, QueryResponseValue, RequestIdType,
+    ResourceInputDependency, ResourceInputState, ResourceProviderInfo, ResourceType,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -237,11 +237,30 @@ impl<R: Respond> EvaluationDriver<R> {
                     QueryResponseValue::ListNestedDeployments,
                     |this, req| {
                         let deployment = this.get_value(req.to_owned())?.clone();
-                        let deployments = this
-                            .eval_state
-                            .require_attrs_select_opt(&deployment, "deployments")?
-                            .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
-                        Ok((*req, deployments))
+                        let result = (|| -> Result<Vec<String>> {
+                            let deployments = this
+                                .eval_state
+                                .require_attrs_select_opt(&deployment, "deployments")?
+                                .map_or(Ok(Vec::new()), |v| {
+                                    this.eval_state.require_attrs_names(&v)
+                                })?;
+                            Ok(deployments)
+                        })();
+                        match result {
+                            Ok(deployments) => {
+                                Ok((*req, ListNestedDeploymentsState::Listed(deployments)))
+                            }
+                            Err(e) => {
+                                if let Some(dep) = parse_structural_dependency_error(&e) {
+                                    Ok((
+                                        *req,
+                                        ListNestedDeploymentsState::StructuralDependency(dep),
+                                    ))
+                                } else {
+                                    Err(e)
+                                }
+                            }
+                        }
                     },
                 )
                 .await
@@ -249,11 +268,23 @@ impl<R: Respond> EvaluationDriver<R> {
             EvalRequest::ListResources(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
-                    let resources_attrset = this
-                        .eval_state
-                        .require_attrs_select(&deployment, "resources")?;
-                    let resources = this.eval_state.require_attrs_names(&resources_attrset)?;
-                    Ok((*req, resources))
+                    let result = (|| -> Result<Vec<String>> {
+                        let resources_attrset = this
+                            .eval_state
+                            .require_attrs_select(&deployment, "resources")?;
+                        let resources = this.eval_state.require_attrs_names(&resources_attrset)?;
+                        Ok(resources)
+                    })();
+                    match result {
+                        Ok(resources) => Ok((*req, ListResourcesState::Listed(resources))),
+                        Err(e) => {
+                            if let Some(dep) = parse_structural_dependency_error(&e) {
+                                Ok((*req, ListResourcesState::StructuralDependency(dep)))
+                            } else {
+                                Err(e)
+                            }
+                        }
+                    }
                 })
                 .await
             }
@@ -499,15 +530,7 @@ fn perform_get_resource_input<R: Respond>(
             json,
         ))),
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("__internal_exception_load_resource_property_#") {
-                let base64_str = s
-                    .split("__internal_exception_load_resource_property_#")
-                    .collect::<Vec<&str>>()[1]
-                    .split("#")
-                    .collect::<Vec<&str>>()[0];
-                let json_str = base64::engine::general_purpose::STANDARD.decode(base64_str)?;
-                let named_property: NamedProperty = serde_json::from_slice(&json_str)?;
+            if let Some(named_property) = parse_structural_dependency_error(&e) {
                 Ok(ResourceInputState::ResourceInputDependency(
                     ResourceInputDependency {
                         dependent: req.to_owned(),
@@ -519,6 +542,28 @@ fn perform_get_resource_input<R: Respond>(
             }
         }
     }
+}
+
+/// Parse a structural dependency error from the evaluator.
+///
+/// When evaluating an expression requires a resource output that doesn't exist yet,
+/// the evaluator throws an error containing the dependency information encoded as
+/// base64 JSON. This function extracts that dependency.
+fn parse_structural_dependency_error(e: &anyhow::Error) -> Option<NamedProperty> {
+    let s = e.to_string();
+    if !s.contains("__internal_exception_load_resource_property_#") {
+        return None;
+    }
+    let base64_str = s
+        .split("__internal_exception_load_resource_property_#")
+        .collect::<Vec<&str>>()
+        .get(1)?
+        .split('#')
+        .next()?;
+    let json_str = base64::engine::general_purpose::STANDARD
+        .decode(base64_str)
+        .ok()?;
+    serde_json::from_slice(&json_str).ok()
 }
 
 // TODO (roberth, nix): add API to add string context to a Worker, handling concurrent builds

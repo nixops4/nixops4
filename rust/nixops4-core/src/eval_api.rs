@@ -164,8 +164,10 @@ pub enum EvalRequest {
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
     LoadDeployment(AssignRequest<DeploymentRequest>),
     LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
-    ListNestedDeployments(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
-    ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
+    ListNestedDeployments(
+        QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListNestedDeploymentsState)>,
+    ),
+    ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListResourcesState)>),
     LoadResource(AssignRequest<ResourceRequest>),
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
     ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
@@ -226,8 +228,8 @@ pub enum EvalResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
     ListDeployments((Id<FlakeType>, Vec<String>)),
-    ListNestedDeployments((Id<DeploymentType>, Vec<String>)),
-    ListResources((Id<DeploymentType>, Vec<String>)),
+    ListNestedDeployments((Id<DeploymentType>, ListNestedDeploymentsState)),
+    ListResources((Id<DeploymentType>, ListResourcesState)),
     ResourceProviderInfo(ResourceProviderInfo),
     ListResourceInputs((Id<ResourceType>, Vec<String>)),
     ResourceInputState((Property, ResourceInputState)),
@@ -237,6 +239,24 @@ pub enum QueryResponseValue {
 pub enum ResourceInputState {
     ResourceInputValue((Property, Value)),
     ResourceInputDependency(ResourceInputDependency),
+}
+
+/// Response state for ListResources request.
+/// If listing requires a resource output that doesn't exist yet (structural dependency),
+/// the dependency is returned so the caller can create the resource and retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListResourcesState {
+    Listed(Vec<String>),
+    StructuralDependency(NamedProperty),
+}
+
+/// Response state for ListNestedDeployments request.
+/// If listing requires a resource output that doesn't exist yet (structural dependency),
+/// the dependency is returned so the caller can create the resource and retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListNestedDeploymentsState {
+    Listed(Vec<String>),
+    StructuralDependency(NamedProperty),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

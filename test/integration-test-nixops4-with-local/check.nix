@@ -216,8 +216,74 @@ runCommand "itest-nixops4-with-local"
       # The nested deployment's orphanedResource should ALSO be applied
       grep -E "orphanedResource.*orphan-value" unreferenced-output.log
 
+      # Verify that resources are listed BEFORE any are created
+      # Get line numbers for key events
+      first_listing=$(grep -n "will be applied" unreferenced-output.log | head -1 | cut -d: -f1)
+      first_create=$(grep -n "creating resource" unreferenced-output.log | head -1 | cut -d: -f1)
+      echo "First listing at line $first_listing, first create at line $first_create"
+      [[ $first_listing -lt $first_create ]] || {
+        echo "ERROR: Resources should be listed before being created"
+        exit 1
+      }
+
+      # Verify that the orphan resource is listed in the "will be applied" section
+      # Extract lines between first "will be applied" and first "creating resource"
+      sed -n "''${first_listing},''${first_create}p" unreferenced-output.log > listing-section.log
+      grep -q "orphan.orphanedResource" listing-section.log || {
+        echo "ERROR: orphan.orphanedResource should appear in the listing section before any resources are created"
+        cat listing-section.log
+        exit 1
+      }
+      rm -f listing-section.log
+
       # Clean up
       rm -f unreferenced-nesting-state.json unreferenced-output.log
+    )
+
+    h1 STRUCTURAL DEPENDENCY: DEPLOYMENTS ATTRIBUTE
+    (
+      set -x
+      echo "=== Testing structural dependency on deployments attribute ==="
+
+      # This deployment has a nested deployment that only exists when
+      # selector.value == "enabled". The deployments attribute itself
+      # is strict in the resource output.
+      nixops4 apply -v structuralDeploymentsAttr --show-trace 2>&1 | tee structural-deployments.log
+
+      # Verify state file was created
+      test -f structural-deployments-state.json
+
+      # The selector resource should be applied with value "enabled"
+      grep -E 'selector.*enabled' structural-deployments.log
+
+      # The conditionalChild deployment should exist and its resource applied
+      grep -E 'conditionalChild.*childResource.*child-value' structural-deployments.log || \
+        grep -E 'childResource.*child-value' structural-deployments.log
+
+      # Clean up
+      rm -f structural-deployments-state.json structural-deployments.log
+    )
+
+    h1 STRUCTURAL DEPENDENCY: RESOURCES ATTRIBUTE
+    (
+      set -x
+      echo "=== Testing structural dependency on resources attribute ==="
+
+      # This deployment has a nested deployment whose resources attribute
+      # depends on the parent's selector.value output.
+      nixops4 apply -v structuralResourcesAttr --show-trace 2>&1 | tee structural-resources.log
+
+      # Verify state file was created
+      test -f structural-resources-state.json
+
+      # The selector resource should be applied with value "enabled"
+      grep -E 'selector.*enabled' structural-resources.log
+
+      # The child's conditionalResource should be applied
+      grep -E 'conditionalResource.*conditional-value' structural-resources.log
+
+      # Clean up
+      rm -f structural-resources-state.json structural-resources.log
     )
 
     h1 NESTED DEPLOYMENTS
