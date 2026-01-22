@@ -27,25 +27,36 @@ use tracing::{info_span, Instrument as _};
 
 type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>;
 
+/// Capability token that grants permission to perform mutations (create/update/delete).
+///
+/// This type is used to ensure at compile time that mutation operations can only
+/// be performed when explicitly authorized. During discovery passes, no
+/// `MutationCapability` is provided, preventing accidental mutations.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct MutationCapability;
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
-    Apply(DeploymentPath),
+    Apply(DeploymentPath, Option<MutationCapability>),
     ListResources(DeploymentPath),
     ListNestedDeployments(DeploymentPath),
     AssignDeploymentId(DeploymentPath),
     AssignResourceId(ResourcePath),
     GetResourceProviderInfo(Id<ResourceType>, ResourcePath),
     ListResourceInputs(Id<ResourceType>, ResourcePath),
-    GetResourceInputValue(Id<ResourceType>, ResourcePath, String),
+    GetResourceInputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
     // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
-    GetResourceOutputValue(Id<ResourceType>, ResourcePath, String),
-    ApplyResource(Id<ResourceType>, ResourcePath),
-    RunState(Id<ResourceType>, ResourcePath),
+    GetResourceOutputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
+    ApplyResource(Id<ResourceType>, ResourcePath, MutationCapability),
+    RunState(Id<ResourceType>, ResourcePath, MutationCapability),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Goal::Apply(path) => write!(f, "Apply deployment {:?}", path.0),
+            Goal::Apply(path, cap) => {
+                let mode = if cap.is_some() { "" } else { " (discovery)" };
+                write!(f, "Apply deployment {:?}{}", path.0, mode)
+            }
             Goal::ListResources(path) => write!(f, "List resources in deployment {:?}", path.0),
             Goal::ListNestedDeployments(path) => {
                 write!(f, "List nested deployments in {:?}", path.0)
@@ -60,24 +71,24 @@ impl Display for Goal {
             Goal::ListResourceInputs(_, name) => {
                 write!(f, "List resource inputs for {}", name)
             }
-            Goal::GetResourceInputValue(_, name, input) => {
+            Goal::GetResourceInputValue(_, name, input, _cap) => {
                 write!(
                     f,
                     "Get resource input value for resource {} input {}",
                     name, input
                 )
             }
-            Goal::GetResourceOutputValue(_, name, property) => {
+            Goal::GetResourceOutputValue(_, name, property, _cap) => {
                 write!(
                     f,
                     "Get resource output value from resource {} property {}",
                     name, property
                 )
             }
-            Goal::ApplyResource(_, name) => {
+            Goal::ApplyResource(_, name, _cap) => {
                 write!(f, "Apply resource {}", name)
             }
-            Goal::RunState(_, name) => {
+            Goal::RunState(_, name, _cap) => {
                 write!(f, "Run state provider resource {}", name)
             }
         }
@@ -197,6 +208,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         deployment_path: DeploymentPath,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         let resources = self.list_resources(&context, &deployment_path).await?;
 
@@ -244,20 +256,35 @@ impl WorkContext {
                 })
                 .collect();
 
-        let mut resource_thunk_map = BTreeMap::new();
-        for (resource_name, id) in resource_ids.iter() {
-            let r = context
-                .spawn(Goal::ApplyResource(*id, resource_name.clone()))
-                .await?;
-            resource_thunk_map.insert(*id, r);
-        }
-
-        // Apply nested deployments
+        // Apply nested deployments (discovery or mutation mode)
         let mut nested_thunks = Vec::new();
         for nested_name in &nested_deployments {
             let nested_path = deployment_path.child(nested_name.clone());
-            let thunk = context.spawn(Goal::Apply(nested_path)).await?;
+            let thunk = context
+                .spawn(Goal::Apply(nested_path, mutation_cap))
+                .await?;
             nested_thunks.push(thunk);
+        }
+
+        // In discovery mode, we only expand structure - no mutations
+        let Some(cap) = mutation_cap else {
+            // Wait for nested deployments to complete their discovery
+            for thunk in nested_thunks {
+                match clone_result(thunk.force().await.as_ref())? {
+                    Outcome::Done() => {}
+                    outcome => panic!("Unexpected outcome from Apply: {:?}", outcome),
+                }
+            }
+            return Ok(Outcome::Done());
+        };
+
+        // Mutation mode: apply resources
+        let mut resource_thunk_map = BTreeMap::new();
+        for (resource_name, id) in resource_ids.iter() {
+            let r = context
+                .spawn(Goal::ApplyResource(*id, resource_name.clone(), cap))
+                .await?;
+            resource_thunk_map.insert(*id, r);
         }
 
         let mut resource_map = BTreeMap::new();
@@ -533,6 +560,7 @@ impl WorkContext {
         id: Id<ResourceType>,
         _resource_name: ResourcePath,
         input_name: String,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -584,7 +612,10 @@ impl WorkContext {
                                     let resource = x.dependency.resource.clone();
                                     let r = context
                                         .require(Goal::GetResourceOutputValue(
-                                            dep_id, resource, property,
+                                            dep_id,
+                                            resource,
+                                            property,
+                                            mutation_cap,
                                         ))
                                         .await
                                         .with_context(|| {
@@ -618,10 +649,11 @@ impl WorkContext {
         id: Id<ResourceType>,
         resource_name: ResourcePath,
         property: String,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // Apply the resource
         let r = context
-            .require(Goal::ApplyResource(id, resource_name.clone()))
+            .require(Goal::ApplyResource(id, resource_name.clone(), mutation_cap))
             .await?;
         let outcome = clone_result(&r)?;
         match outcome {
@@ -649,6 +681,7 @@ impl WorkContext {
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         name: ResourcePath,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         let provider_info_thunk = context
             .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
@@ -675,6 +708,7 @@ impl WorkContext {
                     id,
                     name.clone(),
                     input_name.clone(),
+                    mutation_cap,
                 ))
                 .await?;
             inputs_thunks.insert(input_name, input_id);
@@ -710,6 +744,7 @@ impl WorkContext {
                     .spawn(Goal::RunState(
                         state_resource_id,
                         state_resource_path.clone(),
+                        mutation_cap,
                     ))
                     .await
                     .map_err(|e| {
@@ -879,8 +914,8 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
-            Goal::Apply(deployment_path) => {
-                self.perform_apply(context, deployment_path)
+            Goal::Apply(deployment_path, mutation_cap) => {
+                self.perform_apply(context, deployment_path, mutation_cap)
                     .instrument(info_span!("Applying deployment"))
                     .await
             }
@@ -919,10 +954,10 @@ impl TaskWork for WorkContext {
                     .await
             }
 
-            Goal::GetResourceInputValue(id, resource_name, input_name) => {
+            Goal::GetResourceInputValue(id, resource_name, input_name, cap) => {
                 let resource_name_2 = resource_name.clone();
                 let input_name_2 = input_name.clone();
-                self.perform_get_resource_input_value(context, id, resource_name, input_name)
+                self.perform_get_resource_input_value(context, id, resource_name, input_name, cap)
                     .instrument(info_span!(
                         "Getting resource input value",
                         resource = ?resource_name_2,
@@ -931,10 +966,10 @@ impl TaskWork for WorkContext {
                     .await
             }
 
-            Goal::GetResourceOutputValue(id, name, property) => {
+            Goal::GetResourceOutputValue(id, name, property, cap) => {
                 let name_2 = name.clone();
                 let property_2 = property.clone();
-                self.perform_get_resource_output_value(context, id, name, property)
+                self.perform_get_resource_output_value(context, id, name, property, cap)
                     .instrument(info_span!(
                         "Getting resource output value",
                         resource = ?name_2,
@@ -943,19 +978,19 @@ impl TaskWork for WorkContext {
                     .await
             }
 
-            Goal::ApplyResource(id, name) => {
+            Goal::ApplyResource(id, name, cap) => {
                 let name_2 = name.clone();
                 let context = context.clone();
-                self.perform_apply_resource(context, id, name)
+                self.perform_apply_resource(context, id, name, cap)
                     .instrument(info_span!("Applying resource", resource = ?name_2))
                     .await
             }
 
-            Goal::RunState(id, name) => {
+            Goal::RunState(id, name, cap) => {
                 (async {
                     // Apply the resource
                     let r = context
-                        .require(Goal::ApplyResource(id, name.clone()))
+                        .require(Goal::ApplyResource(id, name.clone(), cap))
                         .await
                         .map_err(|e| {
                             anyhow::anyhow!(

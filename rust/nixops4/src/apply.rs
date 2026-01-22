@@ -3,7 +3,7 @@ use crate::{
     eval_client::EvalSender,
     interrupt::InterruptState,
     to_eval_options,
-    work::{Goal, WorkContext},
+    work::{Goal, MutationCapability, WorkContext},
     Options,
 };
 use anyhow::{bail, Context, Result};
@@ -83,7 +83,10 @@ pub(crate) async fn apply(
                 Ok(())
             });
             let r = tasks
-                .run(Goal::Apply(nixops4_core::eval_api::DeploymentPath::root()))
+                .run(Goal::Apply(
+                    nixops4_core::eval_api::DeploymentPath::root(),
+                    Some(MutationCapability),
+                ))
                 .await;
 
             // TODO: These cleanup operations should collect all errors and report them together
