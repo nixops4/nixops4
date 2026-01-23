@@ -85,7 +85,7 @@ pub(crate) async fn apply(
             let r = tasks
                 .run(Goal::Apply(
                     nixops4_core::eval_api::DeploymentPath::root(),
-                    Some(MutationCapability),
+                    MutationCapability,
                 ))
                 .await;
 

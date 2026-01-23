@@ -29,9 +29,9 @@ type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> +
 
 /// Capability token that grants permission to perform mutations (create/update/delete).
 ///
-/// This type is used to ensure at compile time that mutation operations can only
-/// be performed when explicitly authorized. During discovery passes, no
-/// `MutationCapability` is provided, preventing accidental mutations.
+/// This type ensures at compile time that mutation operations can only be
+/// performed when explicitly authorized. Goals that perform mutations require
+/// this token, while Preview variants allow read-only introspection.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct MutationCapability;
 
@@ -90,18 +90,16 @@ pub enum Goal {
     /// Preview a deployment without making changes. Returns all known resources
     /// and any structural dependencies that block full discovery.
     Preview(DeploymentPath),
-    Apply(DeploymentPath, Option<MutationCapability>),
+    Apply(DeploymentPath, MutationCapability),
     /// List resources in a deployment. If the resource list has a structural
-    /// dependency on a resource output, the capability is needed to create
-    /// that resource first.
-    ListResources(DeploymentPath, Option<MutationCapability>),
+    /// dependency on a resource output, resolves it by creating the resource.
+    ListResources(DeploymentPath, MutationCapability),
     /// List resources for preview. Returns either the resources or a preview item
     /// indicating a structural dependency.
     ListResourcesPreview(DeploymentPath),
     /// List nested deployments. If the deployment list has a structural
-    /// dependency on a resource output, the capability is needed to create
-    /// that resource first.
-    ListNestedDeployments(DeploymentPath, Option<MutationCapability>),
+    /// dependency on a resource output, resolves it by creating the resource.
+    ListNestedDeployments(DeploymentPath, MutationCapability),
     /// List nested deployments for preview. Returns either the deployments or a
     /// preview item indicating a structural dependency.
     ListNestedDeploymentsPreview(DeploymentPath),
@@ -121,9 +119,8 @@ impl Display for Goal {
             Goal::Preview(path) => {
                 write!(f, "Preview deployment {:?}", path.0)
             }
-            Goal::Apply(path, cap) => {
-                let mode = if cap.is_some() { "" } else { " (discovery)" };
-                write!(f, "Apply deployment {:?}{}", path.0, mode)
+            Goal::Apply(path, _cap) => {
+                write!(f, "Apply deployment {:?}", path.0)
             }
             Goal::ListResources(path, _cap) => {
                 write!(f, "List resources in deployment {:?}", path.0)
@@ -235,7 +232,7 @@ impl WorkContext {
         &self,
         context: &TaskContext<Self>,
         deployment_path: &DeploymentPath,
-        mutation_cap: Option<MutationCapability>,
+        mutation_cap: MutationCapability,
     ) -> Result<Vec<ResourcePath>> {
         let r = context
             .require(Goal::ListResources(deployment_path.clone(), mutation_cap))
@@ -259,7 +256,7 @@ impl WorkContext {
         &self,
         context: &TaskContext<Self>,
         deployment_path: &DeploymentPath,
-        mutation_cap: Option<MutationCapability>,
+        mutation_cap: MutationCapability,
     ) -> Result<Vec<String>> {
         let r = context
             .require(Goal::ListNestedDeployments(
@@ -474,7 +471,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         deployment_path: DeploymentPath,
-        mutation_cap: Option<MutationCapability>,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First, preview to get all known resources and structural dependencies
         let preview_thunk = context
@@ -496,8 +493,7 @@ impl WorkContext {
         }
         self.interrupt_state.check_interrupted()?;
 
-        // Now list resources and nested deployments with mutation capability (if any)
-        // This will resolve structural dependencies
+        // List resources and nested deployments, resolving structural dependencies
         let resources = self
             .list_resources(&context, &deployment_path, mutation_cap)
             .await?;
@@ -530,7 +526,7 @@ impl WorkContext {
                 })
                 .collect();
 
-        // Apply nested deployments (discovery or mutation mode)
+        // Apply nested deployments
         let mut nested_thunks = Vec::new();
         for nested_name in &nested_deployments {
             let nested_path = deployment_path.child(nested_name.clone());
@@ -540,23 +536,15 @@ impl WorkContext {
             nested_thunks.push(thunk);
         }
 
-        // In discovery mode, we only expand structure - no mutations
-        let Some(cap) = mutation_cap else {
-            // Wait for nested deployments to complete their discovery
-            for thunk in nested_thunks {
-                match clone_result(thunk.force().await.as_ref())? {
-                    Outcome::Done() => {}
-                    outcome => panic!("Unexpected outcome from Apply: {:?}", outcome),
-                }
-            }
-            return Ok(Outcome::Done());
-        };
-
-        // Mutation mode: apply resources
+        // Apply resources
         let mut resource_thunk_map = BTreeMap::new();
         for (resource_name, id) in resource_ids.iter() {
             let r = context
-                .spawn(Goal::ApplyResource(*id, resource_name.clone(), cap))
+                .spawn(Goal::ApplyResource(
+                    *id,
+                    resource_name.clone(),
+                    mutation_cap,
+                ))
                 .await?;
             resource_thunk_map.insert(*id, r);
         }
@@ -605,7 +593,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         deployment_path: DeploymentPath,
-        mutation_cap: Option<MutationCapability>,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First resolve the deployment ID from the deployment path
         let deployment_id_thunk = context
@@ -629,13 +617,7 @@ impl WorkContext {
                     return Ok(Outcome::ResourcesListed(resource_paths));
                 }
                 ListResourcesState::StructuralDependency(dep) => {
-                    // Structural dependency: need to create a resource to list resources
-                    let cap = mutation_cap.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Structural dependency on {} requires mutation capability",
-                            dep.resource
-                        )
-                    })?;
+                    // Structural dependency: create the resource to resolve it
 
                     // Get the resource ID
                     let dep_id_thunk = context
@@ -652,7 +634,7 @@ impl WorkContext {
                             dep_id,
                             dep.resource.clone(),
                             dep.name.clone(),
-                            cap,
+                            mutation_cap,
                         ))
                         .await?;
                     let _outcome = clone_result(&r)?;
@@ -667,7 +649,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         deployment_path: DeploymentPath,
-        mutation_cap: Option<MutationCapability>,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First resolve the deployment ID from the deployment path
         let deployment_id_thunk = context
@@ -684,13 +666,7 @@ impl WorkContext {
                     return Ok(Outcome::NestedDeploymentsListed(deployment_names));
                 }
                 ListNestedDeploymentsState::StructuralDependency(dep) => {
-                    // Structural dependency: need to create a resource to list nested deployments
-                    let cap = mutation_cap.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Structural dependency on {} requires mutation capability",
-                            dep.resource
-                        )
-                    })?;
+                    // Structural dependency: create the resource to resolve it
 
                     // Get the resource ID
                     let dep_id_thunk = context
@@ -707,7 +683,7 @@ impl WorkContext {
                             dep_id,
                             dep.resource.clone(),
                             dep.name.clone(),
-                            cap,
+                            mutation_cap,
                         ))
                         .await?;
                     let _outcome = clone_result(&r)?;
