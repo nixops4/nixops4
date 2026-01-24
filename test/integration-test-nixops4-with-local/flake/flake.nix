@@ -316,6 +316,50 @@
               };
             };
 
+          # Test case: dynamic member kind based on resource output.
+          # The member's KIND (resource vs composite) depends on a resource output.
+          # LoadMember needs to resolve this dependency to determine the kind.
+          # Test: DYNAMIC MEMBER KIND in check.nix
+          dynamicKind =
+            {
+              lib,
+              providers,
+              members,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              members.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "dynamic-kind-state.json";
+              };
+
+              # This resource's output determines whether dynamicMember is a resource or composite
+              members.selector = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = "resource"; # could be "composite" to test the other branch
+              };
+
+              # This member's kind depends on selector.outputs.value
+              members.dynamicMember =
+                if members.selector.outputs.value == "resource" then
+                  {
+                    type = providers.local.memo;
+                    state = [ "stateFile" ];
+                    inputs.initialize_with = "I am a resource";
+                  }
+                else
+                  {
+                    members.nestedResource = {
+                      type = providers.local.memo;
+                      state = [ "stateFile" ];
+                      inputs.initialize_with = "I am inside a composite";
+                    };
+                  };
+            };
+
           # Test case: nested composite with unreferenced resources.
           # The nested composite has resources that are NOT referenced by
           # any parent resource input. ListMembers discovers them.

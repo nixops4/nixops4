@@ -9,9 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeType, Id, IdNum, ListNestedDeploymentsState,
-    ListResourcesState, NamedProperty, QueryRequest, QueryResponseValue, RequestIdType,
-    ResourceInputDependency, ResourceInputState, ResourceProviderInfo, ResourceType,
+    AssignRequest, ComponentHandle, ComponentLoadState, CompositeType, EvalRequest, EvalResponse,
+    FlakeType, Id, IdNum, ListMembersState, NamedProperty, QueryRequest, QueryResponseValue,
+    RequestIdType, ResourceInputDependency, ResourceInputState, ResourceProviderInfo, ResourceType,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,7 +30,8 @@ pub struct EvaluationDriver<R: Respond> {
     values: HashMap<IdNum, Result<Value, String>>,
     respond: R,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
-    resource_names: HashMap<Id<ResourceType>, String>,
+    /// Maps resource IDs to resource names for GetResource lookups
+    resource_names: HashMap<IdNum, String>,
 }
 impl<R: Respond> EvaluationDriver<R> {
     pub fn new(
@@ -218,93 +219,21 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            // Handlers below translate old protocol to unified members structure
-            EvalRequest::LoadNestedDeployment(req) => {
-                self.handle_assign_request(req, |this, req| {
-                    let parent = this.get_value(req.parent_deployment)?.clone();
-                    let members_attrset =
-                        this.eval_state.require_attrs_select(&parent, "members")?;
-                    let nested = this
-                        .eval_state
-                        .require_attrs_select(&members_attrset, &req.name)?;
-                    Ok(nested)
-                })
-                .await
-            }
-            EvalRequest::ListNestedDeployments(req) => {
-                self.handle_simple_request(
-                    req,
-                    QueryResponseValue::ListNestedDeployments,
-                    |this, req| {
-                        let deployment = this.get_value(req.to_owned())?.clone();
-                        let result = (|| -> Result<Vec<String>> {
-                            let members_attrset = this
-                                .eval_state
-                                .require_attrs_select(&deployment, "members")?;
-                            // Filter to only nested deployments (those without "resource" attr)
-                            let all_names =
-                                this.eval_state.require_attrs_names(&members_attrset)?;
-                            let mut nested_names = Vec::new();
-                            for name in all_names {
-                                let member = this
-                                    .eval_state
-                                    .require_attrs_select(&members_attrset, &name)?;
-                                let has_resource = this
-                                    .eval_state
-                                    .require_attrs_select_opt(&member, "resource")?
-                                    .is_some();
-                                if !has_resource {
-                                    nested_names.push(name);
-                                }
-                            }
-                            Ok(nested_names)
-                        })();
-                        match result {
-                            Ok(names) => Ok((*req, ListNestedDeploymentsState::Listed(names))),
-                            Err(e) => {
-                                if let Some(dep) = parse_structural_dependency_error(&e) {
-                                    Ok((
-                                        *req,
-                                        ListNestedDeploymentsState::StructuralDependency(dep),
-                                    ))
-                                } else {
-                                    Err(e)
-                                }
-                            }
-                        }
-                    },
-                )
-                .await
-            }
-            EvalRequest::ListResources(req) => {
-                self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
-                    let deployment = this.get_value(req.to_owned())?.clone();
+            // List member names in a composite (kind determined later via LoadComponent)
+            EvalRequest::ListMembers(req) => {
+                self.handle_simple_request(req, QueryResponseValue::ListMembers, |this, req| {
+                    let composite = this.get_value(req.to_owned())?.clone();
                     let result = (|| -> Result<Vec<String>> {
                         let members_attrset = this
                             .eval_state
-                            .require_attrs_select(&deployment, "members")?;
-                        // Filter to only resources (those with "resource" attr)
-                        let all_names = this.eval_state.require_attrs_names(&members_attrset)?;
-                        let mut resource_names = Vec::new();
-                        for name in all_names {
-                            let member = this
-                                .eval_state
-                                .require_attrs_select(&members_attrset, &name)?;
-                            let has_resource = this
-                                .eval_state
-                                .require_attrs_select_opt(&member, "resource")?
-                                .is_some();
-                            if has_resource {
-                                resource_names.push(name);
-                            }
-                        }
-                        Ok(resource_names)
+                            .require_attrs_select(&composite, "members")?;
+                        this.eval_state.require_attrs_names(&members_attrset)
                     })();
                     match result {
-                        Ok(names) => Ok((*req, ListResourcesState::Listed(names))),
+                        Ok(names) => Ok((*req, ListMembersState::Listed(names))),
                         Err(e) => {
                             if let Some(dep) = parse_structural_dependency_error(&e) {
-                                Ok((*req, ListResourcesState::StructuralDependency(dep)))
+                                Ok((*req, ListMembersState::StructuralDependency(dep)))
                             } else {
                                 Err(e)
                             }
@@ -313,41 +242,105 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            EvalRequest::LoadResource(request) => {
-                // Check for duplicate ID assignment
-                if let Some(_value) = self.values.get(&request.assign_to.num()) {
-                    let error_msg = format!("id already used: {}", request.assign_to.num());
-                    self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
-                        .await?;
-                    return Ok(());
+            // Load a component and determine its kind (resource or composite)
+            EvalRequest::LoadComponent(request) => {
+                // Use the same ID number as a message ID for the response
+                let msg_id =
+                    Id::<nixops4_core::eval_api::MessageType>::from_num(request.assign_to.num());
+
+                // Check if ID was already assigned - return cached result
+                if let Some(cached) = self.values.get(&request.assign_to.num()) {
+                    match cached {
+                        Ok(_value) => {
+                            // Return cached ComponentLoaded response
+                            let is_resource =
+                                self.resource_names.contains_key(&request.assign_to.num());
+                            let handle = if is_resource {
+                                ComponentHandle::Resource(Id::<ResourceType>::from_num(
+                                    request.assign_to.num(),
+                                ))
+                            } else {
+                                ComponentHandle::Composite(Id::<CompositeType>::from_num(
+                                    request.assign_to.num(),
+                                ))
+                            };
+                            self.respond(EvalResponse::QueryResponse(
+                                msg_id,
+                                QueryResponseValue::ComponentLoaded(ComponentLoadState::Loaded(
+                                    handle,
+                                )),
+                            ))
+                            .await?;
+                            return Ok(());
+                        }
+                        Err(error_msg) => {
+                            // Return cached error
+                            self.respond(EvalResponse::Error(
+                                request.assign_to.any(),
+                                error_msg.clone(),
+                            ))
+                            .await?;
+                            return Ok(());
+                        }
+                    }
                 }
 
-                let result = (|| -> Result<Value> {
-                    let deployment = self.get_value(request.payload.deployment)?.clone();
-                    let members_attrset = self
-                        .eval_state
-                        .require_attrs_select(&deployment, "members")?;
+                let result = (|| -> Result<(Value, bool)> {
+                    let parent = self.get_value(request.payload.parent)?.clone();
+                    let members_attrset =
+                        self.eval_state.require_attrs_select(&parent, "members")?;
                     let member = self
                         .eval_state
                         .require_attrs_select(&members_attrset, &request.payload.name)?;
-                    let resource_data =
-                        self.eval_state.require_attrs_select(&member, "resource")?;
-                    Ok(resource_data)
+                    // Determine if this is a resource (has "resource" attr) or composite
+                    let resource_opt = self
+                        .eval_state
+                        .require_attrs_select_opt(&member, "resource")?;
+                    match resource_opt {
+                        Some(resource_data) => Ok((resource_data, true)), // is resource
+                        None => Ok((member, false)),                      // is composite
+                    }
                 })();
 
                 match result {
-                    Ok(value) => {
+                    Ok((value, is_resource)) => {
                         self.values.insert(request.assign_to.num(), Ok(value));
-                        self.resource_names
-                            .insert(request.assign_to, request.payload.name.clone());
-                        Ok(())
+                        let handle = if is_resource {
+                            // For resources, also track the name for GetResource
+                            self.resource_names
+                                .insert(request.assign_to.num(), request.payload.name.clone());
+                            ComponentHandle::Resource(Id::<ResourceType>::from_num(
+                                request.assign_to.num(),
+                            ))
+                        } else {
+                            ComponentHandle::Composite(Id::<CompositeType>::from_num(
+                                request.assign_to.num(),
+                            ))
+                        };
+                        // Send response indicating the component kind
+                        self.respond(EvalResponse::QueryResponse(
+                            msg_id,
+                            QueryResponseValue::ComponentLoaded(ComponentLoadState::Loaded(handle)),
+                        ))
+                        .await
                     }
                     Err(e) => {
-                        let error_msg = e.to_string();
-                        self.values
-                            .insert(request.assign_to.num(), Err(error_msg.clone()));
-                        self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
+                        // Check if this is a structural dependency
+                        if let Some(dep) = parse_structural_dependency_error(&e) {
+                            self.respond(EvalResponse::QueryResponse(
+                                msg_id,
+                                QueryResponseValue::ComponentLoaded(
+                                    ComponentLoadState::StructuralDependency(dep),
+                                ),
+                            ))
                             .await
+                        } else {
+                            let error_msg = e.to_string();
+                            self.values
+                                .insert(request.assign_to.num(), Err(error_msg.clone()));
+                            self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
+                                .await
+                        }
                     }
                 }
             }
@@ -479,14 +472,10 @@ fn perform_load_deployment<R: Respond>(
             let attr_name = es.require_string(attr_name)?;
 
             // Build full path to the resource (component_path + member_name)
-            let mut full_path = component_path.clone();
-            full_path.push(member_name.to_string());
-
+            let mut resource_path = component_path.clone();
+            resource_path.push(member_name.to_string());
             let property = NamedProperty {
-                resource: nixops4_core::eval_api::ResourcePath {
-                    deployment_path: nixops4_core::eval_api::DeploymentPath(component_path),
-                    resource_name: member_name.to_string(),
-                },
+                resource: nixops4_core::eval_api::ComponentPath(resource_path),
                 name: attr_name.to_string(),
             };
             let val = { known_outputs.borrow().get(&property).cloned() };
@@ -527,7 +516,7 @@ fn perform_get_resource<R: Respond>(
     req: &Id<nixops4_core::eval_api::ResourceType>,
 ) -> Result<ResourceProviderInfo> {
     let resource = this.get_value(req.to_owned())?.clone();
-    let resource_name = this.resource_names.get(req).unwrap();
+    let resource_name = this.resource_names.get(&req.num()).unwrap();
     // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
     parse_resource(req, &mut this.eval_state, resource_name, resource)
 }
@@ -559,15 +548,12 @@ fn parse_resource(
             if state_list.is_empty() {
                 bail!("expected state list to be non-empty");
             }
-            let mut deployment_path = Vec::new();
-            for value in &state_list[..state_list.len() - 1] {
-                deployment_path.push(eval_state.require_string(value)?);
+            // State is a ComponentPath - a list of component names from root to the state resource
+            let mut component_path = Vec::new();
+            for value in &state_list {
+                component_path.push(eval_state.require_string(value)?);
             }
-            let resource_name = eval_state.require_string(&state_list[state_list.len() - 1])?;
-            Some(nixops4_core::eval_api::ResourcePath {
-                deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
-                resource_name,
-            })
+            Some(nixops4_core::eval_api::ComponentPath(component_path))
         }
         _ => bail!("expected state to be a list of strings or null"),
     };
@@ -1109,10 +1095,9 @@ mod tests {
         assert_eq!(result.resource_type, "example");
         assert_eq!(
             result.state,
-            Some(nixops4_core::eval_api::ResourcePath {
-                deployment_path: nixops4_core::eval_api::DeploymentPath::root(),
-                resource_name: "stateful".to_string(),
-            })
+            Some(nixops4_core::eval_api::ComponentPath(vec![
+                "stateful".to_string()
+            ]))
         );
         assert_eq!(
             result.provider.get("example").unwrap().as_str().unwrap(),

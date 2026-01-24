@@ -286,6 +286,30 @@ runCommand "itest-nixops4-with-local"
       rm -f structural-resources-state.json structural-resources.log
     )
 
+    h1 DYNAMIC MEMBER KIND
+    (
+      set -x
+      echo "=== Testing dynamic member kind based on resource output ==="
+
+      # This deployment has a member whose KIND (resource vs composite)
+      # depends on a resource output. LoadMember needs to resolve the
+      # dependency to determine if it's loading a resource or composite.
+      nixops4 apply -v dynamicKind --show-trace 2>&1 | tee dynamic-kind.log
+
+      # Verify state file was created
+      test -f dynamic-kind-state.json
+
+      # The selector resource should be applied with value "resource"
+      grep -E 'selector.*resource' dynamic-kind.log
+
+      # Since selector outputs "resource", dynamicMember should be a resource
+      # and contain "I am a resource"
+      grep -E 'dynamicMember.*I am a resource' dynamic-kind.log
+
+      # Clean up
+      rm -f dynamic-kind-state.json dynamic-kind.log
+    )
+
     h1 NESTED DEPLOYMENTS
     (
       set -x

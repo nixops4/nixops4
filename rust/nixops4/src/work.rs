@@ -9,9 +9,9 @@ use crate::{
 };
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
-    self, AssignRequest, DeploymentPath, DeploymentType, EvalRequest, EvalResponse, Id, IdNum,
-    ListNestedDeploymentsState, ListResourcesState, NamedProperty, NestedDeploymentRequest,
-    Property, QueryResponseValue, ResourceInputState, ResourcePath, ResourceRequest, ResourceType,
+    self, AnyType, AssignRequest, ComponentHandle, ComponentLoadState, ComponentPath,
+    ComponentRequest, CompositeType, EvalRequest, EvalResponse, Id, IdNum, ListMembersState,
+    NamedProperty, Property, QueryResponseValue, ResourceInputState, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -39,17 +39,14 @@ pub struct MutationCapability;
 /// or an unknown structure blocked by a structural dependency.
 #[derive(Clone, Debug)]
 pub enum PreviewItem {
-    /// A resource that will be applied
-    Resource(ResourcePath),
+    /// A resource that will be applied (full path from root)
+    Resource(ComponentPath),
     /// A structural dependency that must be resolved before the full structure is known.
-    /// The `path` is the deployment whose resources or nested deployments are unknown.
     StructuralDependency {
-        /// The deployment path where the unknown structure exists
-        path: DeploymentPath,
+        /// The composite path where the unknown structure exists (if known)
+        path: Option<ComponentPath>,
         /// The resource output this structure depends on
         depends_on: NamedProperty,
-        /// True if this blocks listing deployments, false if it blocks listing resources
-        blocks_deployments: bool,
     },
 }
 
@@ -57,116 +54,118 @@ impl Display for PreviewItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PreviewItem::Resource(path) => write!(f, "{}", path),
-            PreviewItem::StructuralDependency {
-                path,
-                depends_on,
-                blocks_deployments,
-            } => {
-                let what = if *blocks_deployments {
-                    "deployments"
-                } else {
-                    "resources"
-                };
-                if path.is_root() {
+            PreviewItem::StructuralDependency { path, depends_on } => match path {
+                Some(p) if p.is_root() => {
                     write!(
                         f,
-                        "*  ({} depend on {}.{})",
-                        what, depends_on.resource, depends_on.name
+                        "*  (structure depends on {}.{})",
+                        depends_on.resource, depends_on.name
                     )
-                } else {
+                }
+                Some(p) => {
                     write!(
                         f,
                         "{}.*  (depends on {}.{})",
-                        path, depends_on.resource, depends_on.name
+                        p, depends_on.resource, depends_on.name
                     )
                 }
-            }
+                None => {
+                    write!(
+                        f,
+                        "*  (depends on {}.{})",
+                        depends_on.resource, depends_on.name
+                    )
+                }
+            },
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
-    /// Preview a deployment without making changes. Returns all known resources
+    /// Preview a composite without making changes. Returns all known resources
     /// and any structural dependencies that block full discovery.
-    Preview(DeploymentPath),
-    /// Apply a deployment, creating/updating/deleting resources as needed.
-    Apply(DeploymentPath, MutationCapability),
-    /// List resources in a deployment. If the resource list has a structural dependency, resolves it.
-    ListResources(DeploymentPath, MutationCapability),
-    /// List resources for preview. Returns either the resources or a preview item.
-    ListResourcesPreview(DeploymentPath),
-    /// List nested deployments. If the deployment list has a structural dependency, resolves it.
-    ListNestedDeployments(DeploymentPath, MutationCapability),
-    /// List nested deployments for preview. Returns either the deployments or a preview item.
-    ListNestedDeploymentsPreview(DeploymentPath),
-    /// Assign a deployment ID for a path
-    AssignDeploymentId(DeploymentPath),
-    /// Assign a resource ID
-    AssignResourceId(ResourcePath),
+    Preview(ComponentPath),
+    /// Apply a composite, creating/updating/deleting resources as needed.
+    Apply(ComponentPath, MutationCapability),
+    /// List member names in a composite. If listing has a structural dependency, resolves it.
+    /// Option<MutationCapability>: Some = retry on dependency (apply), None = return dependency (preview)
+    ListMembers(ComponentPath, Option<MutationCapability>),
+    /// Assign an ID to a member component. Sends LoadComponent to eval, memoized.
+    /// This is the fine-grained memoizable unit - no mutation_cap so same ID is reused.
+    AssignMemberId(Id<CompositeType>, String),
+    /// Load a member, potentially resolving dependencies. Defers to AssignMemberId for the ID.
+    LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
     /// Get resource provider info for a loaded resource
-    GetResourceProviderInfo(Id<ResourceType>, ResourcePath),
+    GetResourceProviderInfo(Id<ResourceType>, ComponentPath),
     /// List resource inputs
-    ListResourceInputs(Id<ResourceType>, ResourcePath),
+    ListResourceInputs(Id<ResourceType>, ComponentPath),
     /// Get a specific resource input value
-    GetResourceInputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
+    GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
     /// Get a resource output value (goes to ApplyResource)
-    GetResourceOutputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
+    GetResourceOutputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
     /// Apply a single resource
-    ApplyResource(Id<ResourceType>, ResourcePath, MutationCapability),
+    ApplyResource(Id<ResourceType>, ComponentPath, MutationCapability),
     /// Run a state provider resource
-    RunState(Id<ResourceType>, ResourcePath, MutationCapability),
+    RunState(Id<ResourceType>, ComponentPath, MutationCapability),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Goal::Preview(path) => {
-                write!(f, "Preview deployment {:?}", path.0)
+                write!(f, "Preview composite {}", path)
             }
             Goal::Apply(path, _cap) => {
-                write!(f, "Apply deployment {:?}", path.0)
+                write!(f, "Apply composite {}", path)
             }
-            Goal::ListResources(path, _cap) => {
-                write!(f, "List resources in deployment {:?}", path.0)
+            Goal::ListMembers(path, cap) => {
+                if cap.is_some() {
+                    write!(f, "List members in composite {}", path)
+                } else {
+                    write!(f, "List members (preview) in composite {}", path)
+                }
             }
-            Goal::ListResourcesPreview(path) => {
-                write!(f, "List resources (preview) in deployment {:?}", path.0)
+            Goal::AssignMemberId(parent_id, name) => {
+                write!(
+                    f,
+                    "Assign ID for member '{}' in composite {}",
+                    name,
+                    parent_id.num()
+                )
             }
-            Goal::ListNestedDeployments(path, _cap) => {
-                write!(f, "List nested deployments in {:?}", path.0)
+            Goal::LoadMember(parent_id, name, _cap) => {
+                write!(
+                    f,
+                    "Load member '{}' from composite {}",
+                    name,
+                    parent_id.num()
+                )
             }
-            Goal::ListNestedDeploymentsPreview(path) => {
-                write!(f, "List nested deployments (preview) in {:?}", path.0)
+            Goal::GetResourceProviderInfo(_, path) => {
+                write!(f, "Get resource provider info for {}", path)
             }
-            Goal::AssignDeploymentId(path) => {
-                write!(f, "Assign deployment ID for path {:?}", path.0)
+            Goal::ListResourceInputs(_, path) => {
+                write!(f, "List resource inputs for {}", path)
             }
-            Goal::AssignResourceId(name) => write!(f, "Assign resource ID to {}", name),
-            Goal::GetResourceProviderInfo(_, name) => {
-                write!(f, "Get resource provider info for {}", name)
-            }
-            Goal::ListResourceInputs(_, name) => {
-                write!(f, "List resource inputs for {}", name)
-            }
-            Goal::GetResourceInputValue(_, name, input, _cap) => {
+            Goal::GetResourceInputValue(_, path, input, _cap) => {
                 write!(
                     f,
                     "Get resource input value for resource {} input {}",
-                    name, input
+                    path, input
                 )
             }
-            Goal::GetResourceOutputValue(_, name, property, _cap) => {
+            Goal::GetResourceOutputValue(_, path, property, _cap) => {
                 write!(
                     f,
                     "Get resource output value from resource {} property {}",
-                    name, property
+                    path, property
                 )
             }
-            Goal::ApplyResource(_, name, _cap) => {
-                write!(f, "Apply resource {}", name)
+            Goal::ApplyResource(_, path, _cap) => {
+                write!(f, "Apply resource {}", path)
             }
-            Goal::RunState(_, name, _cap) => {
-                write!(f, "Run state provider resource {}", name)
+            Goal::RunState(_, path, _cap) => {
+                write!(f, "Run state provider resource {}", path)
             }
         }
     }
@@ -177,14 +176,12 @@ pub enum Outcome {
     Done(),
     /// Preview result containing all known resources and structural dependencies
     Preview(Vec<PreviewItem>),
-    ResourcesListed(Vec<ResourcePath>),
-    /// Resources listed for preview, or blocked by structural dependency
-    ResourcesPreview(Result<Vec<ResourcePath>, PreviewItem>),
-    NestedDeploymentsListed(Vec<String>),
-    /// Nested deployments listed for preview, or blocked by structural dependency
-    NestedDeploymentsPreview(Result<Vec<String>, PreviewItem>),
-    DeploymentId(Id<DeploymentType>),
-    ResourceId(Id<ResourceType>),
+    /// Member names listed, or blocked by structural dependency (for preview)
+    MembersListed(Result<Vec<String>, PreviewItem>),
+    /// An ID assigned to a member (from AssignMemberId)
+    MemberIdAssigned(Id<AnyType>),
+    /// A single member loaded, or blocked by structural dependency (for preview)
+    MemberLoaded(Result<ComponentHandle, PreviewItem>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
@@ -196,7 +193,7 @@ pub enum Outcome {
 pub struct WorkContext {
     pub options: crate::Options,
     pub eval_sender: eval_client::EvalSender,
-    pub root_deployment_id: Id<DeploymentType>,
+    pub root_composite_id: Id<CompositeType>,
     pub interrupt_state: InterruptState,
     pub state: Mutex<WorkState>,
     pub id_subscriptions: Pubsub<IdNum, EvalResponse>,
@@ -232,171 +229,219 @@ impl WorkContext {
         Ok(())
     }
 
-    async fn list_resources(
+    /// List member names via ListMembers goal.
+    async fn list_member_names(
         &self,
         context: &TaskContext<Self>,
-        deployment_path: &DeploymentPath,
-        mutation_cap: MutationCapability,
-    ) -> Result<Vec<ResourcePath>> {
+        composite_path: &ComponentPath,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<Result<Vec<String>, PreviewItem>> {
         let r = context
-            .require(Goal::ListResources(deployment_path.clone(), mutation_cap))
+            .require(Goal::ListMembers(composite_path.clone(), mutation_cap))
             .await;
         let outcome = match r {
-            Err(e) => {
-                bail!("Error while listing resources: {}", e);
-            }
+            Err(e) => bail!("Error while listing members: {}", e),
             Ok(v) => clone_result(v.as_ref()),
         }?;
-        let resources = match outcome {
-            Outcome::ResourcesListed(items) => items,
-            outcome => {
-                bail!("Unexpected outcome from ListResources, {:?}", outcome)
-            }
-        };
-        Ok(resources)
+        match outcome {
+            Outcome::MembersListed(result) => Ok(result),
+            outcome => bail!("Unexpected outcome from ListMembers, {:?}", outcome),
+        }
     }
 
-    async fn list_nested_deployments(
+    /// Load a single member via LoadMember goal.
+    async fn load_member(
         &self,
         context: &TaskContext<Self>,
-        deployment_path: &DeploymentPath,
-        mutation_cap: MutationCapability,
-    ) -> Result<Vec<String>> {
+        composite_id: Id<CompositeType>,
+        name: &str,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<ComponentHandle> {
         let r = context
-            .require(Goal::ListNestedDeployments(
-                deployment_path.clone(),
+            .require(Goal::LoadMember(
+                composite_id,
+                name.to_string(),
                 mutation_cap,
             ))
             .await;
         let outcome = match r {
-            Err(e) => {
-                bail!("Error while listing nested deployments: {}", e);
-            }
-            Ok(v) => clone_result(v.as_ref()),
-        }?;
-        let nested = match outcome {
-            Outcome::NestedDeploymentsListed(items) => items,
-            outcome => {
-                bail!(
-                    "Unexpected outcome from ListNestedDeployments, {:?}",
-                    outcome
-                )
-            }
-        };
-        Ok(nested)
-    }
-
-    /// List resources for preview, returning either the resources or a structural dependency.
-    async fn list_resources_preview(
-        &self,
-        context: &TaskContext<Self>,
-        deployment_path: &DeploymentPath,
-    ) -> Result<Result<Vec<ResourcePath>, PreviewItem>> {
-        let r = context
-            .require(Goal::ListResourcesPreview(deployment_path.clone()))
-            .await;
-        let outcome = match r {
-            Err(e) => {
-                bail!("Error while listing resources (preview): {}", e);
-            }
+            Err(e) => bail!("Error while loading member '{}': {}", name, e),
             Ok(v) => clone_result(v.as_ref()),
         }?;
         match outcome {
-            Outcome::ResourcesPreview(result) => Ok(result),
-            outcome => {
+            Outcome::MemberLoaded(Ok(handle)) => Ok(handle),
+            Outcome::MemberLoaded(Err(dep)) => {
                 bail!(
-                    "Unexpected outcome from ListResourcesPreview, {:?}",
-                    outcome
+                    "Structural dependency while loading member '{}': {}",
+                    name,
+                    dep
                 )
             }
+            outcome => bail!("Unexpected outcome from LoadMember, {:?}", outcome),
         }
     }
 
-    /// List nested deployments for preview, returning either the deployments or a structural dependency.
-    async fn list_nested_deployments_preview(
+    /// Load all members in parallel and partition by kind, preserving typed IDs.
+    /// Returns Err(PreviewItem) if any member has a structural dependency (preview mode).
+    async fn load_and_partition_members(
         &self,
         context: &TaskContext<Self>,
-        deployment_path: &DeploymentPath,
-    ) -> Result<Result<Vec<String>, PreviewItem>> {
-        let r = context
-            .require(Goal::ListNestedDeploymentsPreview(deployment_path.clone()))
-            .await;
-        let outcome = match r {
-            Err(e) => {
-                bail!("Error while listing nested deployments (preview): {}", e);
-            }
-            Ok(v) => clone_result(v.as_ref()),
-        }?;
-        match outcome {
-            Outcome::NestedDeploymentsPreview(result) => Ok(result),
-            outcome => {
-                bail!(
-                    "Unexpected outcome from ListNestedDeploymentsPreview, {:?}",
-                    outcome
-                )
-            }
+        composite_id: Id<CompositeType>,
+        names: Vec<String>,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<
+        Result<
+            (
+                BTreeMap<String, Id<ResourceType>>,
+                BTreeMap<String, Id<CompositeType>>,
+            ),
+            PreviewItem,
+        >,
+    > {
+        // Spawn all LoadMember goals in parallel
+        let mut thunks = BTreeMap::new();
+        for name in names {
+            let thunk = context
+                .spawn(Goal::LoadMember(composite_id, name.clone(), mutation_cap))
+                .await?;
+            thunks.insert(name, thunk);
         }
-    }
 
-    /// Low-level helper to send ListResources request and receive response.
-    async fn eval_list_resources(
-        &self,
-        deployment_id: Id<DeploymentType>,
-    ) -> Result<ListResourcesState> {
-        let msg_id = self.eval_sender.next_id();
-        let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
-        self.eval_sender
-            .query(msg_id, EvalRequest::ListResources, deployment_id)
-            .await?;
-
-        loop {
-            let (_id, r) = rx
-                .recv()
-                .await
-                .context("waiting for ListResources response")?;
-            match r {
-                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
-                EvalResponse::QueryResponse(_id, query_response_value) => {
-                    match query_response_value {
-                        QueryResponseValue::ListResources((_dt, state)) => {
-                            return Ok(state);
-                        }
-                        _ => bail!(
-                            "Unexpected response to ListResources, {:?}",
-                            query_response_value
-                        ),
-                    }
+        // Await all and partition by kind, keeping typed IDs
+        let mut resources = BTreeMap::new();
+        let mut composites = BTreeMap::new();
+        for (name, outcome) in Thunk::force_into_map(thunks).await {
+            let handle = match clone_result(&outcome)? {
+                Outcome::MemberLoaded(Ok(h)) => h,
+                Outcome::MemberLoaded(Err(dep)) => {
+                    // Structural dependency - return it
+                    return Ok(Err(dep));
                 }
-                EvalResponse::TracingEvent(_) => {}
+                outcome => bail!("Unexpected outcome from LoadMember: {:?}", outcome),
+            };
+            match handle {
+                ComponentHandle::Resource(id) => {
+                    resources.insert(name, id);
+                }
+                ComponentHandle::Composite(id) => {
+                    composites.insert(name, id);
+                }
+            }
+        }
+        Ok(Ok((resources, composites)))
+    }
+
+    /// List all members of a composite, partitioned into resources and composites.
+    /// With mutation_cap Some: resolves structural dependencies.
+    /// With mutation_cap None: returns structural dependency as preview item.
+    async fn list_members_partitioned(
+        &self,
+        context: &TaskContext<Self>,
+        composite_path: &ComponentPath,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<
+        Result<
+            (
+                BTreeMap<ComponentPath, Id<ResourceType>>,
+                BTreeMap<String, Id<CompositeType>>,
+            ),
+            PreviewItem,
+        >,
+    > {
+        let composite_id = self.get_composite_id(context, composite_path).await?;
+
+        let names = match self
+            .list_member_names(context, composite_path, mutation_cap)
+            .await?
+        {
+            Ok(names) => names,
+            Err(item) => return Ok(Err(item)),
+        };
+
+        let (resources, composites) = match self
+            .load_and_partition_members(context, composite_id, names, mutation_cap)
+            .await?
+        {
+            Ok(partitioned) => partitioned,
+            Err(dep) => return Ok(Err(dep)),
+        };
+
+        let resources_with_paths = resources
+            .into_iter()
+            .map(|(name, id)| (composite_path.child(name), id))
+            .collect();
+
+        Ok(Ok((resources_with_paths, composites)))
+    }
+
+    /// Helper to get a composite ID from a path.
+    /// Recursively resolves parent paths via LoadMember.
+    async fn get_composite_id(
+        &self,
+        context: &TaskContext<Self>,
+        composite_path: &ComponentPath,
+    ) -> Result<Id<CompositeType>> {
+        if composite_path.is_root() {
+            return Ok(self.root_composite_id);
+        }
+        let (parent_path, name) = composite_path.parent().unwrap();
+        let parent_id = Box::pin(self.get_composite_id(context, &parent_path)).await?;
+        let handle = self.load_member(context, parent_id, name, None).await?;
+        match handle {
+            ComponentHandle::Composite(id) => Ok(id),
+            ComponentHandle::Resource(_) => {
+                bail!(
+                    "Expected composite at {}, but found resource",
+                    composite_path
+                )
             }
         }
     }
 
-    /// Low-level helper to send ListNestedDeployments request and receive response.
-    async fn eval_list_nested_deployments(
+    /// Helper to get a resource ID from a path.
+    async fn get_resource_id(
         &self,
-        deployment_id: Id<DeploymentType>,
-    ) -> Result<ListNestedDeploymentsState> {
+        context: &TaskContext<Self>,
+        resource_path: &ComponentPath,
+    ) -> Result<Id<ResourceType>> {
+        let (parent_path, name) = resource_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Cannot get resource ID for root path"))?;
+        let parent_id = self.get_composite_id(context, &parent_path).await?;
+        let handle = self.load_member(context, parent_id, name, None).await?;
+        match handle {
+            ComponentHandle::Resource(id) => Ok(id),
+            ComponentHandle::Composite(_) => {
+                bail!(
+                    "Expected resource at {}, but found composite",
+                    resource_path
+                )
+            }
+        }
+    }
+
+    /// Low-level helper to send ListMembers request and receive response.
+    async fn eval_list_members(&self, composite_id: Id<CompositeType>) -> Result<ListMembersState> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
-            .query(msg_id, EvalRequest::ListNestedDeployments, deployment_id)
+            .query(msg_id, EvalRequest::ListMembers, composite_id)
             .await?;
 
         loop {
             let (_id, r) = rx
                 .recv()
                 .await
-                .context("waiting for ListNestedDeployments response")?;
+                .context("waiting for ListMembers response")?;
             match r {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ListNestedDeployments((_dt, state)) => {
+                        QueryResponseValue::ListMembers((_dt, state)) => {
                             return Ok(state);
                         }
                         _ => bail!(
-                            "Unexpected response to ListNestedDeployments, {:?}",
+                            "Unexpected response to ListMembers, {:?}",
                             query_response_value
                         ),
                     }
@@ -412,51 +457,41 @@ impl WorkContext {
     // deduplicated and that we don't have cycles.
     // -----------------------------------------------------------------------
 
-    /// Preview a deployment, collecting all known resources and structural dependencies.
+    /// Preview a composite, collecting all known resources and structural dependencies.
     async fn perform_preview(
         &self,
         context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
+        composite_path: ComponentPath,
     ) -> Result<Outcome> {
         let mut items = Vec::new();
 
-        // List resources for this deployment
-        match self
-            .list_resources_preview(&context, &deployment_path)
+        // List and partition members (preview mode: returns structural dependency if blocked)
+        let (resources, nested_composites) = match self
+            .list_members_partitioned(&context, &composite_path, None)
             .await?
         {
-            Ok(resources) => {
-                for resource in resources {
-                    items.push(PreviewItem::Resource(resource));
-                }
-            }
+            Ok(partitioned) => partitioned,
             Err(structural_dep) => {
                 items.push(structural_dep);
-            }
-        }
-
-        // List nested deployments
-        let nested_names = match self
-            .list_nested_deployments_preview(&context, &deployment_path)
-            .await?
-        {
-            Ok(names) => names,
-            Err(structural_dep) => {
-                items.push(structural_dep);
-                // Can't recurse into nested deployments if we don't know what they are
+                // Can't continue if we don't know the structure
                 return Ok(Outcome::Preview(items));
             }
         };
 
-        // Recursively preview nested deployments
+        // Add resources to preview items
+        for path in resources.keys() {
+            items.push(PreviewItem::Resource(path.clone()));
+        }
+
+        // Recursively preview nested composites
         let mut nested_thunks = Vec::new();
-        for nested_name in nested_names {
-            let nested_path = deployment_path.child(nested_name);
+        for name in nested_composites.keys() {
+            let nested_path = composite_path.child(name.clone());
             let thunk = context.spawn(Goal::Preview(nested_path)).await?;
             nested_thunks.push(thunk);
         }
 
-        // Collect results from nested deployments
+        // Collect results from nested composites
         for thunk in nested_thunks {
             match clone_result(thunk.force().await.as_ref())? {
                 Outcome::Preview(nested_items) => {
@@ -472,12 +507,12 @@ impl WorkContext {
     async fn perform_apply(
         &self,
         context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
+        composite_path: ComponentPath,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First, preview to get all known resources and structural dependencies
         let preview_thunk = context
-            .require(Goal::Preview(deployment_path.clone()))
+            .require(Goal::Preview(composite_path.clone()))
             .await?;
         let preview_items = match clone_result(&preview_thunk)? {
             Outcome::Preview(items) => items,
@@ -486,65 +521,39 @@ impl WorkContext {
 
         // Print preview items grouped together
         if preview_items.is_empty() {
-            eprintln!("Deployment contains no resources; nothing to apply.");
+            eprintln!("Composite contains no resources; nothing to apply.");
         } else {
-            eprintln!("The following resources (and nested deployments, if any) will be applied:");
+            eprintln!("The following resources (and nested composites, if any) will be applied:");
             for item in &preview_items {
                 eprintln!("  - {}", item);
             }
         }
         self.interrupt_state.check_interrupted()?;
 
-        // List resources and nested deployments, resolving structural dependencies
-        let resources = self
-            .list_resources(&context, &deployment_path, mutation_cap)
-            .await?;
+        // List and partition members, resolving structural dependencies
+        // IDs come directly from LoadMember - no separate lookup needed
+        let (resources, nested_composites) = self
+            .list_members_partitioned(&context, &composite_path, Some(mutation_cap))
+            .await?
+            .expect("structural dependencies should be resolved with mutation_cap");
 
-        // List nested deployments early so they can start expanding structure
-        // while resources are being processed.
-        let nested_deployments = self
-            .list_nested_deployments(&context, &deployment_path, mutation_cap)
-            .await?;
-
-        // Get resource IDs using the task tracker
-        let mut resource_id_thunks = BTreeMap::new();
-        for resource_name in &resources {
-            let thunk = context
-                .spawn(Goal::AssignResourceId(resource_name.clone()))
-                .await?;
-            resource_id_thunks.insert(resource_name.clone(), thunk);
-        }
-
-        // Force all resource IDs and collect the mapping
-        let resource_ids: BTreeMap<ResourcePath, Id<ResourceType>> =
-            Thunk::force_into_map(resource_id_thunks)
-                .await
-                .into_iter()
-                .map(|(name, outcome)| {
-                    match clone_result(&outcome).expect("Resource ID assignment failed") {
-                        Outcome::ResourceId(id) => (name, id),
-                        _ => panic!("Unexpected outcome from AssignResourceId"),
-                    }
-                })
-                .collect();
-
-        // Apply nested deployments
+        // Apply nested composites
         let mut nested_thunks = Vec::new();
-        for nested_name in &nested_deployments {
-            let nested_path = deployment_path.child(nested_name.clone());
+        for name in nested_composites.keys() {
+            let nested_path = composite_path.child(name.clone());
             let thunk = context
                 .spawn(Goal::Apply(nested_path, mutation_cap))
                 .await?;
             nested_thunks.push(thunk);
         }
 
-        // Apply resources
+        // Apply resources (IDs already available from partitioning)
         let mut resource_thunk_map = BTreeMap::new();
-        for (resource_name, id) in resource_ids.iter() {
+        for (resource_path, id) in &resources {
             let r = context
                 .spawn(Goal::ApplyResource(
                     *id,
-                    resource_name.clone(),
+                    resource_path.clone(),
                     mutation_cap,
                 ))
                 .await?;
@@ -561,7 +570,7 @@ impl WorkContext {
             }
         }
 
-        // Wait for nested deployments to complete
+        // Wait for nested composites to complete
         for thunk in nested_thunks {
             match clone_result(thunk.force().await.as_ref())? {
                 Outcome::Done() => {}
@@ -574,9 +583,9 @@ impl WorkContext {
         eprintln!("The following resources were created:");
 
         // This is of questionable value, and we should probably only print values that are explicitly requested.
-        for (resource_name, resource_id) in resource_ids.iter() {
+        for (resource_path, resource_id) in &resources {
             if let Some(resource) = resource_map.get(resource_id) {
-                eprintln!("  - resource {}", resource_name);
+                eprintln!("  - resource {}", resource_path);
                 for (k, v) in resource.input_properties.iter() {
                     eprintln!("    - input {}: {}", k, indented_json(v));
                 }
@@ -591,240 +600,163 @@ impl WorkContext {
         Ok(Outcome::Done())
     }
 
-    async fn perform_list_resources(
+    /// List member names in a composite.
+    /// With mutation_cap Some: retries on structural dependency.
+    /// With mutation_cap None: returns structural dependency as preview item.
+    async fn perform_list_members(
         &self,
         context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
-        mutation_cap: MutationCapability,
+        composite_path: ComponentPath,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
-        // First resolve the deployment ID from the deployment path
-        let deployment_id_thunk = context
-            .require(Goal::AssignDeploymentId(deployment_path.clone()))
-            .await?;
-        let deployment_id = match clone_result(&deployment_id_thunk)? {
-            Outcome::DeploymentId(id) => id,
-            _ => panic!("Unexpected outcome from AssignDeploymentId"),
-        };
+        // First resolve the composite ID from the composite path
+        let composite_id = self.get_composite_id(&context, &composite_path).await?;
 
         loop {
-            match self.eval_list_resources(deployment_id).await? {
-                ListResourcesState::Listed(resource_names) => {
-                    let resource_paths = resource_names
-                        .into_iter()
-                        .map(|name| ResourcePath {
-                            deployment_path: deployment_path.clone(),
-                            resource_name: name,
-                        })
-                        .collect();
-                    return Ok(Outcome::ResourcesListed(resource_paths));
+            let state = self.eval_list_members(composite_id).await?;
+            match state {
+                ListMembersState::Listed(names) => {
+                    return Ok(Outcome::MembersListed(Ok(names)));
                 }
-                ListResourcesState::StructuralDependency(dep) => {
-                    // Structural dependency: create the resource to resolve it
+                ListMembersState::StructuralDependency(dep) => {
+                    match mutation_cap {
+                        Some(cap) => {
+                            // Resolve the dependency and retry
+                            let dep_id = self.get_resource_id(&context, &dep.resource).await?;
 
-                    // Get the resource ID
-                    let dep_id_thunk = context
-                        .require(Goal::AssignResourceId(dep.resource.clone()))
-                        .await?;
-                    let dep_id = match clone_result(&dep_id_thunk)? {
-                        Outcome::ResourceId(id) => id,
-                        _ => panic!("Unexpected outcome from AssignResourceId"),
-                    };
-
-                    // Create the resource to get its output
-                    let r = context
-                        .require(Goal::GetResourceOutputValue(
-                            dep_id,
-                            dep.resource.clone(),
-                            dep.name.clone(),
-                            mutation_cap,
-                        ))
-                        .await?;
-                    let _outcome = clone_result(&r)?;
-
-                    // Retry listing resources
+                            let r = context
+                                .require(Goal::GetResourceOutputValue(
+                                    dep_id,
+                                    dep.resource.clone(),
+                                    dep.name.clone(),
+                                    cap,
+                                ))
+                                .await?;
+                            let _outcome = clone_result(&r)?;
+                            // Retry listing
+                        }
+                        None => {
+                            // Preview mode: return the dependency
+                            return Ok(Outcome::MembersListed(Err(
+                                PreviewItem::StructuralDependency {
+                                    path: Some(composite_path),
+                                    depends_on: dep,
+                                },
+                            )));
+                        }
+                    }
                 }
             }
         }
     }
 
-    async fn perform_list_nested_deployments(
+    /// Load a single member by name, returning its ComponentHandle.
+    /// Assign an ID to a member. This is memoized to ensure stable IDs across Preview and Apply.
+    async fn perform_assign_member_id(
         &self,
-        context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
-        mutation_cap: MutationCapability,
+        _context: TaskContext<Self>,
+        _parent_id: Id<CompositeType>,
+        _name: String,
     ) -> Result<Outcome> {
-        // First resolve the deployment ID from the deployment path
-        let deployment_id_thunk = context
-            .require(Goal::AssignDeploymentId(deployment_path.clone()))
-            .await?;
-        let deployment_id = match clone_result(&deployment_id_thunk)? {
-            Outcome::DeploymentId(id) => id,
-            _ => panic!("Unexpected outcome from AssignDeploymentId"),
-        };
-
-        loop {
-            match self.eval_list_nested_deployments(deployment_id).await? {
-                ListNestedDeploymentsState::Listed(deployment_names) => {
-                    return Ok(Outcome::NestedDeploymentsListed(deployment_names));
-                }
-                ListNestedDeploymentsState::StructuralDependency(dep) => {
-                    // Structural dependency: create the resource to resolve it
-
-                    // Get the resource ID
-                    let dep_id_thunk = context
-                        .require(Goal::AssignResourceId(dep.resource.clone()))
-                        .await?;
-                    let dep_id = match clone_result(&dep_id_thunk)? {
-                        Outcome::ResourceId(id) => id,
-                        _ => panic!("Unexpected outcome from AssignResourceId"),
-                    };
-
-                    // Create the resource to get its output
-                    let r = context
-                        .require(Goal::GetResourceOutputValue(
-                            dep_id,
-                            dep.resource.clone(),
-                            dep.name.clone(),
-                            mutation_cap,
-                        ))
-                        .await?;
-                    let _outcome = clone_result(&r)?;
-
-                    // Retry listing nested deployments
-                }
-            }
-        }
+        // Just allocate an ID - the actual loading is done by LoadMember
+        let id: Id<AnyType> = self.eval_sender.next_id();
+        Ok(Outcome::MemberIdAssigned(id))
     }
 
-    /// Preview version of list_resources that returns structural dependencies
-    /// instead of retrying.
-    async fn perform_list_resources_preview(
+    /// Send LoadComponent request and wait for response.
+    async fn eval_load_component(
         &self,
-        context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
-    ) -> Result<Outcome> {
-        // First resolve the deployment ID from the deployment path
-        let deployment_id_thunk = context
-            .require(Goal::AssignDeploymentId(deployment_path.clone()))
-            .await?;
-        let deployment_id = match clone_result(&deployment_id_thunk)? {
-            Outcome::DeploymentId(id) => id,
-            outcome => panic!("Unexpected outcome from AssignDeploymentId: {:?}", outcome),
-        };
-
-        match self.eval_list_resources(deployment_id).await? {
-            ListResourcesState::Listed(resource_names) => {
-                let resource_paths = resource_names
-                    .into_iter()
-                    .map(|name| ResourcePath {
-                        deployment_path: deployment_path.clone(),
-                        resource_name: name,
-                    })
-                    .collect();
-                Ok(Outcome::ResourcesPreview(Ok(resource_paths)))
-            }
-            ListResourcesState::StructuralDependency(dep) => Ok(Outcome::ResourcesPreview(Err(
-                PreviewItem::StructuralDependency {
-                    path: deployment_path,
-                    depends_on: dep,
-                    blocks_deployments: false,
-                },
-            ))),
-        }
-    }
-
-    /// Preview version of list_nested_deployments that returns structural dependencies
-    /// instead of retrying.
-    async fn perform_list_nested_deployments_preview(
-        &self,
-        context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
-    ) -> Result<Outcome> {
-        // First resolve the deployment ID from the deployment path
-        let deployment_id_thunk = context
-            .require(Goal::AssignDeploymentId(deployment_path.clone()))
-            .await?;
-        let deployment_id = match clone_result(&deployment_id_thunk)? {
-            Outcome::DeploymentId(id) => id,
-            outcome => panic!("Unexpected outcome from AssignDeploymentId: {:?}", outcome),
-        };
-
-        match self.eval_list_nested_deployments(deployment_id).await? {
-            ListNestedDeploymentsState::Listed(deployment_names) => {
-                Ok(Outcome::NestedDeploymentsPreview(Ok(deployment_names)))
-            }
-            ListNestedDeploymentsState::StructuralDependency(dep) => Ok(
-                Outcome::NestedDeploymentsPreview(Err(PreviewItem::StructuralDependency {
-                    path: deployment_path,
-                    depends_on: dep,
-                    blocks_deployments: true,
-                })),
-            ),
-        }
-    }
-
-    async fn perform_get_resource_id(
-        &self,
-        context: TaskContext<Self>,
-        name: ResourcePath,
-    ) -> Result<Outcome> {
-        // First resolve the deployment ID from the deployment path
-        let deployment_id_thunk = context
-            .require(Goal::AssignDeploymentId(name.deployment_path.clone()))
-            .await?;
-        let deployment_id = match clone_result(&deployment_id_thunk)? {
-            Outcome::DeploymentId(id) => id,
-            _ => panic!("Unexpected outcome from AssignDeploymentId"),
-        };
-
-        let id = self.eval_sender.next_id();
+        id: Id<AnyType>,
+        parent_id: Id<CompositeType>,
+        name: String,
+    ) -> Result<ComponentLoadState> {
+        let rx = self.id_subscriptions.subscribe(vec![id.num()]).await;
         self.eval_sender
-            .send(&EvalRequest::LoadResource(AssignRequest {
+            .send(&EvalRequest::LoadComponent(AssignRequest {
                 assign_to: id,
-                payload: ResourceRequest {
-                    deployment: deployment_id,
-                    name: name.resource_name.clone(),
+                payload: ComponentRequest {
+                    parent: parent_id,
+                    name,
                 },
             }))
             .await?;
-        Ok(Outcome::ResourceId(id))
+
+        // Wait for ComponentLoaded response
+        loop {
+            let (_id, r) = rx
+                .recv()
+                .await
+                .context("waiting for LoadComponent response")?;
+            match r {
+                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::QueryResponse(_id, query_response_value) => {
+                    match query_response_value {
+                        QueryResponseValue::ComponentLoaded(load_state) => {
+                            return Ok(load_state);
+                        }
+                        _ => bail!("Unexpected response type for LoadComponent"),
+                    }
+                }
+                EvalResponse::TracingEvent(_) => {}
+            }
+        }
     }
 
-    async fn perform_assign_deployment_id(
+    /// Load a member, using AssignMemberId for stable ID assignment.
+    /// With mutation_cap Some: retries on structural dependency.
+    /// With mutation_cap None: returns structural dependency as error (for preview).
+    async fn perform_load_member(
         &self,
         context: TaskContext<Self>,
-        deployment_path: DeploymentPath,
+        parent_id: Id<CompositeType>,
+        name: String,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
-        if deployment_path.is_root() {
-            // For root deployment, return the root deployment ID
-            Ok(Outcome::DeploymentId(self.root_deployment_id))
-        } else {
-            // For nested deployments, recursively resolve the parent first
-            let mut parent_path = deployment_path.0.clone();
-            let current_name = parent_path.pop().unwrap(); // Get the last component
-            let parent_deployment_path = DeploymentPath(parent_path);
+        // Get stable ID from AssignMemberId
+        let r = context
+            .require(Goal::AssignMemberId(parent_id, name.clone()))
+            .await?;
+        let id = match clone_result(&r)? {
+            Outcome::MemberIdAssigned(id) => id,
+            _ => bail!("Unexpected outcome from AssignMemberId"),
+        };
 
-            // Get the parent deployment ID
-            let parent_id_thunk = context
-                .require(Goal::AssignDeploymentId(parent_deployment_path))
+        // Load the component with retry logic for dependencies
+        loop {
+            let load_state = self
+                .eval_load_component(id, parent_id, name.clone())
                 .await?;
-            let parent_id = match clone_result(&parent_id_thunk)? {
-                Outcome::DeploymentId(id) => id,
-                _ => panic!("Unexpected outcome from AssignDeploymentId"),
-            };
-
-            // Now load the nested deployment from the parent
-            let id = self.eval_sender.next_id();
-            self.eval_sender
-                .send(&EvalRequest::LoadNestedDeployment(AssignRequest {
-                    assign_to: id,
-                    payload: NestedDeploymentRequest {
-                        parent_deployment: parent_id,
-                        name: current_name,
-                    },
-                }))
-                .await?;
-            Ok(Outcome::DeploymentId(id))
+            match load_state {
+                ComponentLoadState::Loaded(handle) => {
+                    return Ok(Outcome::MemberLoaded(Ok(handle)));
+                }
+                ComponentLoadState::StructuralDependency(dep) => {
+                    match mutation_cap {
+                        Some(cap) => {
+                            // Resolve the dependency and retry
+                            let dep_id = self.get_resource_id(&context, &dep.resource).await?;
+                            let _r = context
+                                .require(Goal::GetResourceOutputValue(
+                                    dep_id,
+                                    dep.resource.clone(),
+                                    dep.name.clone(),
+                                    cap,
+                                ))
+                                .await?;
+                            // Retry loading
+                        }
+                        None => {
+                            // Preview mode: return the dependency
+                            return Ok(Outcome::MemberLoaded(Err(
+                                PreviewItem::StructuralDependency {
+                                    path: None,
+                                    depends_on: dep,
+                                },
+                            )));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -832,7 +764,7 @@ impl WorkContext {
         &self,
         _context: TaskContext<Self>,
         id: Id<ResourceType>,
-        _resource_name: ResourcePath,
+        _resource_path: ComponentPath,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -901,7 +833,7 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        _resource_name: ResourcePath,
+        _resource_path: ComponentPath,
         input_name: String,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
@@ -933,11 +865,9 @@ impl WorkContext {
                                     break Ok(Outcome::ResourceInputValue(value))
                                 }
                                 ResourceInputState::ResourceInputDependency(x) => {
-                                    // Get the resource ID using the task tracker
-                                    let dep_id_thunk = context
-                                        .require(Goal::AssignResourceId(
-                                            x.dependency.resource.clone(),
-                                        ))
+                                    // Get the resource ID
+                                    let dep_id = self
+                                        .get_resource_id(&context, &x.dependency.resource)
                                         .await
                                         .with_context(|| {
                                             format!(
@@ -945,11 +875,6 @@ impl WorkContext {
                                                 &x.dependency.resource
                                             )
                                         })?;
-
-                                    let dep_id = match clone_result(&dep_id_thunk)? {
-                                        Outcome::ResourceId(id) => id,
-                                        _ => panic!("Unexpected outcome from AssignResourceId"),
-                                    };
 
                                     let property = x.dependency.name.clone();
                                     let resource = x.dependency.resource.clone();
@@ -990,13 +915,13 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_name: ResourcePath,
+        resource_path: ComponentPath,
         property: String,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // Apply the resource
         let r = context
-            .require(Goal::ApplyResource(id, resource_name.clone(), mutation_cap))
+            .require(Goal::ApplyResource(id, resource_path.clone(), mutation_cap))
             .await?;
         let outcome = clone_result(&r)?;
         match outcome {
@@ -1007,12 +932,12 @@ impl WorkContext {
                     } else {
                         bail!(
                             "Resource {} does not have output {}",
-                            resource_name,
+                            resource_path,
                             property
                         )
                     }
                 } else {
-                    bail!("Resource {} has no output properties", resource_name)
+                    bail!("Resource {} has no output properties", resource_path)
                 }
             }
             _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
@@ -1023,15 +948,15 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        name: ResourcePath,
+        resource_path: ComponentPath,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         let provider_info_thunk = context
-            .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+            .spawn(Goal::GetResourceProviderInfo(id, resource_path.clone()))
             .await?;
 
         let resource_inputs_list_id = context
-            .spawn(Goal::ListResourceInputs(id, name.clone()))
+            .spawn(Goal::ListResourceInputs(id, resource_path.clone()))
             .await?;
 
         let inputs_list = {
@@ -1049,7 +974,7 @@ impl WorkContext {
             let input_id = context
                 .spawn(Goal::GetResourceInputValue(
                     id,
-                    name.clone(),
+                    resource_path.clone(),
                     input_name.clone(),
                     mutation_cap,
                 ))
@@ -1070,18 +995,13 @@ impl WorkContext {
 
         let state_provider = match &provider_info.state {
             Some(state_resource_path) => {
-                // Get the state resource ID using the task tracker
-                let state_id_thunk = context
-                    .require(Goal::AssignResourceId(state_resource_path.clone()))
+                // Get the state resource ID
+                let state_resource_id = self
+                    .get_resource_id(&context, state_resource_path)
                     .await
                     .map_err(|e| {
-                        anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
-                    })?;
-
-                let state_resource_id = match clone_result(&state_id_thunk)? {
-                    Outcome::ResourceId(id) => id,
-                    _ => panic!("Unexpected outcome from AssignResourceId"),
-                };
+                    anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                })?;
 
                 let thunk = context
                     .spawn(Goal::RunState(
@@ -1126,11 +1046,17 @@ impl WorkContext {
             inputs
         };
 
-        let span = info_span!("creating resource", name = name.to_string().as_str());
+        let span = info_span!(
+            "creating resource",
+            name = resource_path.to_string().as_str()
+        );
 
         if self.options.verbose {
-            eprintln!("Provider details for {}: {:?}", name, &provider_info);
-            eprintln!("Resource inputs for {}: {:?}", name, inputs);
+            eprintln!(
+                "Provider details for {}: {:?}",
+                resource_path, &provider_info
+            );
+            eprintln!("Resource inputs for {}: {:?}", resource_path, inputs);
         }
 
         let provider_argv = provider::parse_provider(&provider_info.provider)?;
@@ -1145,14 +1071,16 @@ impl WorkContext {
             None => provider
                 .create(provider_info.resource_type.as_str(), &inputs, false)
                 .await
-                .with_context(|| format!("Failed to create stateless resource {}", name))?,
+                .with_context(|| {
+                    format!("Failed to create stateless resource {}", resource_path)
+                })?,
             Some(ref state_handle) => {
                 let past_resource_opt = state_handle
                     .current
                     .lock()
                     .await
                     .deployment
-                    .get_resource(&name)
+                    .get_resource(&resource_path)
                     .cloned();
                 match past_resource_opt {
                     Some(past_resource) => {
@@ -1171,7 +1099,9 @@ impl WorkContext {
                                 &past_resource.output_properties,
                             )
                             .await
-                            .with_context(|| format!("Failed to update resource {}", name))?;
+                            .with_context(|| {
+                                format!("Failed to update resource {}", resource_path)
+                            })?;
                         let current_resource = crate::state::ResourceState {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
@@ -1180,7 +1110,7 @@ impl WorkContext {
                         if current_resource != past_resource {
                             state_handle
                                 .resource_event(
-                                    &name,
+                                    &resource_path,
                                     "update",
                                     Some(&past_resource),
                                     &current_resource,
@@ -1193,14 +1123,16 @@ impl WorkContext {
                         let outputs = provider
                             .create(provider_info.resource_type.as_str(), &inputs, true)
                             .await
-                            .with_context(|| format!("Failed to create resource {}", name))?;
+                            .with_context(|| {
+                                format!("Failed to create resource {}", resource_path)
+                            })?;
                         let current_resource = crate::state::ResourceState {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
                             output_properties: outputs.clone(),
                         };
                         state_handle
-                            .resource_event(&name, "create", None, &current_resource)
+                            .resource_event(&resource_path, "create", None, &current_resource)
                             .await?;
                         outputs
                     }
@@ -1218,7 +1150,7 @@ impl WorkContext {
         // re-evaluation when some output is "missing" but not really
         for (output_name, output_value) in outputs.iter() {
             let output_prop = NamedProperty {
-                resource: name.clone(),
+                resource: resource_path.clone(),
                 name: output_name.clone(),
             };
             self.eval_sender
@@ -1257,98 +1189,83 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
-            Goal::Apply(deployment_path, mutation_cap) => {
-                self.perform_apply(context, deployment_path, mutation_cap)
-                    .instrument(info_span!("Applying deployment"))
+            Goal::Apply(composite_path, mutation_cap) => {
+                self.perform_apply(context, composite_path, mutation_cap)
+                    .instrument(info_span!("Applying composite"))
                     .await
             }
-            Goal::ListResources(deployment_path, mutation_cap) => {
-                self.perform_list_resources(context, deployment_path, mutation_cap)
-                    .instrument(info_span!("Listing resources"))
+            Goal::ListMembers(composite_path, mutation_cap) => {
+                self.perform_list_members(context, composite_path, mutation_cap)
+                    .instrument(info_span!("Listing members"))
                     .await
             }
-            Goal::ListNestedDeployments(deployment_path, mutation_cap) => {
-                self.perform_list_nested_deployments(context, deployment_path, mutation_cap)
-                    .instrument(info_span!("Listing nested deployments"))
+            Goal::AssignMemberId(parent_id, name) => {
+                self.perform_assign_member_id(context, parent_id, name)
+                    .instrument(info_span!("Assigning member ID"))
                     .await
             }
-            Goal::Preview(deployment_path) => {
-                self.perform_preview(context, deployment_path)
-                    .instrument(info_span!("Previewing deployment"))
+            Goal::LoadMember(parent_id, name, mutation_cap) => {
+                self.perform_load_member(context, parent_id, name, mutation_cap)
+                    .instrument(info_span!("Loading member"))
                     .await
             }
-            Goal::ListResourcesPreview(deployment_path) => {
-                self.perform_list_resources_preview(context, deployment_path)
-                    .instrument(info_span!("Listing resources (preview)"))
+            Goal::Preview(composite_path) => {
+                self.perform_preview(context, composite_path)
+                    .instrument(info_span!("Previewing composite"))
                     .await
             }
-            Goal::ListNestedDeploymentsPreview(deployment_path) => {
-                self.perform_list_nested_deployments_preview(context, deployment_path)
-                    .instrument(info_span!("Listing nested deployments (preview)"))
-                    .await
-            }
-            Goal::AssignDeploymentId(path) => {
-                self.perform_assign_deployment_id(context, path)
-                    .instrument(info_span!("Assigning deployment ID"))
-                    .await
-            }
-            Goal::AssignResourceId(name) => {
-                // trivial computation - no `instrument` call needed
-                self.perform_get_resource_id(context, name).await
-            }
-
-            Goal::GetResourceProviderInfo(id, resource_name) => {
-                self.perform_get_resource_provider_info(context, id, resource_name.clone())
+            Goal::GetResourceProviderInfo(id, resource_path) => {
+                self.perform_get_resource_provider_info(context, id, resource_path.clone())
                     .instrument(info_span!(
                         "Getting resource provider info",
-                        resource = ?resource_name
+                        resource = ?resource_path
                     ))
                     .await
             }
 
-            Goal::ListResourceInputs(id, name) => {
+            Goal::ListResourceInputs(id, path) => {
                 self.perform_list_resource_inputs(context, id)
-                    .instrument(info_span!("Listing resource inputs", resource = ?name))
+                    .instrument(info_span!("Listing resource inputs", resource = ?path))
                     .await
             }
 
-            Goal::GetResourceInputValue(id, resource_name, input_name, cap) => {
-                let resource_name_2 = resource_name.clone();
+            Goal::GetResourceInputValue(id, resource_path, input_name, cap) => {
+                let resource_path_2 = resource_path.clone();
                 let input_name_2 = input_name.clone();
-                self.perform_get_resource_input_value(context, id, resource_name, input_name, cap)
+                self.perform_get_resource_input_value(context, id, resource_path, input_name, cap)
                     .instrument(info_span!(
                         "Getting resource input value",
-                        resource = ?resource_name_2,
+                        resource = ?resource_path_2,
                         input = input_name_2
                     ))
                     .await
             }
 
-            Goal::GetResourceOutputValue(id, name, property, cap) => {
-                let name_2 = name.clone();
+            Goal::GetResourceOutputValue(id, path, property, cap) => {
+                let path_2 = path.clone();
                 let property_2 = property.clone();
-                self.perform_get_resource_output_value(context, id, name, property, cap)
+                self.perform_get_resource_output_value(context, id, path, property, cap)
                     .instrument(info_span!(
                         "Getting resource output value",
-                        resource = ?name_2,
+                        resource = ?path_2,
                         property = property_2
                     ))
                     .await
             }
 
-            Goal::ApplyResource(id, name, cap) => {
-                let name_2 = name.clone();
+            Goal::ApplyResource(id, path, cap) => {
+                let path_2 = path.clone();
                 let context = context.clone();
-                self.perform_apply_resource(context, id, name, cap)
-                    .instrument(info_span!("Applying resource", resource = ?name_2))
+                self.perform_apply_resource(context, id, path, cap)
+                    .instrument(info_span!("Applying resource", resource = ?path_2))
                     .await
             }
 
-            Goal::RunState(id, name, cap) => {
+            Goal::RunState(id, path, cap) => {
                 (async {
                     // Apply the resource
                     let r = context
-                        .require(Goal::ApplyResource(id, name.clone(), cap))
+                        .require(Goal::ApplyResource(id, path.clone(), cap))
                         .await
                         .map_err(|e| {
                             anyhow::anyhow!(
@@ -1366,7 +1283,7 @@ impl TaskWork for WorkContext {
 
                     // Get the provider info
                     let provider_info_thunk = context
-                        .spawn(Goal::GetResourceProviderInfo(id, name.clone()))
+                        .spawn(Goal::GetResourceProviderInfo(id, path.clone()))
                         .await
                         .map_err(|e| {
                             anyhow::anyhow!(
@@ -1402,7 +1319,7 @@ impl TaskWork for WorkContext {
                 })
                 .instrument(info_span!(
                     "Running state provider resource",
-                    resource = ?name
+                    resource = ?path
                 ))
                 .await
             }

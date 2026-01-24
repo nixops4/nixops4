@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::Context as _;
-use anyhow::Result;
-use nixops4_core::eval_api::{ResourcePath, ResourceProviderInfo};
+use anyhow::{bail, Context as _, Result};
+use nixops4_core::eval_api::{ComponentPath, ResourceProviderInfo};
 use nixops4_resource::schema::v0;
 use nixops4_resource::schema::v0::ExtantResource;
 use nixops4_resource_runner::ResourceProviderClient;
@@ -49,8 +48,19 @@ pub struct DeploymentState {
 }
 
 impl DeploymentState {
-    pub fn get_resource(&self, path: &ResourcePath) -> Option<&ResourceState> {
-        self.resources.get(&path.resource_name)
+    /// Get a resource by its path. The path must be relative to this deployment state.
+    pub fn get_resource(&self, path: &ComponentPath) -> Option<&ResourceState> {
+        // Navigate through nested deployment states to find the resource
+        match path.0.as_slice() {
+            [] => None, // Empty path is not a valid resource path
+            [resource_name] => self.resources.get(resource_name),
+            [first, rest @ ..] => {
+                // Navigate into nested deployment
+                self.deployments
+                    .get(first)
+                    .and_then(|nested| nested.get_resource(&ComponentPath(rest.to_vec())))
+            }
+        }
     }
 }
 
@@ -101,7 +111,7 @@ impl StateHandle {
 
     pub async fn resource_event(
         &self,
-        resource_path: &ResourcePath,
+        resource_path: &ComponentPath,
         event: &str,
         _past_resource: Option<&ResourceState>,
         current_resource: &ResourceState,
@@ -175,15 +185,21 @@ impl std::fmt::Debug for StateHandle {
 /// This modifies the deployment state JSON in-place to set the resource at the given path.
 fn update_resource_in_deployment_state(
     deployment_state: &mut serde_json::Value,
-    resource_path: &ResourcePath,
+    resource_path: &ComponentPath,
     resource_state: &ResourceState,
 ) -> Result<()> {
     let resource_json = serde_json::to_value(resource_state)
         .with_context(|| "Failed to serialize resource state")?;
 
+    // The path is from root: all but last element are composite names, last is resource name
+    let path_parts = &resource_path.0;
+    if path_parts.is_empty() {
+        bail!("Empty resource path");
+    }
+
     // Navigate to the correct deployment
     let mut current = deployment_state;
-    for deployment_name in &resource_path.deployment_path.0 {
+    for deployment_name in &path_parts[..path_parts.len() - 1] {
         // Ensure deployments object exists
         if current.get("deployments").is_none() {
             current["deployments"] = serde_json::json!({});
@@ -205,8 +221,9 @@ fn update_resource_in_deployment_state(
         current["resources"] = serde_json::json!({});
     }
 
-    // Set the resource
-    current["resources"][&resource_path.resource_name] = resource_json;
+    // Set the resource (last element of path is the resource name)
+    let resource_name = &path_parts[path_parts.len() - 1];
+    current["resources"][resource_name] = resource_json;
 
     Ok(())
 }
@@ -217,16 +234,12 @@ mod tests {
 
     #[test]
     fn test_update_resource_in_state_root() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {}
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath::root(),
-            resource_name: "myresource".to_string(),
-        };
+        // ComponentPath for a resource at root: just the resource name
+        let resource_path = ComponentPath(vec!["myresource".to_string()]);
 
         let resource_state = ResourceState {
             type_: "test".to_string(),
@@ -241,16 +254,12 @@ mod tests {
 
     #[test]
     fn test_update_resource_in_state_nested() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {}
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
-            resource_name: "myresource".to_string(),
-        };
+        // ComponentPath: deployment name, then resource name
+        let resource_path = ComponentPath(vec!["deploy1".to_string(), "myresource".to_string()]);
 
         let resource_state = ResourceState {
             type_: "test".to_string(),
@@ -280,8 +289,6 @@ mod tests {
 
     #[test]
     fn test_update_resource_with_existing_siblings() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {
                 "existing_root": {"type": "existing"}
@@ -300,10 +307,7 @@ mod tests {
             }
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
-            resource_name: "new_resource".to_string(),
-        };
+        let resource_path = ComponentPath(vec!["deploy1".to_string(), "new_resource".to_string()]);
 
         let resource_state = ResourceState {
             type_: "new".to_string(),
@@ -340,8 +344,6 @@ mod tests {
 
     #[test]
     fn test_update_resource_deep_nested_existing_partial_path() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {},
             "deployments": {
@@ -356,14 +358,12 @@ mod tests {
             }
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath(vec![
-                "level1".to_string(),
-                "level2".to_string(),
-                "level3".to_string(),
-            ]),
-            resource_name: "deep_new".to_string(),
-        };
+        let resource_path = ComponentPath(vec![
+            "level1".to_string(),
+            "level2".to_string(),
+            "level3".to_string(),
+            "deep_new".to_string(),
+        ]);
 
         let resource_state = ResourceState {
             type_: "deep_new".to_string(),
@@ -403,19 +403,15 @@ mod tests {
 
     #[test]
     fn test_update_resource_completely_new_path() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {"root_resource": {"type": "root"}}
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath(vec![
-                "new_branch".to_string(),
-                "new_subbranch".to_string(),
-            ]),
-            resource_name: "new_resource".to_string(),
-        };
+        let resource_path = ComponentPath(vec![
+            "new_branch".to_string(),
+            "new_subbranch".to_string(),
+            "new_resource".to_string(),
+        ]);
 
         let resource_state = ResourceState {
             type_: "brand_new".to_string(),
@@ -450,8 +446,6 @@ mod tests {
 
     #[test]
     fn test_update_resource_overwrites_existing() {
-        use nixops4_core::eval_api::{DeploymentPath, ResourcePath};
-
         let mut state = serde_json::json!({
             "resources": {},
             "deployments": {
@@ -463,10 +457,8 @@ mod tests {
             }
         });
 
-        let resource_path = ResourcePath {
-            deployment_path: DeploymentPath(vec!["deploy1".to_string()]),
-            resource_name: "target_resource".to_string(),
-        };
+        let resource_path =
+            ComponentPath(vec!["deploy1".to_string(), "target_resource".to_string()]);
 
         let resource_state = ResourceState {
             type_: "new_type".to_string(),

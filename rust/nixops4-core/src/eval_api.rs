@@ -47,6 +47,11 @@ impl<T> Id<T> {
             panthom: std::marker::PhantomData,
         }
     }
+    /// Create an Id with a specific type from an IdNum.
+    /// Used by the evaluator to create typed IDs in responses.
+    pub fn from_num(id: IdNum) -> Self {
+        Id::new(id)
+    }
     pub fn num(&self) -> IdNum {
         self.id
     }
@@ -88,69 +93,63 @@ pub struct MessageType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlakeType;
+/// Type marker for composite component IDs (components with nested members)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeploymentType;
+pub struct CompositeType;
+/// Type marker for resource component IDs (components wrapping provider resources)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
 
-/// A path to a deployment within nested deployments.
-/// An empty path represents the root deployment.
+/// Handle returned by LoadComponent - determines component kind
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentHandle {
+    Resource(Id<ResourceType>),
+    Composite(Id<CompositeType>),
+}
+
+/// A path to a component within nested components.
+/// An empty path represents the root component.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
 )]
-pub struct DeploymentPath(pub Vec<String>);
+pub struct ComponentPath(pub Vec<String>);
 
-impl DeploymentPath {
-    /// Create a new root deployment path
+impl ComponentPath {
+    /// Create a new root component path
     pub fn root() -> Self {
         Self(Vec::new())
     }
 
-    /// Check if this is the root deployment
+    /// Check if this is the root component
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Create a path to a child deployment
+    /// Create a path to a child component
     pub fn child(&self, name: String) -> Self {
         let mut path = self.0.clone();
         path.push(name);
         Self(path)
     }
+
+    /// Get the parent path and name of this component, if not root
+    pub fn parent(&self) -> Option<(ComponentPath, &str)> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let name = self.0.last().unwrap();
+            let parent = ComponentPath(self.0[..self.0.len() - 1].to_vec());
+            Some((parent, name))
+        }
+    }
 }
 
-impl std::fmt::Display for DeploymentPath {
+impl std::fmt::Display for ComponentPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0.is_empty() {
             write!(f, "(root)")
         } else {
             write!(f, "{}", self.0.join("."))
-        }
-    }
-}
-
-/// A resource path within a deployment
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
-)]
-pub struct ResourcePath {
-    /// Path to the deployment containing the resource
-    pub deployment_path: DeploymentPath,
-    /// Name of the resource within the deployment
-    pub resource_name: String,
-}
-
-impl std::fmt::Display for ResourcePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.deployment_path.0.is_empty() {
-            write!(f, "{}", self.resource_name)
-        } else {
-            write!(
-                f,
-                "{}.{}",
-                self.deployment_path.0.join("."),
-                self.resource_name
-            )
         }
     }
 }
@@ -162,19 +161,13 @@ impl std::fmt::Display for ResourcePath {
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
-    /// Load a deployment from a flake. The deployment is treated as a composite component.
+    /// Load a top-level deployment from a flake (returns a composite component)
     LoadDeployment(AssignRequest<DeploymentRequest>),
-    /// Load a nested deployment from a parent deployment
-    LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
-    /// List nested deployments in a deployment
-    ListNestedDeployments(
-        QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListNestedDeploymentsState)>,
-    ),
-    /// List resources in a deployment
-    ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListResourcesState)>),
-    /// Load a resource by name from a deployment
-    LoadResource(AssignRequest<ResourceRequest>),
-    /// Get resource provider info for a loaded resource
+    /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
+    ListMembers(QueryRequest<Id<CompositeType>, (Id<CompositeType>, ListMembersState)>),
+    /// Load a component by name from a parent composite (returns ComponentHandle indicating kind)
+    LoadComponent(AssignRequest<ComponentRequest>),
+    /// Get resource provider info for a loaded resource component
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
     /// List input names for a resource
     ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
@@ -237,8 +230,9 @@ pub enum EvalResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
     ListDeployments((Id<FlakeType>, Vec<String>)),
-    ListNestedDeployments((Id<DeploymentType>, ListNestedDeploymentsState)),
-    ListResources((Id<DeploymentType>, ListResourcesState)),
+    ListMembers((Id<CompositeType>, ListMembersState)),
+    /// Response from LoadComponent indicating the component kind or a dependency
+    ComponentLoaded(ComponentLoadState),
     ResourceProviderInfo(ResourceProviderInfo),
     ListResourceInputs((Id<ResourceType>, Vec<String>)),
     ResourceInputState((Property, ResourceInputState)),
@@ -250,17 +244,19 @@ pub enum ResourceInputState {
     ResourceInputDependency(ResourceInputDependency),
 }
 
-/// Response state for ListResources request.
+/// Response state for ListMembers request
+/// Returns only member names - kind is determined when loading via LoadComponent
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ListResourcesState {
+pub enum ListMembersState {
     Listed(Vec<String>),
     StructuralDependency(NamedProperty),
 }
 
-/// Response state for ListNestedDeployments request.
+/// Response state for LoadComponent request
+/// Returns the component handle, or indicates a structural dependency
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ListNestedDeploymentsState {
-    Listed(Vec<String>),
+pub enum ComponentLoadState {
+    Loaded(ComponentHandle),
     StructuralDependency(NamedProperty),
 }
 
@@ -269,7 +265,8 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
-    pub state: Option<ResourcePath>,
+    /// Path to state handler component, if this resource is stateful
+    pub state: Option<ComponentPath>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,7 +277,8 @@ pub struct ResourceInputDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
-    pub resource: ResourcePath,
+    /// Path to the resource component
+    pub resource: ComponentPath,
     pub name: String,
 }
 
@@ -309,36 +307,29 @@ pub struct DeploymentRequest {
     pub name: String,
 }
 impl RequestIdType for DeploymentRequest {
-    type IdType = DeploymentType;
+    type IdType = CompositeType;
 }
 
+/// Request to load a component (resource or composite) by name from a parent composite.
+/// The response indicates the component kind via ComponentHandle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NestedDeploymentRequest {
-    /// The parent deployment to load the nested deployment from.
-    pub parent_deployment: Id<DeploymentType>,
-    /// The name of the nested deployment to load.
+pub struct ComponentRequest {
+    /// The parent composite component to load from.
+    pub parent: Id<CompositeType>,
+    /// The name of the member component to load.
     pub name: String,
 }
-impl RequestIdType for NestedDeploymentRequest {
-    type IdType = DeploymentType;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceRequest {
-    /// The deployment to load the resource from.
-    pub deployment: Id<DeploymentType>,
-    /// The name of the resource to load.
-    pub name: String,
-}
-impl RequestIdType for ResourceRequest {
-    type IdType = ResourceType;
+impl RequestIdType for ComponentRequest {
+    /// ComponentRequest returns ComponentHandle, but AssignRequest needs a single type.
+    /// We use AnyType here; the actual result is a ComponentHandle enum.
+    type IdType = AnyType;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceSpec {
-    /// Deployment this resource is part of
-    pub id: Id<DeploymentType>,
-    /// Name of the resource in the deployment
+    /// Parent composite this resource component is part of
+    pub parent: Id<CompositeType>,
+    /// Name of the resource in the parent composite
     pub name: String,
 
     // Value of the resource
@@ -444,10 +435,7 @@ mod tests {
             id: Id::new(2),
             provider: serde_json::json!({"executable": "/bin/memo", "type": "stdio"}),
             resource_type: "memo".to_string(),
-            state: Some(ResourcePath {
-                deployment_path: DeploymentPath::root(),
-                resource_name: "myStateHandler".to_string(),
-            }),
+            state: Some(ComponentPath(vec!["myStateHandler".to_string()])),
         };
 
         // Test serialization/deserialization
@@ -458,10 +446,7 @@ mod tests {
         // Verify state field contains the expected value
         assert_eq!(
             info.state,
-            Some(ResourcePath {
-                deployment_path: DeploymentPath::root(),
-                resource_name: "myStateHandler".to_string(),
-            })
+            Some(ComponentPath(vec!["myStateHandler".to_string()]))
         );
     }
 
@@ -478,22 +463,55 @@ mod tests {
         assert_eq!(info.state, None);
         assert_eq!(info.resource_type, "file");
 
-        // Test that JSON with state field works correctly
+        // Test that JSON with state field works correctly (new ComponentPath format)
         let json_with_state = r#"{
             "id": {"id": 4},
             "provider": {"executable": "/bin/memo", "type": "stdio"},
             "resource_type": "memo",
-            "state": {"deployment_path": [], "resource_name": "myState"}
+            "state": ["myState"]
         }"#;
 
         let info: ResourceProviderInfo = serde_json::from_str(json_with_state).unwrap();
-        assert_eq!(
-            info.state,
-            Some(ResourcePath {
-                deployment_path: DeploymentPath::root(),
-                resource_name: "myState".to_string(),
-            })
-        );
+        assert_eq!(info.state, Some(ComponentPath(vec!["myState".to_string()])));
         assert_eq!(info.resource_type, "memo");
+    }
+
+    #[test]
+    fn test_component_path() {
+        let root = ComponentPath::root();
+        assert!(root.is_root());
+        assert_eq!(root.to_string(), "(root)");
+
+        let child = root.child("foo".to_string());
+        assert!(!child.is_root());
+        assert_eq!(child.to_string(), "foo");
+
+        let grandchild = child.child("bar".to_string());
+        assert_eq!(grandchild.to_string(), "foo.bar");
+
+        // Test parent()
+        let (parent, name) = grandchild.parent().unwrap();
+        assert_eq!(name, "bar");
+        assert_eq!(parent.to_string(), "foo");
+    }
+
+    #[test]
+    fn test_component_handle() {
+        let ids = Ids::new();
+        let resource_id: Id<ResourceType> = ids.next();
+        let composite_id: Id<CompositeType> = ids.next();
+
+        let handle_r = ComponentHandle::Resource(resource_id);
+        let handle_c = ComponentHandle::Composite(composite_id);
+
+        // Test serialization
+        let json_r = serde_json::to_string(&handle_r).unwrap();
+        let json_c = serde_json::to_string(&handle_c).unwrap();
+
+        let handle_r2: ComponentHandle = serde_json::from_str(&json_r).unwrap();
+        let handle_c2: ComponentHandle = serde_json::from_str(&json_c).unwrap();
+
+        assert_eq!(handle_r, handle_r2);
+        assert_eq!(handle_c, handle_c2);
     }
 }

@@ -53,7 +53,7 @@ pub(crate) async fn apply(
         .await?;
 
         let work_context = WorkContext {
-            root_deployment_id: deployment_id,
+            root_composite_id: deployment_id,
             options: options.clone(),
             interrupt_state: interrupt_state.clone(),
             eval_sender: s.clone(),
@@ -84,7 +84,7 @@ pub(crate) async fn apply(
             });
             let r = tasks
                 .run(Goal::Apply(
-                    nixops4_core::eval_api::DeploymentPath::root(),
+                    nixops4_core::eval_api::ComponentPath::root(),
                     MutationCapability,
                 ))
                 .await;
