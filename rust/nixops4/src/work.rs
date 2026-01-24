@@ -609,9 +609,7 @@ impl WorkContext {
         composite_path: ComponentPath,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
-        // First resolve the composite ID from the composite path
         let composite_id = self.get_composite_id(&context, &composite_path).await?;
-
         loop {
             let state = self.eval_list_members(composite_id).await?;
             match state {
@@ -999,8 +997,11 @@ impl WorkContext {
                 let state_resource_id = self
                     .get_resource_id(&context, state_resource_path)
                     .await
-                    .map_err(|e| {
-                    anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                    .with_context(|| {
+                    format!(
+                        "Invalid state reference '{}' for resource",
+                        state_resource_path
+                    )
                 })?;
 
                 let thunk = context
@@ -1010,8 +1011,11 @@ impl WorkContext {
                         mutation_cap,
                     ))
                     .await
-                    .map_err(|e| {
-                        anyhow::anyhow!("Dependency cycle detected while applying resource: {}", e)
+                    .with_context(|| {
+                        format!(
+                            "Failed to start state provider '{}' for resource",
+                            state_resource_path
+                        )
                     })?;
                 Some((state_resource_path, state_resource_id, thunk))
             }
@@ -1184,7 +1188,11 @@ impl TaskWork for WorkContext {
     type CycleError = anyhow::Error;
 
     fn cycle_error(&self, cycle: Cycle<Self::Key>) -> Self::CycleError {
-        anyhow::anyhow!("Cycle detected: {:?}", cycle)
+        if self.options.verbose {
+            anyhow::anyhow!("Cycle detected: {:?}", cycle)
+        } else {
+            anyhow::anyhow!("Cycle detected: {}", cycle)
+        }
     }
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
@@ -1267,12 +1275,7 @@ impl TaskWork for WorkContext {
                     let r = context
                         .require(Goal::ApplyResource(id, path.clone(), cap))
                         .await
-                        .map_err(|e| {
-                            anyhow::anyhow!(
-                                "Dependency cycle detected while applying resource: {}",
-                                e
-                            )
-                        })?;
+                        .with_context(|| format!("Failed to apply resource {}", path))?;
                     let resource = {
                         let outcome = clone_result(r.as_ref())?;
                         match outcome {
@@ -1285,11 +1288,8 @@ impl TaskWork for WorkContext {
                     let provider_info_thunk = context
                         .spawn(Goal::GetResourceProviderInfo(id, path.clone()))
                         .await
-                        .map_err(|e| {
-                            anyhow::anyhow!(
-                                "Dependency cycle detected while applying resource: {}",
-                                e
-                            )
+                        .with_context(|| {
+                            format!("Failed to get provider info for resource {}", path)
                         })?;
                     let provider_info = {
                         let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;

@@ -369,6 +369,132 @@ runCommand "itest-nixops4-with-local"
       rm -f nested-parent-state.json nested-output.log nested-output2.log
     )
 
+    h1 ERROR HANDLING: STATE POINTS TO COMPOSITE
+    (
+      set -x
+      echo "=== Testing error when state points to composite instead of resource ==="
+
+      # This deployment has a resource whose state reference points to a
+      # nested composite instead of a resource. get_resource_id should fail.
+      (
+        set +e
+        nixops4 apply -v statePointsToComposite --show-trace 3>&1 1>&2 2>&3 | tee state-composite-err.log
+        exit_code=$?
+        [[ $exit_code != 0 ]] || {
+          echo "ERROR: Expected apply to fail but it succeeded"
+          exit 1
+        }
+      )
+
+      # Verify we get the expected error message about invalid state reference
+      grep -E "Invalid state reference|Expected resource.*found composite" state-composite-err.log || {
+        echo "ERROR: Expected error about invalid state reference or composite/resource mismatch"
+        cat state-composite-err.log
+        exit 1
+      }
+
+      # Clean up
+      rm -f state-composite-err.log
+    )
+
+    h1 ERROR HANDLING: STATE POINTS TO NONEXISTENT MEMBER
+    (
+      set -x
+      echo "=== Testing error when state points to nonexistent member ==="
+
+      # This deployment has a resource whose state reference points to a
+      # member that doesn't exist.
+      (
+        set +e
+        nixops4 apply -v statePointsToNonexistent --show-trace 3>&1 1>&2 2>&3 | tee state-nonexistent-err.log
+        exit_code=$?
+        [[ $exit_code != 0 ]] || {
+          echo "ERROR: Expected apply to fail but it succeeded"
+          exit 1
+        }
+      )
+
+      # Verify we get an error about missing member or invalid state reference
+      grep -E "Invalid state reference|not found|does not exist" state-nonexistent-err.log || {
+        echo "ERROR: Expected error about invalid state reference or missing member"
+        cat state-nonexistent-err.log
+        exit 1
+      }
+
+      # Clean up
+      rm -f state-nonexistent-err.log
+    )
+
+    h1 ERROR HANDLING: STATE IN NONEXISTENT COMPOSITE
+    (
+      set -x
+      echo "=== Testing error when state path traverses a resource as if it were a composite ==="
+
+      # This deployment has a resource whose state reference tries to access
+      # a child of a resource (treating it as a composite).
+      (
+        set +e
+        nixops4 apply -v stateInNonexistentComposite --show-trace 3>&1 1>&2 2>&3 | tee state-bad-path-err.log
+        exit_code=$?
+        [[ $exit_code != 0 ]] || {
+          echo "ERROR: Expected apply to fail but it succeeded"
+          exit 1
+        }
+      )
+
+      # Verify we get the expected error message about invalid state reference or path traversal
+      grep -E "Invalid state reference|Expected composite.*found resource" state-bad-path-err.log || {
+        echo "ERROR: Expected error about invalid state reference or composite/resource mismatch"
+        cat state-bad-path-err.log
+        exit 1
+      }
+
+      # Clean up
+      rm -f state-bad-path-err.log
+    )
+
+    h1 ERROR HANDLING: CIRCULAR DEPENDENCY
+    (
+      set -x
+      echo "=== Testing circular dependency detection ==="
+
+      # This deployment has resourceA depending on resourceB's output,
+      # and resourceB depending on resourceA's output.
+      # TaskTracker should detect the cycle.
+      # TODO: investigate why pipefail doesn't seem to be set; using PIPESTATUS as workaround
+      (
+        set +e
+        nixops4 apply circularDependency 2>&1 | grep -A100 "^nixops4 error:" > circular-err.log
+        exit_code=''${PIPESTATUS[0]}
+        [[ $exit_code != 0 ]] || {
+          echo "ERROR: Expected apply to fail but it succeeded"
+          exit 1
+        }
+      )
+
+      # Verify we get the exact cycle error message (Display format with newlines)
+      # Note: each line ends with " -> " (space-arrow-space) then newline
+      expected='nixops4 error: Cycle detected: Apply resource resourceA ->
+    Get resource input value for resource resourceA input initialize_with ->
+    Get resource output value from resource resourceB property value ->
+    Apply resource resourceB ->
+    Get resource input value for resource resourceB input initialize_with ->
+    Get resource output value from resource resourceA property value ->
+    Apply resource resourceA'
+      actual=$(cat circular-err.log)
+      [[ "$actual" == "$expected" ]] || {
+        echo "ERROR: Cycle error message mismatch"
+        echo "Expected:"
+        echo "$expected"
+        echo "Actual:"
+        echo "$actual"
+        exit 1
+      }
+
+      # Clean up
+      rm -f circular-err.log
+    )
+
     h1 SUCCESS
     touch $out
   ''

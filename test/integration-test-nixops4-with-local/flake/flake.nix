@@ -395,6 +395,112 @@
                 };
               };
             };
+
+          # Test case: state reference points to a composite instead of a resource.
+          # This should trigger: "Expected resource at {path}, but found composite"
+          statePointsToComposite =
+            {
+              providers,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              # A nested composite (not a resource)
+              members.nestedComposite = {
+                members.innerResource = {
+                  type = providers.local.exec;
+                  inputs.executable = "true";
+                  inputs.args = [ ];
+                };
+              };
+
+              # This resource's state incorrectly points to the composite
+              members.badResource = {
+                type = providers.local.memo;
+                state = [ "nestedComposite" ]; # ERROR: points to composite, not resource!
+                inputs.initialize_with = "will-fail";
+              };
+            };
+
+          # Test case: state reference points to a non-existent member.
+          # This should trigger an error during member loading.
+          statePointsToNonexistent =
+            {
+              providers,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              # This resource's state points to a member that doesn't exist
+              members.badResource = {
+                type = providers.local.memo;
+                state = [ "nonExistentMember" ]; # ERROR: no such member!
+                inputs.initialize_with = "will-fail";
+              };
+            };
+
+          # Test case: state reference points to a resource in a non-existent composite.
+          # This should trigger: "Expected composite at {path}, but found resource"
+          # or a member loading error.
+          stateInNonexistentComposite =
+            {
+              providers,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              # A simple resource (not a composite)
+              members.simpleResource = {
+                type = providers.local.exec;
+                inputs.executable = "true";
+                inputs.args = [ ];
+              };
+
+              # This resource's state tries to access a child of a resource
+              # (treating the resource as if it were a composite)
+              members.badResource = {
+                type = providers.local.memo;
+                state = [
+                  "simpleResource"
+                  "child"
+                ]; # ERROR: simpleResource is not a composite!
+                inputs.initialize_with = "will-fail";
+              };
+            };
+
+          # Test case: circular dependency between resources.
+          # A's input depends on B's output, B's input depends on A's output.
+          # Nix evaluation doesn't infinite loop because outputs are special thunks.
+          # TaskTracker detects the cycle when resolving dependencies.
+          circularDependency =
+            {
+              providers,
+              members,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              members.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "circular-state.json";
+              };
+
+              members.resourceA = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = members.resourceB.outputs.value;
+              };
+
+              members.resourceB = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = members.resourceA.outputs.value;
+              };
+            };
         };
       }
     );

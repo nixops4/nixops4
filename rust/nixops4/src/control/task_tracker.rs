@@ -271,7 +271,7 @@ impl<Key: std::fmt::Display> std::fmt::Display for Cycle<Key> {
         self.check();
         let mut s = String::new();
         self.path().iter().for_each(|k| {
-            s.push_str(&format!("{} -> \n", k));
+            s.push_str(&format!("{} ->\n", k));
         });
         s.push_str(&format!("{}", self.path.first().unwrap()));
         write!(f, "{}", s)
