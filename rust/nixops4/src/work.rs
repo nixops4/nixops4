@@ -85,12 +85,12 @@ impl Display for PreviewItem {
 pub enum Goal {
     /// Preview a composite without making changes. Returns all known resources
     /// and any structural dependencies that block full discovery.
-    Preview(ComponentPath),
+    Preview(Id<CompositeType>, ComponentPath),
     /// Apply a composite, creating/updating/deleting resources as needed.
-    Apply(ComponentPath, MutationCapability),
+    Apply(Id<CompositeType>, ComponentPath, MutationCapability),
     /// List member names in a composite. If listing has a structural dependency, resolves it.
     /// Option<MutationCapability>: Some = retry on dependency (apply), None = return dependency (preview)
-    ListMembers(ComponentPath, Option<MutationCapability>),
+    ListMembers(Id<CompositeType>, ComponentPath, Option<MutationCapability>),
     /// Assign an ID to a member component. Sends LoadComponent to eval, memoized.
     /// This is the fine-grained memoizable unit - no mutation_cap so same ID is reused.
     AssignMemberId(Id<CompositeType>, String),
@@ -112,13 +112,13 @@ pub enum Goal {
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Goal::Preview(path) => {
+            Goal::Preview(_id, path) => {
                 write!(f, "Preview composite {}", path)
             }
-            Goal::Apply(path, _cap) => {
+            Goal::Apply(_id, path, _cap) => {
                 write!(f, "Apply composite {}", path)
             }
-            Goal::ListMembers(path, cap) => {
+            Goal::ListMembers(_id, path, cap) => {
                 if cap.is_some() {
                     write!(f, "List members in composite {}", path)
                 } else {
@@ -233,11 +233,16 @@ impl WorkContext {
     async fn list_member_names(
         &self,
         context: &TaskContext<Self>,
+        composite_id: Id<CompositeType>,
         composite_path: &ComponentPath,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Result<Vec<String>, PreviewItem>> {
         let r = context
-            .require(Goal::ListMembers(composite_path.clone(), mutation_cap))
+            .require(Goal::ListMembers(
+                composite_id,
+                composite_path.clone(),
+                mutation_cap,
+            ))
             .await;
         let outcome = match r {
             Err(e) => bail!("Error while listing members: {}", e),
@@ -337,6 +342,7 @@ impl WorkContext {
     async fn list_members_partitioned(
         &self,
         context: &TaskContext<Self>,
+        composite_id: Id<CompositeType>,
         composite_path: &ComponentPath,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<
@@ -348,10 +354,8 @@ impl WorkContext {
             PreviewItem,
         >,
     > {
-        let composite_id = self.get_composite_id(context, composite_path).await?;
-
         let names = match self
-            .list_member_names(context, composite_path, mutation_cap)
+            .list_member_names(context, composite_id, composite_path, mutation_cap)
             .await?
         {
             Ok(names) => names,
@@ -461,13 +465,14 @@ impl WorkContext {
     async fn perform_preview(
         &self,
         context: TaskContext<Self>,
+        composite_id: Id<CompositeType>,
         composite_path: ComponentPath,
     ) -> Result<Outcome> {
         let mut items = Vec::new();
 
         // List and partition members (preview mode: returns structural dependency if blocked)
         let (resources, nested_composites) = match self
-            .list_members_partitioned(&context, &composite_path, None)
+            .list_members_partitioned(&context, composite_id, &composite_path, None)
             .await?
         {
             Ok(partitioned) => partitioned,
@@ -485,9 +490,11 @@ impl WorkContext {
 
         // Recursively preview nested composites
         let mut nested_thunks = Vec::new();
-        for name in nested_composites.keys() {
+        for (name, nested_id) in &nested_composites {
             let nested_path = composite_path.child(name.clone());
-            let thunk = context.spawn(Goal::Preview(nested_path)).await?;
+            let thunk = context
+                .spawn(Goal::Preview(*nested_id, nested_path))
+                .await?;
             nested_thunks.push(thunk);
         }
 
@@ -507,12 +514,13 @@ impl WorkContext {
     async fn perform_apply(
         &self,
         context: TaskContext<Self>,
+        composite_id: Id<CompositeType>,
         composite_path: ComponentPath,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First, preview to get all known resources and structural dependencies
         let preview_thunk = context
-            .require(Goal::Preview(composite_path.clone()))
+            .require(Goal::Preview(composite_id, composite_path.clone()))
             .await?;
         let preview_items = match clone_result(&preview_thunk)? {
             Outcome::Preview(items) => items,
@@ -533,16 +541,16 @@ impl WorkContext {
         // List and partition members, resolving structural dependencies
         // IDs come directly from LoadMember - no separate lookup needed
         let (resources, nested_composites) = self
-            .list_members_partitioned(&context, &composite_path, Some(mutation_cap))
+            .list_members_partitioned(&context, composite_id, &composite_path, Some(mutation_cap))
             .await?
             .expect("structural dependencies should be resolved with mutation_cap");
 
         // Apply nested composites
         let mut nested_thunks = Vec::new();
-        for name in nested_composites.keys() {
+        for (name, nested_id) in &nested_composites {
             let nested_path = composite_path.child(name.clone());
             let thunk = context
-                .spawn(Goal::Apply(nested_path, mutation_cap))
+                .spawn(Goal::Apply(*nested_id, nested_path, mutation_cap))
                 .await?;
             nested_thunks.push(thunk);
         }
@@ -606,10 +614,10 @@ impl WorkContext {
     async fn perform_list_members(
         &self,
         context: TaskContext<Self>,
+        composite_id: Id<CompositeType>,
         composite_path: ComponentPath,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
-        let composite_id = self.get_composite_id(&context, &composite_path).await?;
         loop {
             let state = self.eval_list_members(composite_id).await?;
             match state {
@@ -1197,13 +1205,13 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
-            Goal::Apply(composite_path, mutation_cap) => {
-                self.perform_apply(context, composite_path, mutation_cap)
+            Goal::Apply(composite_id, composite_path, mutation_cap) => {
+                self.perform_apply(context, composite_id, composite_path, mutation_cap)
                     .instrument(info_span!("Applying composite"))
                     .await
             }
-            Goal::ListMembers(composite_path, mutation_cap) => {
-                self.perform_list_members(context, composite_path, mutation_cap)
+            Goal::ListMembers(composite_id, composite_path, mutation_cap) => {
+                self.perform_list_members(context, composite_id, composite_path, mutation_cap)
                     .instrument(info_span!("Listing members"))
                     .await
             }
@@ -1217,8 +1225,8 @@ impl TaskWork for WorkContext {
                     .instrument(info_span!("Loading member"))
                     .await
             }
-            Goal::Preview(composite_path) => {
-                self.perform_preview(context, composite_path)
+            Goal::Preview(composite_id, composite_path) => {
+                self.perform_preview(context, composite_id, composite_path)
                     .instrument(info_span!("Previewing composite"))
                     .await
             }

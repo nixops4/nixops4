@@ -84,6 +84,7 @@ pub(crate) async fn apply(
             });
             let r = tasks
                 .run(Goal::Apply(
+                    deployment_id,
                     nixops4_core::eval_api::ComponentPath::root(),
                     MutationCapability,
                 ))
