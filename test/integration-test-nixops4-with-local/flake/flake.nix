@@ -22,12 +22,12 @@
             {
               providers,
               withResourceProviderSystem,
-              resources,
+              members,
               ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
-              resources.hello = {
+              members.hello = {
                 type = providers.local.exec;
                 inputs = {
                   # TODO: test framework to run pre-evaluate something like this
@@ -43,11 +43,11 @@
                   ];
                 };
               };
-              resources."file.txt" = {
+              members."file.txt" = {
                 type = providers.local.file;
                 inputs = {
                   name = "file.txt";
-                  contents = resources.hello.stdout;
+                  contents = members.hello.outputs.stdout;
                 };
               };
             };
@@ -56,23 +56,23 @@
             {
               providers,
               withResourceProviderSystem,
-              resources,
+              members,
               ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
-              resources.hello = {
+              members.hello = {
                 type = providers.local.exec;
                 inputs = {
                   executable = "die";
                   args = [ "oh no, this and that failed" ];
                 };
               };
-              resources."file.txt" = {
+              members."file.txt" = {
                 type = providers.local.file;
                 inputs = {
                   name = "file.txt";
-                  contents = resources.hello.stdout;
+                  contents = members.hello.outputs.stdout;
                 };
               };
             };
@@ -83,7 +83,7 @@
               config,
               providers,
               withResourceProviderSystem,
-              resources,
+              members,
               ...
             }:
             {
@@ -100,27 +100,27 @@
 
                 providers.local = inputs.nixops4.modules.nixops4Provider.local;
 
-                resources.state = {
+                members.state = {
                   type = providers.local.state_file;
                   inputs.name = "nixops4-state.json";
                 };
 
-                resources.initial_version = {
+                members.initial_version = {
                   type = providers.local.memo;
                   state = [ "state" ];
                   inputs.initialize_with = config.currentVersion;
                 };
 
-                resources.initial_version_file = {
+                members.initial_version_file = {
                   type = providers.local.file;
                   inputs.name = "initial-version.md";
                   inputs.contents = ''
                     # This is a fake deployment, which is aware of which version was initially deployed, much like NixOS stateVersion
-                    My initial version: ${toString resources.initial_version.value}
+                    My initial version: ${toString members.initial_version.outputs.value}
                   '';
                 };
 
-                resources.current_version_file = {
+                members.current_version_file = {
                   type = providers.local.file;
                   inputs.name = "current-version.md";
                   inputs.contents = ''
@@ -139,136 +139,136 @@
               config,
               providers,
               withResourceProviderSystem,
-              resources,
-              deployments,
+              members,
               ...
             }:
             {
               # Parent deployment creates a state file and some config values
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
 
-              resources.parentState = {
+              members.parentState = {
                 type = providers.local.state_file;
                 inputs.name = "nested-parent-state.json";
               };
 
-              resources.parentVersion = {
+              members.parentVersion = {
                 type = providers.local.memo;
                 state = [ "parentState" ];
                 inputs.initialize_with = "v1.0.0";
               };
 
-              resources.parentConfig = {
+              members.parentConfig = {
                 type = providers.local.memo;
                 state = [ "parentState" ];
                 inputs.initialize_with = "production";
               };
 
-              # Child deployment 1 - frontend
-              deployments.frontend = {
-                resources.webVersion = {
+              # Child composite 1 - frontend
+              members.frontend = {
+                members.webVersion = {
                   type = providers.local.memo;
                   state = [ "parentState" ];
-                  inputs.initialize_with = "frontend-${resources.parentVersion.value}";
+                  inputs.initialize_with = "frontend-${members.parentVersion.outputs.value}";
                 };
 
-                resources.webConfig = {
+                members.webConfig = {
                   type = providers.local.memo;
                   state = [ "parentState" ];
-                  inputs.initialize_with = "web-${resources.parentConfig.value}";
+                  inputs.initialize_with = "web-${members.parentConfig.outputs.value}";
                 };
 
-                # Nested deployment within frontend
-                deployments.assets = {
-                  resources.assetVersion = {
+                # Nested composite within frontend
+                members.assets = {
+                  members.assetVersion = {
                     type = providers.local.memo;
                     state = [ "parentState" ];
-                    inputs.initialize_with = "assets-${deployments.frontend.resources.webVersion.value}";
+                    inputs.initialize_with = "assets-${members.frontend.members.webVersion.outputs.value}";
                   };
 
-                  resources.assetConfig = {
+                  members.assetConfig = {
                     type = providers.local.memo;
                     state = [ "parentState" ];
-                    inputs.initialize_with = "cdn-config-${deployments.frontend.resources.webConfig.value}";
-                  };
-                };
-              };
-
-              # Child deployment 2 - backend
-              deployments.backend = {
-                resources.apiVersion = {
-                  type = providers.local.memo;
-                  state = [ "parentState" ];
-                  inputs.initialize_with = "api-${resources.parentVersion.value}";
-                };
-
-                resources.apiConfig = {
-                  type = providers.local.memo;
-                  state = [ "parentState" ];
-                  inputs.initialize_with = "backend-${resources.parentConfig.value}-frontend-${deployments.frontend.resources.webVersion.value}";
-                };
-
-                # Database deployment nested in backend
-                deployments.database = {
-                  resources.dbVersion = {
-                    type = providers.local.memo;
-                    state = [ "parentState" ];
-                    inputs.initialize_with = "db-${deployments.backend.resources.apiVersion.value}";
-                  };
-
-                  resources.dbConfig = {
-                    type = providers.local.memo;
-                    state = [ "parentState" ];
-                    inputs.initialize_with = "postgres-${deployments.backend.resources.apiConfig.value}";
+                    inputs.initialize_with = "cdn-config-${members.frontend.members.webConfig.outputs.value}";
                   };
                 };
               };
 
-              # Parent resource that depends on child deployments
-              resources.deploymentSummary = {
+              # Child composite 2 - backend
+              members.backend = {
+                members.apiVersion = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "api-${members.parentVersion.outputs.value}";
+                };
+
+                members.apiConfig = {
+                  type = providers.local.memo;
+                  state = [ "parentState" ];
+                  inputs.initialize_with = "backend-${members.parentConfig.outputs.value}-frontend-${members.frontend.members.webVersion.outputs.value}";
+                };
+
+                # Database composite nested in backend
+                members.database = {
+                  members.dbVersion = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "db-${members.backend.members.apiVersion.outputs.value}";
+                  };
+
+                  members.dbConfig = {
+                    type = providers.local.memo;
+                    state = [ "parentState" ];
+                    inputs.initialize_with = "postgres-${members.backend.members.apiConfig.outputs.value}";
+                  };
+                };
+              };
+
+              # Parent resource that depends on child members
+              members.deploymentSummary = {
                 type = providers.local.memo;
                 state = [ "parentState" ];
                 inputs.initialize_with = lib.concatStringsSep "|" [
-                  "parent:${resources.parentVersion.value}"
-                  "frontend:${deployments.frontend.resources.webVersion.value}"
-                  "backend:${deployments.backend.resources.apiVersion.value}"
-                  "assets:${deployments.frontend.deployments.assets.resources.assetVersion.value}"
-                  "db:${deployments.backend.deployments.database.resources.dbVersion.value}"
+                  "parent:${members.parentVersion.outputs.value}"
+                  "frontend:${members.frontend.members.webVersion.outputs.value}"
+                  "backend:${members.backend.members.apiVersion.outputs.value}"
+                  "assets:${members.frontend.members.assets.members.assetVersion.outputs.value}"
+                  "db:${members.backend.members.database.members.dbVersion.outputs.value}"
                 ];
               };
             };
 
-          # Test case: structural dependency on deployments attribute.
-          # The SET of nested deployments depends on a resource output.
-          # ListNestedDeployments will fail in discovery mode because it
-          # needs the resource output to determine which deployments exist.
+          # Test case: structural dependency on nested composite's members.
+          # The SET of members inside a composite depends on a sibling resource output.
+          # ListMembers for the nested composite will detect a structural dependency
+          # because it needs the resource output to determine which members exist.
           structuralDeploymentsAttr =
             {
               lib,
               providers,
-              resources,
+              members,
               ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
 
-              resources.stateFile = {
+              members.stateFile = {
                 type = providers.local.state_file;
                 inputs.name = "structural-deployments-state.json";
               };
 
-              # This resource's output determines which nested deployments exist
-              resources.selector = {
+              # This resource's output determines which members exist in the nested composite
+              members.selector = {
                 type = providers.local.memo;
                 state = [ "stateFile" ];
                 inputs.initialize_with = "enabled";
               };
 
-              # The deployments attribute is strict in resources.selector.value
-              # because optionalAttrs evaluates its condition
-              deployments = lib.optionalAttrs (resources.selector.value == "enabled") {
-                conditionalChild = {
-                  resources.childResource = {
+              # The composite always exists, but its members are conditional.
+              # When enumerating conditionalChild's members, the evaluator detects
+              # a structural dependency on selector.outputs.value.
+              members.conditionalChild = {
+                members = lib.optionalAttrs (members.selector.outputs.value == "enabled") {
+                  childResource = {
                     type = providers.local.memo;
                     state = [ "stateFile" ];
                     inputs.initialize_with = "child-value";
@@ -277,34 +277,36 @@
               };
             };
 
-          # Test case: structural dependency on resources within a nested deployment.
-          # The SET of resources in a nested deployment depends on a parent resource output.
-          # ListResources for the nested deployment will fail in discovery mode.
+          # Test case: structural dependency on resources within a nested composite.
+          # The SET of resources in a nested composite depends on a parent resource output.
+          # ListMembers for the nested composite will detect a structural dependency.
           structuralResourcesAttr =
             {
               lib,
               providers,
-              resources,
+              members,
               ...
             }:
             {
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
 
-              resources.stateFile = {
+              members.stateFile = {
                 type = providers.local.state_file;
                 inputs.name = "structural-resources-state.json";
               };
 
               # This resource's output determines which resources exist in the child
-              resources.selector = {
+              members.selector = {
                 type = providers.local.memo;
                 state = [ "stateFile" ];
                 inputs.initialize_with = "enabled";
               };
 
-              deployments.child = {
-                # The resources attribute is strict in resources.selector.value
-                resources = lib.optionalAttrs (resources.selector.value == "enabled") {
+              # The composite always exists, but its members are conditional.
+              # This is the same pattern as structuralDeploymentsAttr but tests
+              # that it works at any nesting level.
+              members.child = {
+                members = lib.optionalAttrs (members.selector.outputs.value == "enabled") {
                   conditionalResource = {
                     type = providers.local.memo;
                     state = [ "stateFile" ];
@@ -314,10 +316,10 @@
               };
             };
 
-          # Test case: nested deployment with unreferenced resources.
-          # The nested deployment has resources that are NOT referenced by
-          # any parent resource input. ListNestedDeployments discovers them.
-          # Test: UNREFERENCED NESTED DEPLOYMENT in check.nix
+          # Test case: nested composite with unreferenced resources.
+          # The nested composite has resources that are NOT referenced by
+          # any parent resource input. ListMembers discovers them.
+          # Test: UNREFERENCED NESTED COMPOSITE in check.nix
           unreferencedNesting =
             {
               providers,
@@ -327,22 +329,22 @@
               providers.local = inputs.nixops4.modules.nixops4Provider.local;
 
               # Parent state file
-              resources.stateFile = {
+              members.stateFile = {
                 type = providers.local.state_file;
                 inputs.name = "unreferenced-nesting-state.json";
               };
 
-              # A simple parent resource - does NOT reference nested deployment
-              resources.parentResource = {
+              # A simple parent resource - does NOT reference nested composite
+              members.parentResource = {
                 type = providers.local.memo;
                 state = [ "stateFile" ];
                 inputs.initialize_with = "parent-value";
               };
 
-              # Nested deployment with resources that should be applied
+              # Nested composite with resources that should be applied
               # but are never referenced by the parent
-              deployments.orphan = {
-                resources.orphanedResource = {
+              members.orphan = {
+                members.orphanedResource = {
                   type = providers.local.memo;
                   state = [ "stateFile" ];
                   inputs.initialize_with = "orphan-value";

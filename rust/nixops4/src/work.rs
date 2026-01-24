@@ -90,27 +90,31 @@ pub enum Goal {
     /// Preview a deployment without making changes. Returns all known resources
     /// and any structural dependencies that block full discovery.
     Preview(DeploymentPath),
+    /// Apply a deployment, creating/updating/deleting resources as needed.
     Apply(DeploymentPath, MutationCapability),
-    /// List resources in a deployment. If the resource list has a structural
-    /// dependency on a resource output, resolves it by creating the resource.
+    /// List resources in a deployment. If the resource list has a structural dependency, resolves it.
     ListResources(DeploymentPath, MutationCapability),
-    /// List resources for preview. Returns either the resources or a preview item
-    /// indicating a structural dependency.
+    /// List resources for preview. Returns either the resources or a preview item.
     ListResourcesPreview(DeploymentPath),
-    /// List nested deployments. If the deployment list has a structural
-    /// dependency on a resource output, resolves it by creating the resource.
+    /// List nested deployments. If the deployment list has a structural dependency, resolves it.
     ListNestedDeployments(DeploymentPath, MutationCapability),
-    /// List nested deployments for preview. Returns either the deployments or a
-    /// preview item indicating a structural dependency.
+    /// List nested deployments for preview. Returns either the deployments or a preview item.
     ListNestedDeploymentsPreview(DeploymentPath),
+    /// Assign a deployment ID for a path
     AssignDeploymentId(DeploymentPath),
+    /// Assign a resource ID
     AssignResourceId(ResourcePath),
+    /// Get resource provider info for a loaded resource
     GetResourceProviderInfo(Id<ResourceType>, ResourcePath),
+    /// List resource inputs
     ListResourceInputs(Id<ResourceType>, ResourcePath),
+    /// Get a specific resource input value
     GetResourceInputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
-    // This goes directly to ApplyResource, but provides useful context for cyclic dependencies
+    /// Get a resource output value (goes to ApplyResource)
     GetResourceOutputValue(Id<ResourceType>, ResourcePath, String, MutationCapability),
+    /// Apply a single resource
     ApplyResource(Id<ResourceType>, ResourcePath, MutationCapability),
+    /// Run a state provider resource
     RunState(Id<ResourceType>, ResourcePath, MutationCapability),
 }
 impl Display for Goal {
@@ -335,7 +339,6 @@ impl WorkContext {
     }
 
     /// Low-level helper to send ListResources request and receive response.
-    /// Returns the raw ListResourcesState for the caller to interpret.
     async fn eval_list_resources(
         &self,
         deployment_id: Id<DeploymentType>,
@@ -370,7 +373,6 @@ impl WorkContext {
     }
 
     /// Low-level helper to send ListNestedDeployments request and receive response.
-    /// Returns the raw ListNestedDeploymentsState for the caller to interpret.
     async fn eval_list_nested_deployments(
         &self,
         deployment_id: Id<DeploymentType>,

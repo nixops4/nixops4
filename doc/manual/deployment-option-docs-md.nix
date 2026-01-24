@@ -15,9 +15,8 @@ let
         specialArgs = { };
       }
       {
-        resources = { };
+        outputValues = { };
         resourceProviderSystem = "<resourceProviderSystem>";
-        deployments = { };
       };
   hideModuleArgs =
     { lib, ... }:

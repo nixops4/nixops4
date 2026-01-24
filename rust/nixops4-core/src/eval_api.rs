@@ -162,16 +162,25 @@ impl std::fmt::Display for ResourcePath {
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
     ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
+    /// Load a deployment from a flake. The deployment is treated as a composite component.
     LoadDeployment(AssignRequest<DeploymentRequest>),
+    /// Load a nested deployment from a parent deployment
     LoadNestedDeployment(AssignRequest<NestedDeploymentRequest>),
+    /// List nested deployments in a deployment
     ListNestedDeployments(
         QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListNestedDeploymentsState)>,
     ),
+    /// List resources in a deployment
     ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, ListResourcesState)>),
+    /// Load a resource by name from a deployment
     LoadResource(AssignRequest<ResourceRequest>),
+    /// Get resource provider info for a loaded resource
     GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
+    /// List input names for a resource
     ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
+    /// Get a specific resource input value
     GetResourceInput(QueryRequest<Property, ResourceInputState>),
+    /// Provide a resource output value for the fixpoint
     PutResourceOutput(NamedProperty, Value),
 }
 
@@ -242,8 +251,6 @@ pub enum ResourceInputState {
 }
 
 /// Response state for ListResources request.
-/// If listing requires a resource output that doesn't exist yet (structural dependency),
-/// the dependency is returned so the caller can create the resource and retry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ListResourcesState {
     Listed(Vec<String>),
@@ -251,8 +258,6 @@ pub enum ListResourcesState {
 }
 
 /// Response state for ListNestedDeployments request.
-/// If listing requires a resource output that doesn't exist yet (structural dependency),
-/// the dependency is returned so the caller can create the resource and retry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ListNestedDeploymentsState {
     Listed(Vec<String>),

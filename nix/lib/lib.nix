@@ -41,17 +41,26 @@ let
   evalDeployment =
     baseArgs:
     {
-      resources,
       resourceProviderSystem,
-      deployments,
+      outputValues,
       ...
     }@args:
     lib.evalModules (
       baseArgs
       // {
         specialArgs = baseArgs.specialArgs // {
-          inherit resources resourceProviderSystem deployments;
+          inherit resourceProviderSystem;
         };
+        modules = baseArgs.modules ++ [
+          # Inject output values into root's config.outputs
+          {
+            outputs =
+              { ... }:
+              {
+                config = outputValues;
+              };
+          }
+        ];
         class = "nixops4Deployment";
       }
     );
@@ -64,11 +73,7 @@ let
       resourceProviderSystem = system;
 
       # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
-      resources = throw "resource information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
-
-      # Placeholders that must not be accessed by the provider definitions for pre-building the providers without dynamic resource information
-      # FIXME: this should probably just be implemented, TBD
-      deployments = throw "sub-deployment information is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
+      outputValues = throw "outputValues is not available when evaluating a deployment for the purpose of building the providers ahead of time.";
     };
 
 in

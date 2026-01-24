@@ -21,15 +21,13 @@ in
         expr = d._type;
         expected = "nixops4Deployment";
       };
-      "test resource set" = {
+      "test empty members" = {
         expr = d.deploymentFunction {
-          resources = { };
           resourceProviderSystem = system;
-          deployments = { };
+          outputValues = { };
         };
         expected = {
-          resources = { };
-          deployments = { };
+          members = { };
         };
       };
     };
@@ -72,8 +70,8 @@ in
               characteristic,
               config,
               foo,
+              members,
               options,
-              resources,
               providers,
               ...
             }:
@@ -81,7 +79,7 @@ in
 
             {
               _file = "<elaborate mkDeployment call>";
-              resources.a =
+              members.a =
                 # Can't assert this much higher up because _module must be
                 # evaluatable before we ask for `foo`, which comes from
                 # `_module.args`.
@@ -113,7 +111,7 @@ in
                   requireState = false;
                 };
 
-              resources.b = {
+              members.b = {
                 resourceType = "bee";
                 provider = {
                   executable = "/foo/bin/bee";
@@ -129,15 +127,17 @@ in
                     options.a2 = mkOption {
                       type = types.str;
                     };
-                    config.a = resources.a.aResult;
-                    config.a2 = config.resources.a.outputs.aResult;
+                    # Access outputs via members.X.outputs.Y
+                    config.a = members.a.outputs.aResult;
+                    # Or equivalently via config.members.X.outputs.Y
+                    config.a2 = config.members.a.outputs.aResult;
                   };
                 outputs = { };
                 outputsSkeleton = { };
                 requireState = false;
               };
               providers.local = localProvider;
-              resources.install-mgmttool = {
+              members.install-mgmttool = {
                 type = providers.local.exec;
                 inputs.executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
               };
@@ -162,15 +162,13 @@ in
       forNixOps = d.deploymentFunction forExpr;
       forExpr = {
         resourceProviderSystem = system;
-        resources = {
+        outputValues = {
           a.aResult = "aye it's a result";
           b = { };
           install-mgmttool = {
             stdout = "mgmttool installing\nmgmttool installed";
           };
         };
-        # TODO: use
-        deployments = { };
       };
 
     in
@@ -179,57 +177,62 @@ in
         expr = d._type;
         expected = "nixops4Deployment";
       };
-      "test resource set passed to NixOps" = {
+      "test members passed to NixOps" = {
         expr = forNixOps;
         expected = {
-          resources = {
+          members = {
             a = {
-              inputs = { };
-              provider = {
-                args = [ "positive" ];
-                executable = "/foo/bin/agree";
-                type = "stdio";
+              resource = {
+                inputs = { };
+                provider = {
+                  args = [ "positive" ];
+                  executable = "/foo/bin/agree";
+                  type = "stdio";
+                };
+                type = "aye";
+                outputsSkeleton = {
+                  aResult = { };
+                };
+                state = null;
               };
-              type = "aye";
-              outputsSkeleton = {
-                aResult = { };
-              };
-              state = null;
             };
             b = {
-              inputs = {
-                a = "aye it's a result";
-                a2 = "aye it's a result";
+              resource = {
+                inputs = {
+                  a = "aye it's a result";
+                  a2 = "aye it's a result";
+                };
+                provider = {
+                  args = [ "buzz" ];
+                  executable = "/foo/bin/bee";
+                  type = "stdio";
+                };
+                type = "bee";
+                outputsSkeleton = { };
+                state = null;
               };
-              provider = {
-                args = [ "buzz" ];
-                executable = "/foo/bin/bee";
-                type = "stdio";
-              };
-              type = "bee";
-              outputsSkeleton = { };
-              state = null;
             };
             install-mgmttool = {
-              inputs = {
-                executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+              resource = {
+                inputs = {
+                  executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+                };
+                provider = {
+                  args = [
+                    "positively"
+                    "an argument"
+                  ];
+                  executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
+                  type = "stdio";
+                };
+                type = "exec";
+                outputsSkeleton = {
+                  stdout = { };
+                };
+                state = null;
               };
-              provider = {
-                args = [
-                  "positively"
-                  "an argument"
-                ];
-                executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
-                type = "stdio";
-              };
-              type = "exec";
-              outputsSkeleton = {
-                stdout = { };
-              };
-              state = null;
             };
           };
-          deployments = { };
         };
       };
     };
@@ -275,7 +278,7 @@ in
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateless = {
+              members.myStateless = {
                 type = providers.example.stateless;
                 inputs.data = "hello";
               };
@@ -291,7 +294,7 @@ in
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateful = {
+              members.myStateful = {
                 type = providers.example.stateful;
                 state = [ "myStateHandler" ];
                 inputs.data = "world";
@@ -308,7 +311,7 @@ in
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateful = {
+              members.myStateful = {
                 type = providers.example.stateful;
                 inputs.data = "fail";
                 # state is missing - this should cause an error due to requireState = true
@@ -322,38 +325,35 @@ in
       "test stateless resource works without state" = {
         expr =
           (validStateless.deploymentFunction {
-            resources = {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateless = { };
             };
-            resourceProviderSystem = system;
-            deployments = { };
-          }).resources.myStateless.state;
+          }).members.myStateless.resource.state;
         expected = null;
       };
 
       "test stateful resource works with state" = {
         expr =
           (validStateful.deploymentFunction {
-            resources = {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateful = { };
             };
-            resourceProviderSystem = system;
-            deployments = { };
-          }).resources.myStateful.state;
+          }).members.myStateful.resource.state;
         expected = [ "myStateHandler" ];
       };
 
       "test stateful resource without state throws error" = {
         expr =
           (invalidStateful.deploymentFunction {
-            resources = {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateful = { };
             };
-            resourceProviderSystem = system;
-            deployments = { };
-          }).resources.myStateful.state;
+          }).members.myStateful.resource.state;
         expectedError.type = "ThrownError";
-        expectedError.msg = "resources\\.myStateful\\.state has not been defined";
+        expectedError.msg = "members\\.myStateful\\.state has not been defined";
       };
     };
 }

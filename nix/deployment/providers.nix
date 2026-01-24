@@ -5,55 +5,11 @@
   ...
 }:
 let
-  inherit (lib) mkIf mkOption types;
-
-  /**
-    providers-specific behavior in `resources`
-  */
-  resourceModuleExtension =
-    { config, options, ... }:
-    {
-      _class = "nixops4Resource";
-      options.type = mkOption {
-        description = ''
-          A resource type from the `providers` module argument.
-        '';
-        type = types.raw;
-        example = lib.literalExpression ''
-          providers.local.file
-        '';
-      };
-      config = mkIf options.type.isDefined {
-        provider.executable = config.type.provider.executable;
-        provider.args = config.type.provider.args;
-        resourceType = config.type.type;
-        outputsSkeleton = config.type.outputsSkeleton;
-        requireState = config.type.requireState;
-        inputs =
-          { ... }:
-          {
-            imports = [ config.type.inputs ];
-          };
-        outputs =
-          { ... }:
-          {
-            imports = [ config.type.outputs ];
-          };
-      };
-    };
+  inherit (lib) mkOption types;
 
 in
 {
   options = {
-    # this option merges with the one in `resources.nix`
-    resources = mkOption {
-      type = types.lazyAttrsOf (
-        types.submoduleWith {
-          class = "nixops4Resource";
-          modules = [ resourceModuleExtension ];
-        }
-      );
-    };
     providers = mkOption {
       description = ''
         The resource providers to use.

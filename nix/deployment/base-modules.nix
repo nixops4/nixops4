@@ -1,10 +1,10 @@
 {
+  # TODO: rename to nixops4Component when root deployment is also a component (ADR 009)
   _class = "nixops4Deployment";
 
   imports = [
-    ./export.nix
-    ./resources.nix
+    # _export is provided by componentExport in members.nix
     ./providers.nix
-    ./deployments.nix
+    ./members.nix
   ];
 }

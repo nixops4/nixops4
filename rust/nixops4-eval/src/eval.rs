@@ -218,16 +218,16 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
+            // Handlers below translate old protocol to unified members structure
             EvalRequest::LoadNestedDeployment(req) => {
                 self.handle_assign_request(req, |this, req| {
-                    let parent_deployment = this.get_value(req.parent_deployment)?.clone();
-                    let deployments_attrset = this
+                    let parent = this.get_value(req.parent_deployment)?.clone();
+                    let members_attrset =
+                        this.eval_state.require_attrs_select(&parent, "members")?;
+                    let nested = this
                         .eval_state
-                        .require_attrs_select(&parent_deployment, "deployments")?;
-                    let deployment = this
-                        .eval_state
-                        .require_attrs_select(&deployments_attrset, &req.name)?;
-                    Ok(deployment)
+                        .require_attrs_select(&members_attrset, &req.name)?;
+                    Ok(nested)
                 })
                 .await
             }
@@ -238,18 +238,29 @@ impl<R: Respond> EvaluationDriver<R> {
                     |this, req| {
                         let deployment = this.get_value(req.to_owned())?.clone();
                         let result = (|| -> Result<Vec<String>> {
-                            let deployments = this
+                            let members_attrset = this
                                 .eval_state
-                                .require_attrs_select_opt(&deployment, "deployments")?
-                                .map_or(Ok(Vec::new()), |v| {
-                                    this.eval_state.require_attrs_names(&v)
-                                })?;
-                            Ok(deployments)
+                                .require_attrs_select(&deployment, "members")?;
+                            // Filter to only nested deployments (those without "resource" attr)
+                            let all_names =
+                                this.eval_state.require_attrs_names(&members_attrset)?;
+                            let mut nested_names = Vec::new();
+                            for name in all_names {
+                                let member = this
+                                    .eval_state
+                                    .require_attrs_select(&members_attrset, &name)?;
+                                let has_resource = this
+                                    .eval_state
+                                    .require_attrs_select_opt(&member, "resource")?
+                                    .is_some();
+                                if !has_resource {
+                                    nested_names.push(name);
+                                }
+                            }
+                            Ok(nested_names)
                         })();
                         match result {
-                            Ok(deployments) => {
-                                Ok((*req, ListNestedDeploymentsState::Listed(deployments)))
-                            }
+                            Ok(names) => Ok((*req, ListNestedDeploymentsState::Listed(names))),
                             Err(e) => {
                                 if let Some(dep) = parse_structural_dependency_error(&e) {
                                     Ok((
@@ -269,14 +280,28 @@ impl<R: Respond> EvaluationDriver<R> {
                 self.handle_simple_request(req, QueryResponseValue::ListResources, |this, req| {
                     let deployment = this.get_value(req.to_owned())?.clone();
                     let result = (|| -> Result<Vec<String>> {
-                        let resources_attrset = this
+                        let members_attrset = this
                             .eval_state
-                            .require_attrs_select(&deployment, "resources")?;
-                        let resources = this.eval_state.require_attrs_names(&resources_attrset)?;
-                        Ok(resources)
+                            .require_attrs_select(&deployment, "members")?;
+                        // Filter to only resources (those with "resource" attr)
+                        let all_names = this.eval_state.require_attrs_names(&members_attrset)?;
+                        let mut resource_names = Vec::new();
+                        for name in all_names {
+                            let member = this
+                                .eval_state
+                                .require_attrs_select(&members_attrset, &name)?;
+                            let has_resource = this
+                                .eval_state
+                                .require_attrs_select_opt(&member, "resource")?
+                                .is_some();
+                            if has_resource {
+                                resource_names.push(name);
+                            }
+                        }
+                        Ok(resource_names)
                     })();
                     match result {
-                        Ok(resources) => Ok((*req, ListResourcesState::Listed(resources))),
+                        Ok(names) => Ok((*req, ListResourcesState::Listed(names))),
                         Err(e) => {
                             if let Some(dep) = parse_structural_dependency_error(&e) {
                                 Ok((*req, ListResourcesState::StructuralDependency(dep)))
@@ -288,19 +313,43 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            EvalRequest::LoadResource(areq) => {
-                self.handle_assign_request(areq, |this, req| {
-                    let deployment = this.get_value(req.deployment)?.clone();
-                    let resources_attrset = this
+            EvalRequest::LoadResource(request) => {
+                // Check for duplicate ID assignment
+                if let Some(_value) = self.values.get(&request.assign_to.num()) {
+                    let error_msg = format!("id already used: {}", request.assign_to.num());
+                    self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
+                        .await?;
+                    return Ok(());
+                }
+
+                let result = (|| -> Result<Value> {
+                    let deployment = self.get_value(request.payload.deployment)?.clone();
+                    let members_attrset = self
                         .eval_state
-                        .require_attrs_select(&deployment, "resources")?;
-                    let resource = this
+                        .require_attrs_select(&deployment, "members")?;
+                    let member = self
                         .eval_state
-                        .require_attrs_select(&resources_attrset, &req.name)?;
-                    this.resource_names.insert(areq.assign_to, req.name.clone());
-                    Ok(resource)
-                })
-                .await
+                        .require_attrs_select(&members_attrset, &request.payload.name)?;
+                    let resource_data =
+                        self.eval_state.require_attrs_select(&member, "resource")?;
+                    Ok(resource_data)
+                })();
+
+                match result {
+                    Ok(value) => {
+                        self.values.insert(request.assign_to.num(), Ok(value));
+                        self.resource_names
+                            .insert(request.assign_to, request.payload.name.clone());
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let error_msg = e.to_string();
+                        self.values
+                            .insert(request.assign_to.num(), Err(error_msg.clone()));
+                        self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
+                            .await
+                    }
+                }
             }
             EvalRequest::GetResource(req) => {
                 self.handle_simple_request(
@@ -339,7 +388,7 @@ impl<R: Respond> EvaluationDriver<R> {
                         .insert(named_prop.clone(), value);
                 }
                 Ok(())
-            } // _ => unimplemented!(),
+            }
         }
     }
 }
@@ -359,9 +408,11 @@ fn perform_load_deployment<R: Respond>(
             bail!("expected _type to be 'nixops4Deployment', got: {}", str);
         }
     }
+    // Unified component model fixpoint evaluation.
+    // Walks the members tree, providing output values for resources and recursing into composites.
     let eval_expr = r#"
                         # primops
-                        loadResourceAttr:
+                        loadMemberOutput:
                         # user expr
                         deploymentFunction:
                         # other args, such as resourceProviderSystem
@@ -369,57 +420,72 @@ fn perform_load_deployment<R: Respond>(
                         let
                           inherit (builtins) mapAttrs;
 
-                          makeArguments = subdeploymentPath: declarations:
+                          # Build member output values for a composite
+                          # path: component path (list of names)
+                          # export: the _export value of the composite component
+                          # Returns an attrset mapping member names to their outputs
+                          makeMemberOutputs = path: export:
+                            mapAttrs
+                              (name: memberExport:
+                                if memberExport ? resource
+                                then
+                                  # Resource component: provide output values from fixpoint
+                                  mapAttrs
+                                    (loadMemberOutput path name)
+                                    (memberExport.resource.outputsSkeleton
+                                      or (throw "Resource ${name} does not declare its outputs via outputsSkeleton. This is an implementation error in the resource provider."))
+                                else
+                                  # Composite component: recurse into members
+                                  # Returns nested output values directly (no extraArgs wrapper)
+                                  makeMemberOutputs (path ++ [name]) memberExport
+                              )
+                              (export.members or {});
+
+                          # Build arguments for the deployment function at root level
+                          # This includes extraArgs plus the output values
+                          makeArguments = export:
                             extraArgs // {
-                              resources =
-                                mapAttrs
-                                  (name: value:
-                                    mapAttrs
-                                      (loadResourceAttr subdeploymentPath name)
-                                      (value.outputsSkeleton
-                                        or value.provider.types.${value.type}.outputs
-                                        or (throw "Resource ${name} does not declare its outputs. It is currently required for resources to declare their outputs. This is an implementation error in the resource provider."))
-                                  )
-                                  declarations.resources or {};
-                              deployments =
-                                mapAttrs
-                                  (name: value:
-                                    makeArguments (subdeploymentPath ++ [name]) value)
-                                  declarations.deployments or {};
+                              outputValues = makeMemberOutputs [] export;
                             };
-                          fixpoint = deploymentFunction (makeArguments [] fixpoint);
+                          fixpoint = deploymentFunction (makeArguments fixpoint);
                         in
                           fixpoint
                     "#;
     let deployment_function = es.require_attrs_select(&deployment, "deploymentFunction")?;
-    let prim_load_resource_attr = PrimOp::new(
+    let prim_load_member_output = PrimOp::new(
         es,
         PrimOpMeta {
-            name: cstr!("nixopsLoadResourceAttr"),
-            doc: cstr!("Internal function that loads a resource attribute."),
+            name: cstr!("nixopsLoadMemberOutput"),
+            doc: cstr!("Internal function that loads a member component output attribute."),
             args: [
-                cstr!("deploymentNestingPath"),
-                cstr!("resourceName"),
+                cstr!("componentPath"),
+                cstr!("memberName"),
                 cstr!("attrName"),
                 cstr!("ignored"),
             ],
         },
-        Box::new(move |es, [deployment_path, resource_name, attr_name, _]| {
-            let deployment_path = {
-                let value_list: Vec<_> = es.require_list_strict(deployment_path)?;
+        Box::new(move |es, [component_path, member_name, attr_name, _]| {
+            // Build the full component path by appending the member name
+            let component_path = {
+                let value_list: Vec<_> = es.require_list_strict(component_path)?;
                 let mut path = Vec::new();
                 for value in value_list {
-                    let deployment_name = es.require_string(&value)?;
-                    path.push(deployment_name);
+                    let name = es.require_string(&value)?;
+                    path.push(name);
                 }
                 path
             };
-            let resource_name = es.require_string(resource_name)?;
+            let member_name = es.require_string(member_name)?;
             let attr_name = es.require_string(attr_name)?;
+
+            // Build full path to the resource (component_path + member_name)
+            let mut full_path = component_path.clone();
+            full_path.push(member_name.to_string());
+
             let property = NamedProperty {
                 resource: nixops4_core::eval_api::ResourcePath {
-                    deployment_path: nixops4_core::eval_api::DeploymentPath(deployment_path),
-                    resource_name: resource_name.to_string(),
+                    deployment_path: nixops4_core::eval_api::DeploymentPath(component_path),
+                    resource_name: member_name.to_string(),
                 },
                 name: attr_name.to_string(),
             };
@@ -440,7 +506,7 @@ fn perform_load_deployment<R: Respond>(
             }
         }),
     )?;
-    let load_resource_attr = es.new_value_primop(prim_load_resource_attr)?;
+    let load_member_output = es.new_value_primop(prim_load_member_output)?;
     // let extra_args = es.new_value_attrs(HashMap::new())?;
     let resource_provider_system = nix_bindings_util::settings::get("system")?;
     let resource_provider_system_value = es.new_value_str(resource_provider_system.as_str())?;
@@ -451,7 +517,7 @@ fn perform_load_deployment<R: Respond>(
 
     let fixpoint = {
         let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
-        es.call_multi(&v, &[load_resource_attr, deployment_function, extra_args])
+        es.call_multi(&v, &[load_member_output, deployment_function, extra_args])
     }?;
     Ok(fixpoint)
 }
@@ -924,22 +990,30 @@ mod tests {
                     nixops4Deployments = {
                         example = {
                             _type = "nixops4Deployment";
-                            deploymentFunction = { resources, resourceProviderSystem, deployments, ... }:
+                            deploymentFunction = { outputValues, resourceProviderSystem, ... }:
                             assert resourceProviderSystem == builtins.currentSystem;
                             {
-                                resources = {
+                                members = {
                                     a = {
-                                        _type = "nixops4SimpleResource";
-                                        exe = "__test:dummy";
-                                        inputs = {
-                                            foo = "bar";
+                                        resource = {
+                                            type = "dummy";
+                                            provider = { type = "stdio"; executable = "__test:dummy"; };
+                                            inputs = {
+                                                foo = "bar";
+                                            };
+                                            outputsSkeleton = { foo2 = {}; };
+                                            state = null;
                                         };
                                     };
                                     b = {
-                                        _type = "nixops4SimpleResource";
-                                        exe = "__test:dummy";
-                                        inputs = {
-                                            qux = resources.a.foo2;
+                                        resource = {
+                                            type = "dummy";
+                                            provider = { type = "stdio"; executable = "__test:dummy"; };
+                                            inputs = {
+                                                qux = outputValues.a.foo2;
+                                            };
+                                            outputsSkeleton = {};
+                                            state = null;
                                         };
                                     };
                                 };
