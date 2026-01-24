@@ -38,13 +38,13 @@ pub struct Id<T> {
     id: IdNum,
     // nothing, just to accept the compile-type only T
     #[serde(skip)]
-    panthom: std::marker::PhantomData<T>,
+    phantom: std::marker::PhantomData<T>,
 }
 impl<T> Id<T> {
     fn new(id: u64) -> Self {
         Id {
             id,
-            panthom: std::marker::PhantomData,
+            phantom: std::marker::PhantomData,
         }
     }
     /// Create an Id with a specific type from an IdNum.
@@ -209,14 +209,14 @@ pub struct QueryRequest<P, R> {
     pub message_id: Id<MessageType>,
     pub payload: P,
     #[serde(skip)]
-    panthom: std::marker::PhantomData<R>,
+    phantom: std::marker::PhantomData<R>,
 }
 impl<P, R> QueryRequest<P, R> {
     pub fn new(message_id: Id<MessageType>, payload: P) -> Self {
         QueryRequest {
             message_id,
             payload,
-            panthom: std::marker::PhantomData,
+            phantom: std::marker::PhantomData,
         }
     }
 }
@@ -255,19 +255,27 @@ pub enum ResourceInputState {
     ResourceInputDependency(ResourceInputDependency),
 }
 
-/// Response state for ListMembers request
-/// Returns only member names - kind is determined when loading via LoadComponent
+/// Response state for ListMembers request.
+/// Returns only member names - kind is determined when loading via LoadComponent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ListMembersState {
     Listed(Vec<String>),
+    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
     StructuralDependency(NamedProperty),
 }
 
-/// Response state for LoadComponent request
-/// Returns the component handle, or indicates a structural dependency
+/// Response state for LoadComponent request.
+/// Returns the component handle, or indicates a structural dependency.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComponentLoadState {
     Loaded(ComponentHandle),
+    /// Evaluation requires a resource output that doesn't exist yet.
+    ///
+    /// Unlike `Loaded` and errors, this response is intentionally NOT cached by
+    /// the evaluator. This enables retry: after the work scheduler resolves the
+    /// dependency (by applying the required resource), it re-sends `LoadComponent`
+    /// with the same ID. Since the dependency wasn't cached, the evaluator
+    /// re-evaluates with the now-available output value.
     StructuralDependency(NamedProperty),
 }
 

@@ -637,8 +637,8 @@ impl WorkContext {
         Ok(Outcome::Done())
     }
 
-    /// List member names in a composite.
-    /// With mutation_cap Some: retries on structural dependency.
+    /// List member names in a composite, retrying on structural dependency.
+    /// See [`ListMembersState::StructuralDependency`] for caching/retry semantics.
     /// With mutation_cap None: returns structural dependency as preview item.
     async fn perform_list_members(
         &self,
@@ -685,16 +685,30 @@ impl WorkContext {
         }
     }
 
-    /// Load a single member by name, returning its ComponentHandle.
-    /// Assign an ID to a member. This is memoized to ensure stable IDs across Preview and Apply.
+    /// Assign an ID to a member and kick off component loading.
+    ///
+    /// This is memoized to ensure stable IDs across Preview and Apply.
+    /// Sends LoadComponent to start evaluation early; LoadMember will re-send
+    /// and wait for the result (evaluator caching handles duplicate requests).
     async fn perform_assign_member_id(
         &self,
         _context: TaskContext<Self>,
-        _parent_id: Id<CompositeType>,
-        _name: String,
+        parent_id: Id<CompositeType>,
+        name: String,
     ) -> Result<Outcome> {
-        // Just allocate an ID - the actual loading is done by LoadMember
         let id: Id<AnyType> = self.eval_sender.next_id();
+
+        // Fire and forget - kick off evaluation early
+        self.eval_sender
+            .send(&EvalRequest::LoadComponent(AssignRequest {
+                assign_to: id,
+                payload: ComponentRequest {
+                    parent: parent_id,
+                    name,
+                },
+            }))
+            .await?;
+
         Ok(Outcome::MemberIdAssigned(id))
     }
 
@@ -738,7 +752,7 @@ impl WorkContext {
     }
 
     /// Load a member, using AssignMemberId for stable ID assignment.
-    /// With mutation_cap Some: retries on structural dependency.
+    /// See [`ComponentLoadState::StructuralDependency`] for caching/retry semantics.
     /// With mutation_cap None: returns structural dependency as error (for preview).
     async fn perform_load_member(
         &self,
@@ -747,7 +761,7 @@ impl WorkContext {
         name: String,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
-        // Get stable ID from AssignMemberId
+        // Get stable ID from AssignMemberId (also kicks off eval)
         let r = context
             .require(Goal::AssignMemberId(parent_id, name.clone()))
             .await?;
@@ -756,7 +770,6 @@ impl WorkContext {
             _ => bail!("Unexpected outcome from AssignMemberId"),
         };
 
-        // Load the component with retry logic for dependencies
         loop {
             let load_state = self
                 .eval_load_component(id, parent_id, name.clone())

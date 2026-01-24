@@ -204,7 +204,8 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            // List member names in a composite (kind determined later via LoadComponent)
+            // List member names in a composite (kind determined later via LoadComponent).
+            // See ListMembersState::StructuralDependency for retry semantics.
             EvalRequest::ListMembers(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListMembers, |this, req| {
                     let composite = this.get_value(req.to_owned())?.clone();
@@ -227,7 +228,8 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            // Load a component and determine its kind (resource or composite)
+            // Load a component and determine its kind (resource or composite).
+            // See ComponentLoadState::StructuralDependency for caching/retry semantics.
             EvalRequest::LoadComponent(request) => {
                 // Use the same ID number as a message ID for the response
                 let msg_id =
