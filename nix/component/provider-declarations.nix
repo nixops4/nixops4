@@ -1,3 +1,4 @@
+# Defines the `providers` option for declaring resource providers.
 {
   config,
   lib,
@@ -38,6 +39,7 @@ in
       '';
     };
   };
+
   config = {
     _module.args.providers = lib.mapAttrs (
       name: provider:

@@ -36,59 +36,54 @@ Most dependencies between resources involve one resource's output becomes anothe
 The resource graph topology is static:
 
 ```nix
-{ resources, ... }:
+{ members, ... }:
 {
-  resources.database = {
+  members.database = {
     type = "postgresql_database";
     inputs.name = "myapp";
   };
 
-  resources.user = {
+  members.user = {
     type = "postgresql_user";
-    inputs.database = resources.database.name;
+    inputs.database = members.database.outputs.name;
   };
 }
 ```
 
 ### Structural Dependencies
 
-The resource graph topology itself depends on resource outputs. Sub-deployment attributes are computed dynamically.
+The component graph topology itself depends on resource outputs. Sub-component attributes are computed dynamically.
 
 ```nix
-{ lib, resources, ... }:
+{ lib, members, ... }:
 {
-  resources.settings = {
+  members.settings = {
     imports = [ ./settings-resource.nix ];
     inputs.location = "https://panel.example.com/config.json";
   };
 
-  deployments = {
-    clients.deployments =
-      # Structural dependency: the deployments structure under clients depends on the outputs of the settings resource
-      lib.mapAttrs
-        (clientName: clientConfig: {
-          imports = [ ./client.nix ];
-          clientConfig = clientConfig;
-        })
-        resources.settings.clients;
+  members.clients.members =
+    # Structural dependency: the members structure under clients depends on the outputs of the settings resource
+    lib.mapAttrs
+      (clientName: clientConfig: {
+        imports = [ ./client.nix ];
+        clientConfig = clientConfig;
+      })
+      members.settings.outputs.clients;
 
-    shared = {
-      resources = {
-        # Resources here would not be structural dependencies
-      }
-      # This conditional resource is also a structural dependency on the settings resource
-      // lib.optionalAttrs resources.settings.logging.enable {
-        log_token = {
-          # ...
-        };
-      };
+  members.shared.members = {
+    # Static members here would not be structural dependencies
+  }
+  # This conditional member is also a structural dependency on the settings resource
+  // lib.optionalAttrs members.settings.outputs.logging.enable {
+    log_token = {
+      # ...
     };
   };
 }
 ```
 
-Structural dependencies can only refer to `resources` attrsets that can be evaluated independently of the affected structure, so sub-`deployments` are required.
+Structural dependencies can only refer to `members` attrsets that can be evaluated independently of the affected structure.
 Specifically:
-- A structural dependency in `resources` can not refer to any of the resources contained within that resource set.
-- Similarly a structural dependency in `deployments` can not be self-referential either.
-- It *is* possible to refer to the parent deployment or its other descendant deployments, assuming no mutual structural dependencies.
+- A structural dependency in `members` cannot refer to any of the members contained within that member set.
+- It *is* possible to refer to sibling or parent members, assuming no mutual structural dependencies.

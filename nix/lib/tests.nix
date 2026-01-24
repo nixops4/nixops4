@@ -64,7 +64,7 @@ in
       d = self.lib.mkDeployment {
         modules = [
           { _module.args.foo = "bar"; }
-          { _class = "nixops4Deployment"; }
+          { _class = "nixops4Component"; }
           (
             {
               characteristic,
@@ -354,6 +354,81 @@ in
           }).members.myStateful.resource.state;
         expectedError.type = "ThrownError";
         expectedError.msg = "members\\.myStateful\\.state has not been defined";
+      };
+    };
+
+  "nested providers" =
+    let
+      testProviderModule = {
+        executable = "/fake/store/test-provider/bin/test-provider";
+        type = "stdio";
+        resourceTypes = {
+          simple = {
+            requireState = false;
+            inputs = {
+              options.value = mkOption { type = types.str; };
+            };
+            outputs = {
+              options.result = mkOption { type = types.str; };
+            };
+            outputsSkeleton.result = { };
+          };
+        };
+      };
+
+      # Child component defines its own provider and uses it
+      childWithOwnProvider = self.lib.mkDeployment {
+        modules = [
+          {
+            members.child =
+              { providers, ... }:
+              {
+                providers.childProvider = testProviderModule;
+                type = providers.childProvider.simple;
+                inputs.value = "from-child-provider";
+              };
+          }
+        ];
+      };
+
+      # Child uses parent's provider (existing behavior)
+      childWithParentProvider = self.lib.mkDeployment {
+        modules = [
+          (
+            { providers, ... }:
+            {
+              providers.parentProvider = testProviderModule;
+              members.child = {
+                type = providers.parentProvider.simple;
+                inputs.value = "from-parent-provider";
+              };
+            }
+          )
+        ];
+      };
+
+    in
+    {
+      "test child can define and use own provider" = {
+        expr =
+          (childWithOwnProvider.deploymentFunction {
+            resourceProviderSystem = system;
+            outputValues.child = {
+              result = "ok";
+            };
+          }).members.child.resource.inputs.value;
+        expected = "from-child-provider";
+      };
+
+      "test child can use parent provider" = {
+        expr =
+          (childWithParentProvider.deploymentFunction {
+            resourceProviderSystem = system;
+            outputValues.child = {
+              result = "ok";
+            };
+          }).members.child.resource.inputs.value;
+        expected = "from-parent-provider";
       };
     };
 }

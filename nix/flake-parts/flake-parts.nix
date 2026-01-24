@@ -24,7 +24,7 @@ in
       '';
       type = types.lazyAttrsOf (
         types.deferredModuleWith {
-          staticModules = [ self.modules.nixops4Deployment.default ];
+          staticModules = [ self.modules.nixops4Component.default ];
         }
       );
       default = { };

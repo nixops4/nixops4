@@ -61,7 +61,7 @@ let
               };
           }
         ];
-        class = "nixops4Deployment";
+        class = "nixops4Component";
       }
     );
 
@@ -116,6 +116,9 @@ in
       [**Output**]{#mkDeployment-output-getProviders-output}
 
       A derivation whose output references the providers for the deployment.
+
+      Note: Currently only collects providers defined at the root level.
+      Providers defined in nested components are not included.
   */
   mkDeployment =
     {
@@ -162,6 +165,11 @@ in
         let
           configuration = evalDeploymentForProviders baseArgs { inherit system; };
 
+          # TODO: This only collects root-level providers. Nested components can
+          # define their own providers (via providers option), but those are not
+          # included here. Fixing this requires user-facing mechanisms to declare
+          # which providers should be pre-built, since recursively collecting all
+          # providers may not be desirable (e.g., dynamically configured providers).
           serializable = lib.mapAttrs (name: provider: {
             executable = provider.executable;
             args = provider.args;
