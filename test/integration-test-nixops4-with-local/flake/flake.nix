@@ -501,6 +501,52 @@
                 inputs.initialize_with = members.resourceA.outputs.value;
               };
             };
+
+          # Test case: cycle involving structural dependency - members is bottom.
+          # Without the child wrapper, accessing members.X while defining members
+          # via optionalAttrs creates infinite recursion at the Nix level.
+          # This tests that we get a proper error (not hang or crash).
+          structuralCycle =
+            {
+              lib,
+              providers,
+              members,
+              ...
+            }:
+            {
+              providers.local = inputs.nixops4.modules.nixops4Provider.local;
+
+              members.stateFile = {
+                type = providers.local.state_file;
+                inputs.name = "structural-cycle-state.json";
+              };
+
+              # selector's input depends on inner's output (sibling)
+              members.selector = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = members.inner.outputs.value;
+              };
+
+              # inner always exists
+              members.inner = {
+                type = providers.local.memo;
+                state = [ "stateFile" ];
+                inputs.initialize_with = "inner-value";
+              };
+            }
+            # This merge creates a structural dependency: listing members needs selector's output
+            # But selector's input needs inner's output, which is also in members
+            # Result: infinite recursion when evaluating the merged members
+            // {
+              members = lib.optionalAttrs (members.selector.outputs.value == "trigger") {
+                conditional = {
+                  type = providers.local.memo;
+                  state = [ "stateFile" ];
+                  inputs.initialize_with = "conditional-value";
+                };
+              };
+            };
         };
       }
     );

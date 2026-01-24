@@ -472,27 +472,70 @@ runCommand "itest-nixops4-with-local"
         }
       )
 
-      # Verify we get the exact cycle error message (Display format with newlines)
-      # Note: each line ends with " -> " (space-arrow-space) then newline
-      expected='nixops4 error: Cycle detected: Apply resource resourceA ->
+      # Verify we get the exact cycle error message.
+      # The cycle can start from either resource (nondeterministic), so accept both.
+      actual=$(cat circular-err.log)
+
+      expected_a='nixops4 error: Cycle detected: Apply resource resourceA ->
     Get resource input value for resource resourceA input initialize_with ->
     Get resource output value from resource resourceB property value ->
     Apply resource resourceB ->
     Get resource input value for resource resourceB input initialize_with ->
     Get resource output value from resource resourceA property value ->
     Apply resource resourceA'
-      actual=$(cat circular-err.log)
-      [[ "$actual" == "$expected" ]] || {
-        echo "ERROR: Cycle error message mismatch"
-        echo "Expected:"
-        echo "$expected"
-        echo "Actual:"
+
+      expected_b='nixops4 error: Cycle detected: Apply resource resourceB ->
+    Get resource input value for resource resourceB input initialize_with ->
+    Get resource output value from resource resourceA property value ->
+    Apply resource resourceA ->
+    Get resource input value for resource resourceA input initialize_with ->
+    Get resource output value from resource resourceB property value ->
+    Apply resource resourceB'
+
+      if [[ "$actual" != "$expected_a" ]] && [[ "$actual" != "$expected_b" ]]; then
+        echo "ERROR: Cycle error message doesn't match either expected variation"
+        echo "=== Actual ==="
         echo "$actual"
+        echo "=== Expected (variation A) ==="
+        echo "$expected_a"
+        echo "=== Expected (variation B) ==="
+        echo "$expected_b"
+        exit 1
+      fi
+
+      # Clean up
+      rm -f circular-err.log
+    )
+
+    h1 ERROR HANDLING: STRUCTURAL DEPENDENCY CYCLE
+    (
+      set -x
+      echo "=== Testing cycle involving structural dependency ==="
+
+      # This deployment has a cycle at the Nix level:
+      # - selector's input depends on inner.outputs.value (sibling member)
+      # - The members attr includes a conditional that depends on selector.outputs.value
+      # - This creates infinite recursion when evaluating members
+      # The cycle is caught by Nix (not Rust) because the expression is recursive.
+      (
+        set +e
+        nixops4 apply structuralCycle 2>&1 | tee structural-cycle-err.log
+        exit_code=''${PIPESTATUS[0]}
+        [[ $exit_code != 0 ]] || {
+          echo "ERROR: Expected apply to fail but it succeeded"
+          exit 1
+        }
+      )
+
+      # Verify we get an error (Nix-level recursion or evaluation error)
+      grep -qE "infinite recursion|Evaluation error|Cycle detected" structural-cycle-err.log || {
+        echo "ERROR: Expected recursion/cycle/evaluation error"
+        cat structural-cycle-err.log
         exit 1
       }
 
       # Clean up
-      rm -f circular-err.log
+      rm -f structural-cycle-err.log
     )
 
     h1 SUCCESS
