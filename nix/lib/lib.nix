@@ -124,7 +124,7 @@ in
       prefix ? [ ],
     }:
     let
-      allModules = [ ../deployment/base-modules.nix ] ++ modules;
+      allModules = [ ../component/base-modules.nix ] ++ modules;
       baseArgs = {
         inherit prefix specialArgs;
         modules = allModules;

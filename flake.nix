@@ -102,7 +102,7 @@
         flake.modules.flake.default = flake-parts-lib.importApply ./nix/flake-parts/flake-parts.nix {
           inherit self;
         };
-        flake.modules.nixops4Deployment.default = ./nix/deployment/base-modules.nix;
+        flake.modules.nixops4Deployment.default = ./nix/component/base-modules.nix;
         flake.modules.nixops4Provider.local = flake-parts-lib.importApply ./nix/providers/local.nix {
           inherit withSystem;
         };

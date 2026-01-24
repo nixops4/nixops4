@@ -9,7 +9,7 @@ let
     self.lib.evalDeployment
       {
         modules = [
-          ../../nix/deployment/base-modules.nix
+          ../../nix/component/base-modules.nix
           hideModuleArgs
         ];
         specialArgs = { };
