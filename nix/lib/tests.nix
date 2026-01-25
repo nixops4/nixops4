@@ -12,17 +12,17 @@ let
 in
 
 {
-  "minimal mkDeployment call" =
+  "minimal mkRoot call" =
     let
-      d = self.lib.mkDeployment { modules = [ ]; };
+      d = self.lib.mkRoot { modules = [ ]; };
     in
     {
       "test type" = {
         expr = d._type;
-        expected = "nixops4Deployment";
+        expected = "nixops4Component";
       };
       "test empty members" = {
-        expr = d.deploymentFunction {
+        expr = d.rootFunction {
           resourceProviderSystem = system;
           outputValues = { };
         };
@@ -31,7 +31,7 @@ in
         };
       };
     };
-  "elaborate mkDeployment call" =
+  "elaborate mkRoot call" =
     let
       localProvider = {
         executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
@@ -61,7 +61,7 @@ in
         };
       };
 
-      d = self.lib.mkDeployment {
+      d = self.lib.mkRoot {
         modules = [
           { _module.args.foo = "bar"; }
           { _class = "nixops4Component"; }
@@ -78,7 +78,7 @@ in
             assert characteristic == "I'm a special snowflake";
 
             {
-              _file = "<elaborate mkDeployment call>";
+              _file = "<elaborate mkRoot call>";
               members.a =
                 # Can't assert this much higher up because _module must be
                 # evaluatable before we ask for `foo`, which comes from
@@ -154,12 +154,12 @@ in
       };
 
       # What NixOps does is effectively:
-      #   fix (deploymentFunction . realWorld)
-      #   (or equivalently: fix (realWorld . deploymentFunction))
+      #   fix (rootFunction . realWorld)
+      #   (or equivalently: fix (realWorld . rootFunction))
       # In this model,
-      # forNixOps: intermediate value going from deploymentFunction to realWorld
-      # forExpr: intermediate value going from realWorld to deploymentFunction
-      forNixOps = d.deploymentFunction forExpr;
+      # forNixOps: intermediate value going from rootFunction to realWorld
+      # forExpr: intermediate value going from realWorld to rootFunction
+      forNixOps = d.rootFunction forExpr;
       forExpr = {
         resourceProviderSystem = system;
         outputValues = {
@@ -175,7 +175,7 @@ in
     {
       "test type" = {
         expr = d._type;
-        expected = "nixops4Deployment";
+        expected = "nixops4Component";
       };
       "test members passed to NixOps" = {
         expr = forNixOps;
@@ -272,7 +272,7 @@ in
       };
 
       # This should work - stateless resource without state
-      validStateless = self.lib.mkDeployment {
+      validStateless = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
@@ -288,7 +288,7 @@ in
       };
 
       # This should work - stateful resource with state
-      validStateful = self.lib.mkDeployment {
+      validStateful = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
@@ -305,7 +305,7 @@ in
       };
 
       # This should fail - stateful resource without state
-      invalidStateful = self.lib.mkDeployment {
+      invalidStateful = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
@@ -324,7 +324,7 @@ in
     {
       "test stateless resource works without state" = {
         expr =
-          (validStateless.deploymentFunction {
+          (validStateless.rootFunction {
             resourceProviderSystem = system;
             outputValues = {
               myStateless = { };
@@ -335,7 +335,7 @@ in
 
       "test stateful resource works with state" = {
         expr =
-          (validStateful.deploymentFunction {
+          (validStateful.rootFunction {
             resourceProviderSystem = system;
             outputValues = {
               myStateful = { };
@@ -346,7 +346,7 @@ in
 
       "test stateful resource without state throws error" = {
         expr =
-          (invalidStateful.deploymentFunction {
+          (invalidStateful.rootFunction {
             resourceProviderSystem = system;
             outputValues = {
               myStateful = { };
@@ -377,7 +377,7 @@ in
       };
 
       # Child component defines its own provider and uses it
-      childWithOwnProvider = self.lib.mkDeployment {
+      childWithOwnProvider = self.lib.mkRoot {
         modules = [
           {
             members.child =
@@ -392,7 +392,7 @@ in
       };
 
       # Child uses parent's provider (existing behavior)
-      childWithParentProvider = self.lib.mkDeployment {
+      childWithParentProvider = self.lib.mkRoot {
         modules = [
           (
             { providers, ... }:
@@ -411,7 +411,7 @@ in
     {
       "test child can define and use own provider" = {
         expr =
-          (childWithOwnProvider.deploymentFunction {
+          (childWithOwnProvider.rootFunction {
             resourceProviderSystem = system;
             outputValues.child = {
               result = "ok";
@@ -422,7 +422,7 @@ in
 
       "test child can use parent provider" = {
         expr =
-          (childWithParentProvider.deploymentFunction {
+          (childWithParentProvider.rootFunction {
             resourceProviderSystem = system;
             outputValues.child = {
               result = "ok";

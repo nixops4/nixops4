@@ -182,13 +182,11 @@ impl<R: Respond> EvaluationDriver<R> {
         }
     }
 
-    fn get_flake_deployments_value(&mut self, flake: Id<FlakeType>) -> Result<Value> {
+    fn get_flake_root_value(&mut self, flake: Id<FlakeType>) -> Result<Value> {
         let flake = self.get_value(flake)?.clone();
         let outputs = self.eval_state.require_attrs_select(&flake, "outputs")?;
-        let deployments = self
-            .eval_state
-            .require_attrs_select(&outputs, "nixops4Deployments")?;
-        Ok(deployments.clone())
+        let root = self.eval_state.require_attrs_select(&outputs, "nixops4")?;
+        Ok(root.clone())
     }
 
     pub async fn perform_request(&mut self, request: &EvalRequest) -> Result<()> {
@@ -199,23 +197,10 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            EvalRequest::ListDeployments(req) => {
-                self.handle_simple_request(req, QueryResponseValue::ListDeployments, |this, req| {
-                    let flake = this.get_value(req.to_owned())?.clone();
-                    let outputs = this.eval_state.require_attrs_select(&flake, "outputs")?;
-                    let deployments_opt = this
-                        .eval_state
-                        .require_attrs_select_opt(&outputs, "nixops4Deployments")?;
-                    let deployments = deployments_opt
-                        .map_or(Ok(Vec::new()), |v| this.eval_state.require_attrs_names(&v))?;
-                    Ok((*req, deployments))
-                })
-                .await
-            }
-            EvalRequest::LoadDeployment(req) => {
+            EvalRequest::LoadRoot(req) => {
                 let known_outputs = Rc::clone(&self.known_outputs);
                 self.handle_assign_request(req, |this, req| {
-                    perform_load_deployment(this, req, known_outputs)
+                    perform_load_root(this, req, known_outputs)
                 })
                 .await
             }
@@ -386,19 +371,18 @@ impl<R: Respond> EvaluationDriver<R> {
     }
 }
 
-fn perform_load_deployment<R: Respond>(
+fn perform_load_root<R: Respond>(
     driver: &mut EvaluationDriver<R>,
-    req: &nixops4_core::eval_api::DeploymentRequest,
+    req: &nixops4_core::eval_api::RootRequest,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
 ) -> Result<Value, anyhow::Error> {
-    let deployments = { driver.get_flake_deployments_value(req.flake)? }.clone();
+    let root = driver.get_flake_root_value(req.flake)?;
     let es = &mut driver.eval_state;
-    let deployment = es.require_attrs_select(&deployments, &req.name)?;
     {
-        let tag = es.require_attrs_select(&deployment, "_type")?;
+        let tag = es.require_attrs_select(&root, "_type")?;
         let str = es.require_string(&tag)?;
-        if str != "nixops4Deployment" {
-            bail!("expected _type to be 'nixops4Deployment', got: {}", str);
+        if str != "nixops4Component" {
+            bail!("expected _type to be 'nixops4Component', got: {}", str);
         }
     }
     // Unified component model fixpoint evaluation.
@@ -407,7 +391,7 @@ fn perform_load_deployment<R: Respond>(
                         # primops
                         loadMemberOutput:
                         # user expr
-                        deploymentFunction:
+                        rootFunction:
                         # other args, such as resourceProviderSystem
                         extraArgs:
                         let
@@ -434,17 +418,17 @@ fn perform_load_deployment<R: Respond>(
                               )
                               (export.members or {});
 
-                          # Build arguments for the deployment function at root level
+                          # Build arguments for the root function at root level
                           # This includes extraArgs plus the output values
                           makeArguments = export:
                             extraArgs // {
                               outputValues = makeMemberOutputs [] export;
                             };
-                          fixpoint = deploymentFunction (makeArguments fixpoint);
+                          fixpoint = rootFunction (makeArguments fixpoint);
                         in
                           fixpoint
                     "#;
-    let deployment_function = es.require_attrs_select(&deployment, "deploymentFunction")?;
+    let root_function = es.require_attrs_select(&root, "rootFunction")?;
     let prim_load_member_output = PrimOp::new(
         es,
         PrimOpMeta {
@@ -506,7 +490,7 @@ fn perform_load_deployment<R: Respond>(
 
     let fixpoint = {
         let v = es.eval_from_string(eval_expr, "<nixops4 internals>")?;
-        es.call_multi(&v, &[load_member_output, deployment_function, extra_args])
+        es.call_multi(&v, &[load_member_output, root_function, extra_args])
     }?;
     Ok(fixpoint)
 }
@@ -650,7 +634,8 @@ mod tests {
     use nix_bindings_flake::FlakeSettings;
     use nix_bindings_store::store::Store;
     use nixops4_core::eval_api::{
-        AssignRequest, DeploymentRequest, FlakeRequest, Ids, QueryRequest,
+        AssignRequest, FlakeRequest, Ids, ListMembersState, QueryRequest, QueryResponseValue,
+        RootRequest,
     };
     use tempfile::TempDir;
     use tokio::runtime;
@@ -734,109 +719,10 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_driver_empty_flake() {
-        generic_test_eval_driver_empty_flake(
-            r#"
-            {
-                outputs = { ... }: {
-                };
-            }
-        "#,
-        );
-    }
-
-    #[test]
-    fn test_eval_driver_empty_flake2() {
-        generic_test_eval_driver_empty_flake(
-            r#"
-            {
-                outputs = { ... }: {
-                    nixops4Deployments = {
-                    };
-                };
-            }
-        "#,
-        );
-    }
-
-    fn generic_test_eval_driver_empty_flake(flake_nix: &str) {
-        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
-        // write flake.nix
-        let flake_path = tmpdir.path().join("flake.nix");
-        std::fs::write(&flake_path, flake_nix).unwrap();
-
-        (|| -> Result<()> {
-            let guard = gc_register_my_thread().unwrap();
-            let (eval_state, fetch_settings, flake_settings) = new_eval_state()?;
-            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
-            let respond = TestRespond {
-                responses: responses.clone(),
-            };
-            let mut driver =
-                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
-
-            let flake_request = FlakeRequest {
-                abspath: tmpdir.path().to_str().unwrap().to_string(),
-                input_overrides: Vec::new(),
-            };
-            let ids = Ids::new();
-            let flake_id = ids.next();
-            let deployments_id = ids.next();
-            let assign_request = AssignRequest {
-                assign_to: flake_id,
-                payload: flake_request,
-            };
-            block_on(async {
-                driver
-                    .perform_request(&EvalRequest::LoadFlake(assign_request))
-                    .await
-            })
-            .unwrap();
-            {
-                let r = responses.lock().unwrap();
-                if !r.is_empty() {
-                    panic!("expected 0 responses, got: {:?}", r);
-                }
-            }
-            block_on(async {
-                driver
-                    .perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
-                        deployments_id,
-                        flake_id,
-                    )))
-                    .await
-            })
-            .unwrap();
-            {
-                let r = responses.lock().unwrap();
-                if r.len() != 1 {
-                    panic!("expected 1 response, got: {:?}", r);
-                }
-                match &r[0] {
-                    EvalResponse::QueryResponse(
-                        _id,
-                        QueryResponseValue::ListDeployments((id, names)),
-                    ) => {
-                        // eprintln!("id: {:?}, names: {:?}", id, names);
-                        assert_eq!(id, &flake_id);
-                        assert_eq!(names.len(), 0);
-                    }
-                    _ => panic!("expected EvalResponse::ListResources"),
-                }
-            }
-
-            drop(guard);
-            Ok(())
-        })()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_eval_driver_flake_deployments_throw() {
+    fn test_eval_driver_flake_no_nixops4() {
         let flake_nix = r#"
             {
                 outputs = { ... }: {
-                    nixops4Deployments = throw "so this is the error message from the nixops4Deployments attribute value";
                 };
             }
         "#;
@@ -861,32 +747,32 @@ mod tests {
             };
             let ids = Ids::new();
             let flake_id = ids.next();
-            let deployments_id = ids.next();
+            let root_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
             };
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             block_on(
-                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
-                    deployments_id,
-                    flake_id,
-                ))),
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
             )
             .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if r.len() != 1 {
-                    panic!("expected 1 response, got: {:?}", r);
-                }
+                assert_eq!(r.len(), 1);
                 match &r[0] {
                     EvalResponse::Error(id, msg) => {
-                        assert_eq!(id, &deployments_id.any());
-                        if !msg.contains("so this is the error message from the nixops4Deployments attribute value") {
-                            panic!("unexpected error message: {}", msg);
-                        }
+                        assert_eq!(id, &root_id.any());
+                        assert!(
+                            msg.contains("nixops4"),
+                            "expected error about missing nixops4 attribute, got: {}",
+                            msg
+                        );
                     }
-                    _ => panic!("expected EvalResponse::Error"),
+                    _ => panic!("expected EvalResponse::Error, got: {:?}", r[0]),
                 }
             };
             drop(guard);
@@ -894,17 +780,19 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_driver_flake_skeleton_lazy() {
+    fn test_eval_driver_flake_empty_root() {
         let flake_nix = r#"
             {
                 outputs = { ... }: {
-                    nixops4Deployments = {
-                        a = throw "do not evaluate a";
-                        b = throw "do not evaluate b";
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {};
+                        };
                     };
                 };
             }
-            "#;
+        "#;
 
         let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
         let flake_path = tmpdir.path().join("flake.nix");
@@ -926,23 +814,100 @@ mod tests {
             };
             let ids = Ids::new();
             let flake_id = ids.next();
-            let deployments_id = ids.next();
+            let root_id = ids.next();
+            let list_members_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
             };
             block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
             {
                 let r = responses.lock().unwrap();
-                if !r.is_empty() {
-                    panic!("expected 0 responses, got: {:?}", r);
+                assert!(
+                    r.is_empty(),
+                    "expected no errors from LoadRoot, got: {:?}",
+                    r
+                );
+            }
+            // List members should return empty
+            block_on(
+                driver.perform_request(&EvalRequest::ListMembers(QueryRequest::new(
+                    list_members_id,
+                    root_id,
+                ))),
+            )
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1);
+                match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::ListMembers((id, state)),
+                    ) => {
+                        assert_eq!(id, &root_id);
+                        match state {
+                            ListMembersState::Listed(members) => {
+                                assert!(members.is_empty(), "expected empty members");
+                            }
+                            _ => panic!("expected Listed state, got: {:?}", state),
+                        }
+                    }
+                    _ => panic!("expected ListMembers response, got: {:?}", r[0]),
                 }
             }
+            drop(guard);
+        }
+    }
+
+    #[test]
+    fn test_eval_driver_flake_root_throw() {
+        let flake_nix = r#"
+            {
+                outputs = { ... }: {
+                    nixops4 = throw "so this is the error message from the nixops4 attribute value";
+                };
+            }
+        "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
             block_on(
-                driver.perform_request(&EvalRequest::ListDeployments(QueryRequest::new(
-                    deployments_id,
-                    flake_id,
-                ))),
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
             )
             .unwrap();
             {
@@ -951,17 +916,119 @@ mod tests {
                     panic!("expected 1 response, got: {:?}", r);
                 }
                 match &r[0] {
-                    EvalResponse::QueryResponse(
-                        _id,
-                        QueryResponseValue::ListDeployments((id, names)),
-                    ) => {
-                        // eprintln!("id: {:?}, names: {:?}", id, names);
-                        assert_eq!(id, &flake_id);
-                        assert_eq!(names.len(), 2);
-                        assert_eq!(names[0], "a");
-                        assert_eq!(names[1], "b");
+                    EvalResponse::Error(id, msg) => {
+                        assert_eq!(id, &root_id.any());
+                        if !msg.contains(
+                            "so this is the error message from the nixops4 attribute value",
+                        ) {
+                            panic!("unexpected error message: {}", msg);
+                        }
                     }
-                    _ => panic!("expected EvalResponse::ListDeployments"),
+                    _ => panic!("expected EvalResponse::Error"),
+                }
+            };
+            drop(guard);
+        }
+    }
+
+    #[test]
+    fn test_eval_driver_list_members_lazy() {
+        // Verify that ListMembers can enumerate member names without evaluating member contents
+        let flake_nix = r#"
+            {
+                outputs = { ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = {};
+                                        state = null;
+                                    };
+                                };
+                                b = throw "do not evaluate b when listing members";
+                                c = throw "do not evaluate c when listing members";
+                            };
+                        };
+                    };
+                };
+            }
+        "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id = ids.next();
+            let list_members_id = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert!(
+                    r.is_empty(),
+                    "expected no errors from LoadRoot, got: {:?}",
+                    r
+                );
+            }
+            // ListMembers should return all three names without triggering the throws
+            block_on(
+                driver.perform_request(&EvalRequest::ListMembers(QueryRequest::new(
+                    list_members_id,
+                    root_id,
+                ))),
+            )
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1);
+                match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::ListMembers((id, state)),
+                    ) => {
+                        assert_eq!(id, &root_id);
+                        match state {
+                            ListMembersState::Listed(members) => {
+                                assert_eq!(members.len(), 3, "expected 3 members");
+                                assert!(members.contains(&"a".to_string()));
+                                assert!(members.contains(&"b".to_string()));
+                                assert!(members.contains(&"c".to_string()));
+                            }
+                            _ => panic!("expected Listed state, got: {:?}", state),
+                        }
+                    }
+                    _ => panic!("expected ListMembers response, got: {:?}", r[0]),
                 }
             }
             drop(guard);
@@ -973,34 +1040,32 @@ mod tests {
         let flake_nix = r#"
             {
                 outputs = { self, ... }: {
-                    nixops4Deployments = {
-                        example = {
-                            _type = "nixops4Deployment";
-                            deploymentFunction = { outputValues, resourceProviderSystem, ... }:
-                            assert resourceProviderSystem == builtins.currentSystem;
-                            {
-                                members = {
-                                    a = {
-                                        resource = {
-                                            type = "dummy";
-                                            provider = { type = "stdio"; executable = "__test:dummy"; };
-                                            inputs = {
-                                                foo = "bar";
-                                            };
-                                            outputsSkeleton = { foo2 = {}; };
-                                            state = null;
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }:
+                        assert resourceProviderSystem == builtins.currentSystem;
+                        {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            foo = "bar";
                                         };
+                                        outputsSkeleton = { foo2 = {}; };
+                                        state = null;
                                     };
-                                    b = {
-                                        resource = {
-                                            type = "dummy";
-                                            provider = { type = "stdio"; executable = "__test:dummy"; };
-                                            inputs = {
-                                                qux = outputValues.a.foo2;
-                                            };
-                                            outputsSkeleton = {};
-                                            state = null;
+                                };
+                                b = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            qux = outputValues.a.foo2;
                                         };
+                                        outputsSkeleton = {};
+                                        state = null;
                                     };
                                 };
                             };
@@ -1030,7 +1095,7 @@ mod tests {
             };
             let ids = Ids::new();
             let flake_id = ids.next();
-            let deployment_id = ids.next();
+            let root_id = ids.next();
             let assign_request = AssignRequest {
                 assign_to: flake_id,
                 payload: flake_request,
@@ -1043,12 +1108,9 @@ mod tests {
                 }
             }
             block_on(
-                driver.perform_request(&EvalRequest::LoadDeployment(AssignRequest {
-                    assign_to: deployment_id,
-                    payload: DeploymentRequest {
-                        flake: flake_id,
-                        name: "example".to_string(),
-                    },
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
                 })),
             )
             .unwrap();

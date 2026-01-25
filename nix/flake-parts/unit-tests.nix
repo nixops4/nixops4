@@ -19,15 +19,14 @@ in
           };
     in
     {
-      "test: check nixops4Deployments" = {
-        expr = flake.nixops4Deployments;
-        expected = { };
+      # Empty root always exists (no members, but the root component is present)
+      "test: check nixops4" = {
+        expr = flake ? nixops4;
+        expected = true;
       };
       "test: check checks" = {
-        expr = flake.checks;
-        expected = {
-          "${exampleSystem}" = { };
-        };
+        expr = flake.checks.${exampleSystem} ? nixops-providers;
+        expected = true;
       };
     };
   "example" =
@@ -42,7 +41,7 @@ in
           {
             systems = [ exampleSystem ];
             imports = [ nixops4.modules.flake.default ];
-            nixops4Deployments.hello = {
+            nixops4 = {
               providers.dummy = {
                 executable = "/bin/false";
                 type = "stdio";
@@ -52,16 +51,16 @@ in
           };
     in
     {
-      "test: check nixops4Deployments" = {
-        expr = flake.nixops4Deployments ? hello;
+      "test: check nixops4" = {
+        expr = flake.nixops4 != null;
         expected = true;
       };
       "test: check checks" = {
-        expr = flake.checks.${exampleSystem}.nixops-deployment-providers-hello.type;
+        expr = flake.checks.${exampleSystem}.nixops-providers.type;
         expected = "derivation";
       };
       "test: instantiate check" = {
-        expr = builtins.seq flake.checks.${exampleSystem}.nixops-deployment-providers-hello.outPath true;
+        expr = builtins.seq flake.checks.${exampleSystem}.nixops-providers.outPath true;
         expected = true;
       };
     };

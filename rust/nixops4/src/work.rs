@@ -83,35 +83,50 @@ impl Display for PreviewItem {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Goal {
+    /// Resolve a component path to a composite ID. Navigates from root.
+    /// Used by apply.rs to get the target composite before calling Apply.
+    ResolveCompositePath(ComponentPath),
     /// Preview a composite without making changes. Returns all known resources
     /// and any structural dependencies that block full discovery.
+    /// INVARIANT: composite_id must be the ID of the composite at composite_path.
     Preview(Id<CompositeType>, ComponentPath),
     /// Apply a composite, creating/updating/deleting resources as needed.
+    /// INVARIANT: composite_id must be the ID of the composite at composite_path.
     Apply(Id<CompositeType>, ComponentPath, MutationCapability),
     /// List member names in a composite. If listing has a structural dependency, resolves it.
     /// Option<MutationCapability>: Some = retry on dependency (apply), None = return dependency (preview)
+    /// Note: composite_path is only used for error reporting; composite_id is the source of truth.
     ListMembers(Id<CompositeType>, ComponentPath, Option<MutationCapability>),
     /// Assign an ID to a member component. Sends LoadComponent to eval, memoized.
     /// This is the fine-grained memoizable unit - no mutation_cap so same ID is reused.
     AssignMemberId(Id<CompositeType>, String),
     /// Load a member, potentially resolving dependencies. Defers to AssignMemberId for the ID.
     LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
-    /// Get resource provider info for a loaded resource
+    /// Get resource provider info for a loaded resource.
+    /// Note: path is only used for logging; id is the source of truth.
     GetResourceProviderInfo(Id<ResourceType>, ComponentPath),
-    /// List resource inputs
+    /// List resource inputs.
+    /// Note: path is only used for logging; id is the source of truth.
     ListResourceInputs(Id<ResourceType>, ComponentPath),
-    /// Get a specific resource input value
+    /// Get a specific resource input value.
+    /// Note: path is only used for logging; id is the source of truth.
     GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
-    /// Get a resource output value (goes to ApplyResource)
+    /// Get a resource output value (goes to ApplyResource).
+    /// Note: path is only used for logging; id is the source of truth.
     GetResourceOutputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
-    /// Apply a single resource
+    /// Apply a single resource.
+    /// Note: path is only used for logging; id is the source of truth.
     ApplyResource(Id<ResourceType>, ComponentPath, MutationCapability),
-    /// Run a state provider resource
+    /// Run a state provider resource.
+    /// Note: path is only used for logging; id is the source of truth.
     RunState(Id<ResourceType>, ComponentPath, MutationCapability),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Goal::ResolveCompositePath(path) => {
+                write!(f, "Resolve composite path {}", path)
+            }
             Goal::Preview(_id, path) => {
                 write!(f, "Preview composite {}", path)
             }
@@ -174,6 +189,8 @@ impl Display for Goal {
 #[derive(Clone, Debug)]
 pub enum Outcome {
     Done(),
+    /// Composite ID resolved from a path
+    CompositeResolved(Id<CompositeType>),
     /// Preview result containing all known resources and structural dependencies
     Preview(Vec<PreviewItem>),
     /// Member names listed, or blocked by structural dependency (for preview)
@@ -461,7 +478,18 @@ impl WorkContext {
     // deduplicated and that we don't have cycles.
     // -----------------------------------------------------------------------
 
+    /// Resolve a component path to a composite ID by navigating from root.
+    async fn perform_resolve_composite_path(
+        &self,
+        context: TaskContext<Self>,
+        path: ComponentPath,
+    ) -> Result<Outcome> {
+        let id = self.get_composite_id(&context, &path).await?;
+        Ok(Outcome::CompositeResolved(id))
+    }
+
     /// Preview a composite, collecting all known resources and structural dependencies.
+    /// INVARIANT: composite_id must be the ID of the composite at composite_path.
     async fn perform_preview(
         &self,
         context: TaskContext<Self>,
@@ -511,6 +539,7 @@ impl WorkContext {
         Ok(Outcome::Preview(items))
     }
 
+    /// INVARIANT: composite_id must be the ID of the composite at composite_path.
     async fn perform_apply(
         &self,
         context: TaskContext<Self>,
@@ -1205,6 +1234,11 @@ impl TaskWork for WorkContext {
 
     async fn work(&self, context: TaskContext<Self>, key: Self::Key) -> Self::Output {
         let r = match key {
+            Goal::ResolveCompositePath(path) => {
+                self.perform_resolve_composite_path(context, path)
+                    .instrument(info_span!("Resolving composite path"))
+                    .await
+            }
             Goal::Apply(composite_id, composite_path, mutation_cap) => {
                 self.perform_apply(context, composite_id, composite_path, mutation_cap)
                     .instrument(info_span!("Applying composite"))

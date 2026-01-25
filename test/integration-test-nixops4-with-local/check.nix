@@ -25,7 +25,7 @@ let
         }
       );
     in
-    outputs.nixops4Deployments.myDeployment;
+    outputs.nixops4;
 in
 runCommand "itest-nixops4-with-local"
   {
@@ -95,7 +95,7 @@ runCommand "itest-nixops4-with-local"
 
       nix flake lock -vv
 
-      nix eval .#nixops4Deployments.myDeployment._type --show-trace
+      nix eval .#nixops4._type --show-trace
 
       h1 BASIC STATELESS DEPLOYMENT
 
@@ -118,7 +118,7 @@ runCommand "itest-nixops4-with-local"
       [[ ! -e file.txt ]]
 
       grep -F 'oh no, this and that failed' err.log
-      grep -F 'Failed to create stateless resource hello' err.log
+      grep -F 'Failed to create stateless resource failingDeployment.hello' err.log
     )
 
     h1 STATEFUL DEPLOYMENT
@@ -476,21 +476,21 @@ runCommand "itest-nixops4-with-local"
       # The cycle can start from either resource (nondeterministic), so accept both.
       actual=$(cat circular-err.log)
 
-      expected_a='nixops4 error: Cycle detected: Apply resource resourceA ->
-    Get resource input value for resource resourceA input initialize_with ->
-    Get resource output value from resource resourceB property value ->
-    Apply resource resourceB ->
-    Get resource input value for resource resourceB input initialize_with ->
-    Get resource output value from resource resourceA property value ->
-    Apply resource resourceA'
+      expected_a='nixops4 error: Cycle detected: Apply resource circularDependency.resourceA ->
+    Get resource input value for resource circularDependency.resourceA input initialize_with ->
+    Get resource output value from resource circularDependency.resourceB property value ->
+    Apply resource circularDependency.resourceB ->
+    Get resource input value for resource circularDependency.resourceB input initialize_with ->
+    Get resource output value from resource circularDependency.resourceA property value ->
+    Apply resource circularDependency.resourceA'
 
-      expected_b='nixops4 error: Cycle detected: Apply resource resourceB ->
-    Get resource input value for resource resourceB input initialize_with ->
-    Get resource output value from resource resourceA property value ->
-    Apply resource resourceA ->
-    Get resource input value for resource resourceA input initialize_with ->
-    Get resource output value from resource resourceB property value ->
-    Apply resource resourceB'
+      expected_b='nixops4 error: Cycle detected: Apply resource circularDependency.resourceB ->
+    Get resource input value for resource circularDependency.resourceB input initialize_with ->
+    Get resource output value from resource circularDependency.resourceA property value ->
+    Apply resource circularDependency.resourceA ->
+    Get resource input value for resource circularDependency.resourceA input initialize_with ->
+    Get resource output value from resource circularDependency.resourceB property value ->
+    Apply resource circularDependency.resourceB'
 
       if [[ "$actual" != "$expected_a" ]] && [[ "$actual" != "$expected_b" ]]; then
         echo "ERROR: Cycle error message doesn't match either expected variation"

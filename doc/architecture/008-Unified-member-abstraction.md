@@ -24,7 +24,7 @@ The path `foo.bar.baz` uniformly means "the member `baz` inside member `bar` ins
 Key terminology:
 - **Component**: The unified type
 - **Member**: The relationship (a component is a member of its parent)
-- **Root**: The top-level component, created by `mkDeployment`. Not a member, having no parent component.
+- **Root**: The top-level component, created by `mkRoot`. Not a member, having no parent component.
 
 ## Consequences
 

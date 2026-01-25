@@ -6,7 +6,7 @@
 }:
 let
   configuration =
-    self.lib.evalDeployment
+    self.lib.evalRoot
       {
         modules = [
           ../../nix/component/base-modules.nix

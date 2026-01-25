@@ -154,15 +154,27 @@ impl std::fmt::Display for ComponentPath {
     }
 }
 
+impl std::str::FromStr for ComponentPath {
+    type Err = std::convert::Infallible;
+
+    // TODO: parse quoted attributes (e.g., foo."example.com".qux)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            Ok(Self::root())
+        } else {
+            Ok(Self(s.split('.').map(String::from).collect()))
+        }
+    }
+}
+
 /// This interface is internal to NixOps4. It is used to communicate between the CLI and the evaluator.
 /// Only matching CLI and evaluator versions are compatible.
 /// No promises are made about this interface.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
-    ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
-    /// Load a top-level deployment from a flake (returns a composite component)
-    LoadDeployment(AssignRequest<DeploymentRequest>),
+    /// Load the root component from a flake (returns a composite component)
+    LoadRoot(AssignRequest<RootRequest>),
     /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
     ListMembers(QueryRequest<Id<CompositeType>, (Id<CompositeType>, ListMembersState)>),
     /// Load a component by name from a parent composite (returns ComponentHandle indicating kind)
@@ -229,7 +241,6 @@ pub enum EvalResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
-    ListDeployments((Id<FlakeType>, Vec<String>)),
     ListMembers((Id<CompositeType>, ListMembersState)),
     /// Response from LoadComponent indicating the component kind or a dependency
     ComponentLoaded(ComponentLoadState),
@@ -300,13 +311,11 @@ impl RequestIdType for FlakeRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeploymentRequest {
-    /// The flake to load the deployment from.
+pub struct RootRequest {
+    /// The flake to load the root component from.
     pub flake: Id<FlakeType>,
-    /// The name of the deployment to load.
-    pub name: String,
 }
-impl RequestIdType for DeploymentRequest {
+impl RequestIdType for RootRequest {
     type IdType = CompositeType;
 }
 
@@ -399,11 +408,10 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_request_list_deployments() {
-        let req = EvalRequest::ListDeployments(QueryRequest {
-            message_id: Id::new(2),
-            payload: Id::new(1),
-            panthom: std::marker::PhantomData,
+    fn test_eval_request_load_root() {
+        let req = EvalRequest::LoadRoot(AssignRequest {
+            assign_to: Id::new(2),
+            payload: RootRequest { flake: Id::new(1) },
         });
         let s = eval_request_to_json(&req).unwrap();
         eprintln!("{}", s);

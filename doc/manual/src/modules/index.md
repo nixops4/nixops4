@@ -1,8 +1,8 @@
 # Module Options
 
-NixOps4 deployments are composable using the [Module System](https://nixos.org/manual/nixpkgs/stable/#module-system).
+NixOps4 components are composable using the [Module System](https://nixos.org/manual/nixpkgs/stable/#module-system).
 
-Modules loaded into [mkDeployment](../lib/index.md#mkDeployment) can define values for these options, as well as any custom `options` and options provided by other imported modules.
+Modules loaded into [mkRoot](../lib/index.md#mkRoot) can define values for these options, as well as any custom `options` and options provided by other imported modules.
 
 <div class="warning">
 
