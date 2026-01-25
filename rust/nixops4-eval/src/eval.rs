@@ -9,9 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, ComponentHandle, CompositeType, EvalRequest, EvalResponse, FlakeType, Id, IdNum,
-    NamedProperty, QueryRequest, QueryResponseValue, RequestIdType, ResourceProviderInfo,
-    ResourceType, StepResult,
+    AnyType, AssignRequest, ComponentHandle, ComponentRequest, CompositeType, EvalRequest,
+    EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest, QueryResponseValue,
+    RequestIdType, ResourceProviderInfo, ResourceType, StepResult,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -50,6 +50,9 @@ pub struct EvaluationDriver<R: Respond> {
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
     /// Maps resource IDs to resource names for GetResource lookups
     resource_names: HashMap<IdNum, String>,
+    /// Stores ComponentRequests by ID so GetComponentKind can load/retry.
+    /// Populated by AssignMember.
+    member_requests: HashMap<IdNum, ComponentRequest>,
 }
 impl<R: Respond> EvaluationDriver<R> {
     pub fn new(
@@ -66,6 +69,7 @@ impl<R: Respond> EvaluationDriver<R> {
             respond,
             known_outputs: Rc::new(RefCell::new(HashMap::new())),
             resource_names: HashMap::new(),
+            member_requests: HashMap::new(),
         }
     }
 
@@ -134,32 +138,30 @@ impl<R: Respond> EvaluationDriver<R> {
         flake.outputs(&self.flake_settings, &mut self.eval_state)
     }
 
-    /// Helper function for assignment requests that handles error propagation.
-    ///
-    /// # Parameters:
-    /// - handler: Performs the work and returns a Value. Errors are stored and reported to the client.
-    ///
-    // We may need more of these helper functions for different types of requests.
+    /// Helper for assignment requests. Caches value on success, sends error on failure.
     async fn handle_assign_request<T: RequestIdType>(
         &mut self,
         request: &AssignRequest<T>,
         handler: impl FnOnce(&mut Self, &T) -> Result<Value>,
     ) -> Result<()> {
         // Check for duplicate ID assignment
-        if let Some(_value) = self.values.get(&request.assign_to.num()) {
+        if self.values.contains_key(&request.assign_to.num()) {
             let error_msg = format!("id already used: {}", request.assign_to.num());
             self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
                 .await?;
             return Ok(());
         }
 
-        let r = handler(self, &request.payload);
-        match r {
+        match handler(self, &request.payload) {
             Ok(value) => {
                 self.values.insert(request.assign_to.num(), Ok(value));
                 Ok(())
             }
             Err(e) => {
+                // Dependency errors are not cached or reported (caller will retry)
+                if parse_dependency_error(&e).is_some() {
+                    return Ok(());
+                }
                 let error_msg = e.to_string();
                 self.values
                     .insert(request.assign_to.num(), Err(error_msg.clone()));
@@ -207,6 +209,45 @@ impl<R: Respond> EvaluationDriver<R> {
         Ok(root.clone())
     }
 
+    /// Load a member attrset from a parent composite.
+    fn load_member(&mut self, req: &ComponentRequest) -> Result<Value> {
+        let parent = self.get_value(req.parent)?.clone();
+        let members_attrset = self.eval_state.require_attrs_select(&parent, "members")?;
+        self.eval_state
+            .require_attrs_select(&members_attrset, &req.name)
+    }
+
+    /// Get the component kind for an assigned member ID.
+    fn get_component_kind(&mut self, id: Id<AnyType>) -> Result<StepResult<ComponentHandle>> {
+        let id_num = id.num();
+
+        let req = self
+            .member_requests
+            .get(&id_num)
+            .ok_or_else(|| anyhow::anyhow!("no AssignMember request found for id {}", id_num))?
+            .clone();
+
+        catch_dependency((|| {
+            let member = self.load_member(&req)?;
+            let resource_opt = self
+                .eval_state
+                .require_attrs_select_opt(&member, "resource")?;
+
+            let handle = match resource_opt {
+                Some(resource_data) => {
+                    self.values.insert(id_num, Ok(resource_data));
+                    self.resource_names.insert(id_num, req.name.clone());
+                    ComponentHandle::Resource(Id::<ResourceType>::from_num(id_num))
+                }
+                None => {
+                    self.values.insert(id_num, Ok(member));
+                    ComponentHandle::Composite(Id::<CompositeType>::from_num(id_num))
+                }
+            };
+            Ok(handle)
+        })())
+    }
+
     pub async fn perform_request(&mut self, request: &EvalRequest) -> Result<()> {
         match request {
             EvalRequest::LoadFlake(req) => {
@@ -222,7 +263,7 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            // List member names in a composite (kind determined later via LoadComponent).
+            // List member names in a composite (kind determined later via GetComponentKind).
             // See StepResult::Needs for retry semantics.
             EvalRequest::ListMembers(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListMembers, |this, req| {
@@ -236,104 +277,19 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
-            // Load a component and determine its kind (resource or composite).
-            // See StepResult::Needs for caching/retry semantics.
-            EvalRequest::LoadComponent(request) => {
-                // Use the same ID number as a message ID for the response
-                let msg_id =
-                    Id::<nixops4_core::eval_api::MessageType>::from_num(request.assign_to.num());
-
-                // Check if ID was already assigned - return cached result
-                if let Some(cached) = self.values.get(&request.assign_to.num()) {
-                    match cached {
-                        Ok(_value) => {
-                            // Return cached ComponentLoaded response
-                            let is_resource =
-                                self.resource_names.contains_key(&request.assign_to.num());
-                            let handle = if is_resource {
-                                ComponentHandle::Resource(Id::<ResourceType>::from_num(
-                                    request.assign_to.num(),
-                                ))
-                            } else {
-                                ComponentHandle::Composite(Id::<CompositeType>::from_num(
-                                    request.assign_to.num(),
-                                ))
-                            };
-                            self.respond(EvalResponse::QueryResponse(
-                                msg_id,
-                                QueryResponseValue::ComponentLoaded(StepResult::Done(handle)),
-                            ))
-                            .await?;
-                            return Ok(());
-                        }
-                        Err(error_msg) => {
-                            // Return cached error
-                            self.respond(EvalResponse::Error(
-                                request.assign_to.any(),
-                                error_msg.clone(),
-                            ))
-                            .await?;
-                            return Ok(());
-                        }
-                    }
-                }
-
-                let result = (|| -> Result<(Value, bool)> {
-                    let parent = self.get_value(request.payload.parent)?.clone();
-                    let members_attrset =
-                        self.eval_state.require_attrs_select(&parent, "members")?;
-                    let member = self
-                        .eval_state
-                        .require_attrs_select(&members_attrset, &request.payload.name)?;
-                    // Determine if this is a resource (has "resource" attr) or composite
-                    let resource_opt = self
-                        .eval_state
-                        .require_attrs_select_opt(&member, "resource")?;
-                    match resource_opt {
-                        Some(resource_data) => Ok((resource_data, true)), // is resource
-                        None => Ok((member, false)),                      // is composite
-                    }
-                })();
-
-                match result {
-                    Ok((value, is_resource)) => {
-                        self.values.insert(request.assign_to.num(), Ok(value));
-                        let handle = if is_resource {
-                            // For resources, also track the name for GetResource
-                            self.resource_names
-                                .insert(request.assign_to.num(), request.payload.name.clone());
-                            ComponentHandle::Resource(Id::<ResourceType>::from_num(
-                                request.assign_to.num(),
-                            ))
-                        } else {
-                            ComponentHandle::Composite(Id::<CompositeType>::from_num(
-                                request.assign_to.num(),
-                            ))
-                        };
-                        // Send response indicating the component kind
-                        self.respond(EvalResponse::QueryResponse(
-                            msg_id,
-                            QueryResponseValue::ComponentLoaded(StepResult::Done(handle)),
-                        ))
-                        .await
-                    }
-                    Err(e) => {
-                        // Check if this is a dependency
-                        if let Some(dep) = parse_dependency_error(&e) {
-                            self.respond(EvalResponse::QueryResponse(
-                                msg_id,
-                                QueryResponseValue::ComponentLoaded(StepResult::Needs(dep)),
-                            ))
-                            .await
-                        } else {
-                            let error_msg = e.to_string();
-                            self.values
-                                .insert(request.assign_to.num(), Err(error_msg.clone()));
-                            self.respond(EvalResponse::Error(request.assign_to.any(), error_msg))
-                                .await
-                        }
-                    }
-                }
+            EvalRequest::AssignMember(request) => {
+                self.member_requests
+                    .insert(request.assign_to.num(), request.payload.clone());
+                self.handle_assign_request(request, |this, req| this.load_member(req))
+                    .await
+            }
+            // Query the component kind for a previously assigned member ID.
+            // Returns ComponentHandle or dependency, retrying load if needed.
+            EvalRequest::GetComponentKind(req) => {
+                self.handle_simple_request(req, QueryResponseValue::ComponentKind, |this, id| {
+                    this.get_component_kind(*id)
+                })
+                .await
             }
             EvalRequest::GetResource(req) => {
                 self.handle_simple_request(
@@ -1256,15 +1212,22 @@ mod tests {
             )
             .unwrap();
 
-            // Load component b
+            // Load component b using AssignMember + GetComponentKind
             block_on(
-                driver.perform_request(&EvalRequest::LoadComponent(AssignRequest {
+                driver.perform_request(&EvalRequest::AssignMember(AssignRequest {
                     assign_to: b_id,
                     payload: ComponentRequest {
                         parent: root_id,
                         name: "b".to_string(),
                     },
                 })),
+            )
+            .unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::GetComponentKind(QueryRequest::new(
+                    ids.next(),
+                    b_id,
+                ))),
             )
             .unwrap();
 
@@ -1372,15 +1335,22 @@ mod tests {
             )
             .unwrap();
 
-            // Load component b
+            // Load component b using AssignMember + GetComponentKind
             block_on(
-                driver.perform_request(&EvalRequest::LoadComponent(AssignRequest {
+                driver.perform_request(&EvalRequest::AssignMember(AssignRequest {
                     assign_to: b_id,
                     payload: ComponentRequest {
                         parent: root_id,
                         name: "b".to_string(),
                     },
                 })),
+            )
+            .unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::GetComponentKind(QueryRequest::new(
+                    ids.next(),
+                    b_id,
+                ))),
             )
             .unwrap();
 

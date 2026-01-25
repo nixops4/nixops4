@@ -10,8 +10,8 @@ use crate::{
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
     self, AnyType, AssignRequest, ComponentHandle, ComponentPath, ComponentRequest, CompositeType,
-    EvalRequest, EvalResponse, Id, IdNum, NamedProperty, Property, QueryResponseValue,
-    ResourceProviderInfo, ResourceType, StepResult,
+    EvalRequest, EvalResponse, Id, IdNum, MessageType, NamedProperty, Property, QueryRequest,
+    QueryResponseValue, ResourceProviderInfo, ResourceType, StepResult,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -695,8 +695,8 @@ impl WorkContext {
     /// Assign an ID to a member and kick off component loading.
     ///
     /// This is memoized to ensure stable IDs across Preview and Apply.
-    /// Sends LoadComponent to start evaluation early; LoadMember will re-send
-    /// and wait for the result (evaluator caching handles duplicate requests).
+    /// Sends AssignMember to start evaluation early; LoadMember will then
+    /// use GetComponentKind to wait for the result.
     async fn perform_assign_member_id(
         &self,
         _context: TaskContext<Self>,
@@ -707,7 +707,7 @@ impl WorkContext {
 
         // Fire and forget - kick off evaluation early
         self.eval_sender
-            .send(&EvalRequest::LoadComponent(AssignRequest {
+            .send(&EvalRequest::AssignMember(AssignRequest {
                 assign_to: id,
                 payload: ComponentRequest {
                     parent: parent_id,
@@ -719,38 +719,36 @@ impl WorkContext {
         Ok(Outcome::MemberIdAssigned(id))
     }
 
-    /// Send LoadComponent request and wait for response.
-    async fn eval_load_component(
+    /// Send GetComponentKind request and wait for response.
+    async fn eval_get_component_kind(
         &self,
         id: Id<AnyType>,
-        parent_id: Id<CompositeType>,
-        name: String,
     ) -> Result<StepResult<ComponentHandle>> {
-        let rx = self.id_subscriptions.subscribe(vec![id.num()]).await;
+        let message_id: Id<MessageType> = self.eval_sender.next_id();
+        let rx = self
+            .id_subscriptions
+            .subscribe(vec![message_id.num()])
+            .await;
         self.eval_sender
-            .send(&EvalRequest::LoadComponent(AssignRequest {
-                assign_to: id,
-                payload: ComponentRequest {
-                    parent: parent_id,
-                    name,
-                },
-            }))
+            .send(&EvalRequest::GetComponentKind(QueryRequest::new(
+                message_id, id,
+            )))
             .await?;
 
-        // Wait for ComponentLoaded response
+        // Wait for ComponentKind response
         loop {
             let (_id, r) = rx
                 .recv()
                 .await
-                .context("waiting for LoadComponent response")?;
+                .context("waiting for GetComponentKind response")?;
             match r {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ComponentLoaded(step_result) => {
+                        QueryResponseValue::ComponentKind(step_result) => {
                             return Ok(step_result);
                         }
-                        _ => bail!("Unexpected response type for LoadComponent"),
+                        _ => bail!("Unexpected response type for GetComponentKind"),
                     }
                 }
                 EvalResponse::TracingEvent(_) => {}
@@ -778,9 +776,7 @@ impl WorkContext {
         };
 
         loop {
-            let step = self
-                .eval_load_component(id, parent_id, name.clone())
-                .await?;
+            let step = self.eval_get_component_kind(id).await?;
             match step {
                 StepResult::Done(handle) => {
                     return Ok(Outcome::MemberLoaded(Ok(handle)));

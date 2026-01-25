@@ -115,7 +115,8 @@ pub struct CompositeType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
 
-/// Handle returned by LoadComponent - determines component kind
+/// Handle returned by GetComponentKind - determines component kind.
+/// The ID has the same numeric value as the assigned `Id<AnyType>`, but with refined type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComponentHandle {
     Resource(Id<ResourceType>),
@@ -192,8 +193,14 @@ pub enum EvalRequest {
     LoadRoot(AssignRequest<RootRequest>),
     /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
     ListMembers(QueryRequest<Id<CompositeType>, StepResult<Vec<String>>>),
-    /// Load a component by name from a parent composite (returns ComponentHandle indicating kind)
-    LoadComponent(AssignRequest<ComponentRequest>),
+    /// Assign an ID to a member component and start loading it.
+    /// Fire-and-forget: no response is sent. The evaluator stores the request
+    /// so that GetComponentKind can complete the load and return the result.
+    AssignMember(AssignRequest<ComponentRequest>),
+    /// Query the component kind for a previously assigned member ID.
+    /// If the component hasn't been loaded yet (or hit a dependency), this will
+    /// attempt to load it using the stored ComponentRequest from AssignMember.
+    GetComponentKind(QueryRequest<Id<AnyType>, StepResult<ComponentHandle>>),
     /// Get resource provider info for a loaded resource component
     GetResource(QueryRequest<Id<ResourceType>, StepResult<ResourceProviderInfo>>),
     /// List input names for a resource
@@ -257,8 +264,8 @@ pub enum EvalResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
     ListMembers(StepResult<Vec<String>>),
-    /// Response from LoadComponent indicating the component kind or a dependency
-    ComponentLoaded(StepResult<ComponentHandle>),
+    /// Response from GetComponentKind indicating the component kind or a dependency
+    ComponentKind(StepResult<ComponentHandle>),
     ResourceProviderInfo(StepResult<ResourceProviderInfo>),
     ListResourceInputs(StepResult<Vec<String>>),
     ResourceInputValue(StepResult<Value>),
@@ -306,8 +313,8 @@ impl RequestIdType for RootRequest {
     type IdType = CompositeType;
 }
 
-/// Request to load a component (resource or composite) by name from a parent composite.
-/// The response indicates the component kind via ComponentHandle.
+/// Payload for AssignMember: identifies a member component by parent and name.
+/// The evaluator stores this so GetComponentKind can load/retry as needed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentRequest {
     /// The parent composite component to load from.
@@ -316,8 +323,8 @@ pub struct ComponentRequest {
     pub name: String,
 }
 impl RequestIdType for ComponentRequest {
-    /// ComponentRequest returns ComponentHandle, but AssignRequest needs a single type.
-    /// We use AnyType here; the actual result is a ComponentHandle enum.
+    /// The assigned ID is `Id<AnyType>` because we don't know yet if it's
+    /// a Resource or Composite. GetComponentKind returns the refined type.
     type IdType = AnyType;
 }
 
