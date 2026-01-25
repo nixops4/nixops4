@@ -180,9 +180,9 @@ pub enum EvalRequest {
     /// Load a component by name from a parent composite (returns ComponentHandle indicating kind)
     LoadComponent(AssignRequest<ComponentRequest>),
     /// Get resource provider info for a loaded resource component
-    GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
+    GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfoState>),
     /// List input names for a resource
-    ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
+    ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, ListResourceInputsState)>),
     /// Get a specific resource input value
     GetResourceInput(QueryRequest<Property, ResourceInputState>),
     /// Provide a resource output value for the fixpoint
@@ -244,8 +244,8 @@ pub enum QueryResponseValue {
     ListMembers((Id<CompositeType>, ListMembersState)),
     /// Response from LoadComponent indicating the component kind or a dependency
     ComponentLoaded(ComponentLoadState),
-    ResourceProviderInfo(ResourceProviderInfo),
-    ListResourceInputs((Id<ResourceType>, Vec<String>)),
+    ResourceProviderInfo(ResourceProviderInfoState),
+    ListResourceInputs((Id<ResourceType>, ListResourceInputsState)),
     ResourceInputState((Property, ResourceInputState)),
 }
 
@@ -276,6 +276,24 @@ pub enum ComponentLoadState {
     /// dependency (by applying the required resource), it re-sends `LoadComponent`
     /// with the same ID. Since the dependency wasn't cached, the evaluator
     /// re-evaluates with the now-available output value.
+    StructuralDependency(NamedProperty),
+}
+
+/// Response state for GetResource request.
+/// Returns provider info, or indicates a structural dependency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceProviderInfoState {
+    Loaded(ResourceProviderInfo),
+    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
+    StructuralDependency(NamedProperty),
+}
+
+/// Response state for ListResourceInputs request.
+/// Returns input names, or indicates a structural dependency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListResourceInputsState {
+    Listed(Vec<String>),
+    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
     StructuralDependency(NamedProperty),
 }
 

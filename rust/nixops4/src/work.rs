@@ -11,7 +11,8 @@ use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
     self, AnyType, AssignRequest, ComponentHandle, ComponentLoadState, ComponentPath,
     ComponentRequest, CompositeType, EvalRequest, EvalResponse, Id, IdNum, ListMembersState,
-    NamedProperty, Property, QueryResponseValue, ResourceInputState, ResourceType,
+    ListResourceInputsState, NamedProperty, Property, QueryResponseValue, ResourceInputState,
+    ResourceProviderInfoState, ResourceType,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -104,10 +105,10 @@ pub enum Goal {
     LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
     /// Get resource provider info for a loaded resource.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceProviderInfo(Id<ResourceType>, ComponentPath),
+    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, MutationCapability),
     /// List resource inputs.
     /// Note: path is only used for logging; id is the source of truth.
-    ListResourceInputs(Id<ResourceType>, ComponentPath),
+    ListResourceInputs(Id<ResourceType>, ComponentPath, MutationCapability),
     /// Get a specific resource input value.
     /// Note: path is only used for logging; id is the source of truth.
     GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
@@ -156,10 +157,10 @@ impl Display for Goal {
                     parent_id.num()
                 )
             }
-            Goal::GetResourceProviderInfo(_, path) => {
+            Goal::GetResourceProviderInfo(_, path, _cap) => {
                 write!(f, "Get resource provider info for {}", path)
             }
-            Goal::ListResourceInputs(_, path) => {
+            Goal::ListResourceInputs(_, path, _cap) => {
                 write!(f, "List resource inputs for {}", path)
             }
             Goal::GetResourceInputValue(_, path, input, _cap) => {
@@ -808,12 +809,11 @@ impl WorkContext {
         }
     }
 
-    async fn perform_get_resource_provider_info(
+    /// Low-level helper to send GetResource request and receive response.
+    async fn eval_get_resource_provider_info(
         &self,
-        _context: TaskContext<Self>,
         id: Id<ResourceType>,
-        _resource_path: ComponentPath,
-    ) -> Result<Outcome> {
+    ) -> Result<ResourceProviderInfoState> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
@@ -829,8 +829,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ResourceProviderInfo(info) => {
-                            break Ok(Outcome::ResourceProviderInfo(info))
+                        QueryResponseValue::ResourceProviderInfo(state) => {
+                            break Ok(state);
                         }
                         _ => bail!(
                             "Unexpected response to GetResourceProviderInfo, {:?}",
@@ -843,11 +843,49 @@ impl WorkContext {
         }
     }
 
-    async fn perform_list_resource_inputs(
+    /// Get resource provider info, retrying on structural dependency.
+    /// See [`ResourceProviderInfoState::StructuralDependency`] for caching/retry semantics.
+    async fn perform_get_resource_provider_info(
         &self,
-        _context: TaskContext<Self>,
+        context: TaskContext<Self>,
         id: Id<ResourceType>,
+        resource_path: ComponentPath,
+        mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
+        loop {
+            let state = self.eval_get_resource_provider_info(id).await?;
+            match state {
+                ResourceProviderInfoState::Loaded(info) => {
+                    return Ok(Outcome::ResourceProviderInfo(info));
+                }
+                ResourceProviderInfoState::StructuralDependency(dep) => {
+                    // Resolve the dependency and retry
+                    let dep_id = self.get_resource_id(&context, &dep.resource).await?;
+                    let _r = context
+                        .require(Goal::GetResourceOutputValue(
+                            dep_id,
+                            dep.resource.clone(),
+                            dep.name.clone(),
+                            mutation_cap,
+                        ))
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "resolving structural dependency for {}: {}.{}",
+                                resource_path, dep.resource, dep.name
+                            )
+                        })?;
+                    // Retry getting provider info
+                }
+            }
+        }
+    }
+
+    /// Low-level helper to send ListResourceInputs request and receive response.
+    async fn eval_list_resource_inputs(
+        &self,
+        id: Id<ResourceType>,
+    ) -> Result<ListResourceInputsState> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
@@ -863,8 +901,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ListResourceInputs((_id, input_names)) => {
-                            break Ok(Outcome::ResourceInputsListed(input_names))
+                        QueryResponseValue::ListResourceInputs((_id, state)) => {
+                            break Ok(state);
                         }
                         _ => bail!(
                             "Unexpected response to ListResourceInputs, {:?}",
@@ -873,6 +911,44 @@ impl WorkContext {
                     }
                 }
                 EvalResponse::TracingEvent(_) => {}
+            }
+        }
+    }
+
+    /// List resource inputs, retrying on structural dependency.
+    /// See [`ListResourceInputsState::StructuralDependency`] for caching/retry semantics.
+    async fn perform_list_resource_inputs(
+        &self,
+        context: TaskContext<Self>,
+        id: Id<ResourceType>,
+        resource_path: ComponentPath,
+        mutation_cap: MutationCapability,
+    ) -> Result<Outcome> {
+        loop {
+            let state = self.eval_list_resource_inputs(id).await?;
+            match state {
+                ListResourceInputsState::Listed(input_names) => {
+                    return Ok(Outcome::ResourceInputsListed(input_names));
+                }
+                ListResourceInputsState::StructuralDependency(dep) => {
+                    // Resolve the dependency and retry
+                    let dep_id = self.get_resource_id(&context, &dep.resource).await?;
+                    let _r = context
+                        .require(Goal::GetResourceOutputValue(
+                            dep_id,
+                            dep.resource.clone(),
+                            dep.name.clone(),
+                            mutation_cap,
+                        ))
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "resolving structural dependency for {}: {}.{}",
+                                resource_path, dep.resource, dep.name
+                            )
+                        })?;
+                    // Retry listing inputs
+                }
             }
         }
     }
@@ -1000,11 +1076,19 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         let provider_info_thunk = context
-            .spawn(Goal::GetResourceProviderInfo(id, resource_path.clone()))
+            .spawn(Goal::GetResourceProviderInfo(
+                id,
+                resource_path.clone(),
+                mutation_cap,
+            ))
             .await?;
 
         let resource_inputs_list_id = context
-            .spawn(Goal::ListResourceInputs(id, resource_path.clone()))
+            .spawn(Goal::ListResourceInputs(
+                id,
+                resource_path.clone(),
+                mutation_cap,
+            ))
             .await?;
 
         let inputs_list = {
@@ -1277,17 +1361,22 @@ impl TaskWork for WorkContext {
                     .instrument(info_span!("Previewing composite"))
                     .await
             }
-            Goal::GetResourceProviderInfo(id, resource_path) => {
-                self.perform_get_resource_provider_info(context, id, resource_path.clone())
-                    .instrument(info_span!(
-                        "Getting resource provider info",
-                        resource = ?resource_path
-                    ))
-                    .await
+            Goal::GetResourceProviderInfo(id, resource_path, mutation_cap) => {
+                self.perform_get_resource_provider_info(
+                    context,
+                    id,
+                    resource_path.clone(),
+                    mutation_cap,
+                )
+                .instrument(info_span!(
+                    "Getting resource provider info",
+                    resource = ?resource_path
+                ))
+                .await
             }
 
-            Goal::ListResourceInputs(id, path) => {
-                self.perform_list_resource_inputs(context, id)
+            Goal::ListResourceInputs(id, path, mutation_cap) => {
+                self.perform_list_resource_inputs(context, id, path.clone(), mutation_cap)
                     .instrument(info_span!("Listing resource inputs", resource = ?path))
                     .await
             }
@@ -1341,7 +1430,7 @@ impl TaskWork for WorkContext {
 
                     // Get the provider info
                     let provider_info_thunk = context
-                        .spawn(Goal::GetResourceProviderInfo(id, path.clone()))
+                        .spawn(Goal::GetResourceProviderInfo(id, path.clone(), cap))
                         .await
                         .with_context(|| {
                             format!("Failed to get provider info for resource {}", path)

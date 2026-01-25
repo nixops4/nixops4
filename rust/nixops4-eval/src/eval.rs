@@ -10,8 +10,9 @@ use nix_bindings_expr::{
 };
 use nixops4_core::eval_api::{
     AssignRequest, ComponentHandle, ComponentLoadState, CompositeType, EvalRequest, EvalResponse,
-    FlakeType, Id, IdNum, ListMembersState, NamedProperty, QueryRequest, QueryResponseValue,
-    RequestIdType, ResourceInputDependency, ResourceInputState, ResourceProviderInfo, ResourceType,
+    FlakeType, Id, IdNum, ListMembersState, ListResourceInputsState, NamedProperty, QueryRequest,
+    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
+    ResourceProviderInfo, ResourceProviderInfoState, ResourceType,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -344,10 +345,23 @@ impl<R: Respond> EvaluationDriver<R> {
                     req,
                     QueryResponseValue::ListResourceInputs,
                     |this, req| {
-                        let resource = this.get_value(req.to_owned())?.clone();
-                        let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
-                        let inputs = this.eval_state.require_attrs_names(&inputs)?;
-                        Ok((*req, inputs))
+                        let attempt: Result<Vec<String>> = (|| {
+                            let resource = this.get_value(req.to_owned())?.clone();
+                            let inputs =
+                                this.eval_state.require_attrs_select(&resource, "inputs")?;
+                            let inputs = this.eval_state.require_attrs_names(&inputs)?;
+                            Ok(inputs)
+                        })();
+                        match attempt {
+                            Ok(names) => Ok((*req, ListResourceInputsState::Listed(names))),
+                            Err(e) => {
+                                if let Some(dep) = parse_structural_dependency_error(&e) {
+                                    Ok((*req, ListResourceInputsState::StructuralDependency(dep)))
+                                } else {
+                                    Err(e)
+                                }
+                            }
+                        }
                     },
                 )
                 .await
@@ -500,11 +514,20 @@ fn perform_load_root<R: Respond>(
 fn perform_get_resource<R: Respond>(
     this: &mut EvaluationDriver<R>,
     req: &Id<nixops4_core::eval_api::ResourceType>,
-) -> Result<ResourceProviderInfo> {
+) -> Result<ResourceProviderInfoState> {
     let resource = this.get_value(req.to_owned())?.clone();
     let resource_name = this.resource_names.get(&req.num()).unwrap();
-    // let resource_api = this.eval_state.require_attrs_select(&resource, "_type")?;
-    parse_resource(req, &mut this.eval_state, resource_name, resource)
+    let attempt = parse_resource(req, &mut this.eval_state, resource_name, resource);
+    match attempt {
+        Ok(info) => Ok(ResourceProviderInfoState::Loaded(info)),
+        Err(e) => {
+            if let Some(dep) = parse_structural_dependency_error(&e) {
+                Ok(ResourceProviderInfoState::StructuralDependency(dep))
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 fn parse_resource(
@@ -636,8 +659,9 @@ mod tests {
     use nix_bindings_flake::FlakeSettings;
     use nix_bindings_store::store::Store;
     use nixops4_core::eval_api::{
-        AssignRequest, FlakeRequest, Ids, ListMembersState, QueryRequest, QueryResponseValue,
-        RootRequest,
+        AnyType, AssignRequest, ComponentPath, ComponentRequest, CompositeType, FlakeRequest, Id,
+        Ids, ListMembersState, ListResourceInputsState, QueryRequest, QueryResponseValue,
+        ResourceProviderInfoState, ResourceType, RootRequest,
     };
     use tempfile::TempDir;
     use tokio::runtime;
@@ -1197,5 +1221,240 @@ mod tests {
         );
 
         drop(guard);
+    }
+
+    /// Test that GetResource returns a structural dependency when the resource type
+    /// depends on another resource's output.
+    #[test]
+    fn test_get_resource_structural_dependency() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = { resourceType = {}; };
+                                        state = null;
+                                    };
+                                };
+                                b = {
+                                    resource = {
+                                        # type depends on resource a's output
+                                        type = outputValues.a.resourceType;
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = {};
+                                        state = null;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id: Id<CompositeType> = ids.next();
+            let b_id: Id<AnyType> = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+
+            // Load component b
+            block_on(
+                driver.perform_request(&EvalRequest::LoadComponent(AssignRequest {
+                    assign_to: b_id,
+                    payload: ComponentRequest {
+                        parent: root_id,
+                        name: "b".to_string(),
+                    },
+                })),
+            )
+            .unwrap();
+
+            // Clear responses and try GetResource on b
+            responses.lock().unwrap().clear();
+
+            let b_resource_id = Id::<ResourceType>::from_num(b_id.num());
+            block_on(
+                driver.perform_request(&EvalRequest::GetResource(QueryRequest::new(
+                    ids.next(),
+                    b_resource_id,
+                ))),
+            )
+            .unwrap();
+
+            // Should get a structural dependency response
+            let r = responses.lock().unwrap();
+            assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+            match &r[0] {
+                EvalResponse::QueryResponse(
+                    _,
+                    QueryResponseValue::ResourceProviderInfo(
+                        ResourceProviderInfoState::StructuralDependency(dep),
+                    ),
+                ) => {
+                    assert_eq!(dep.resource, ComponentPath(vec!["a".to_string()]));
+                    assert_eq!(dep.name, "resourceType");
+                }
+                other => panic!("expected StructuralDependency, got: {:?}", other),
+            }
+
+            drop(guard);
+        }
+    }
+
+    /// Test that ListResourceInputs returns a structural dependency when the inputs
+    /// attrset structure depends on another resource's output.
+    #[test]
+    fn test_list_resource_inputs_structural_dependency() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        # extraInputs is an attrset that b will merge into its inputs
+                                        outputsSkeleton = { extraInputs = {}; };
+                                        state = null;
+                                    };
+                                };
+                                b = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        # inputs attrset structure depends on resource a's output
+                                        # The // operator forces evaluation to determine attr names
+                                        inputs = { static = "value"; } // outputValues.a.extraInputs;
+                                        outputsSkeleton = {};
+                                        state = null;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id: Id<CompositeType> = ids.next();
+            let b_id: Id<AnyType> = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+
+            // Load component b
+            block_on(
+                driver.perform_request(&EvalRequest::LoadComponent(AssignRequest {
+                    assign_to: b_id,
+                    payload: ComponentRequest {
+                        parent: root_id,
+                        name: "b".to_string(),
+                    },
+                })),
+            )
+            .unwrap();
+
+            // Clear responses and try ListResourceInputs on b
+            responses.lock().unwrap().clear();
+
+            let b_resource_id = Id::<ResourceType>::from_num(b_id.num());
+            block_on(
+                driver.perform_request(&EvalRequest::ListResourceInputs(QueryRequest::new(
+                    ids.next(),
+                    b_resource_id,
+                ))),
+            )
+            .unwrap();
+
+            // Should get a structural dependency response
+            let r = responses.lock().unwrap();
+            assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+            match &r[0] {
+                EvalResponse::QueryResponse(
+                    _,
+                    QueryResponseValue::ListResourceInputs((
+                        _,
+                        ListResourceInputsState::StructuralDependency(dep),
+                    )),
+                ) => {
+                    assert_eq!(dep.resource, ComponentPath(vec!["a".to_string()]));
+                    assert_eq!(dep.name, "extraInputs");
+                }
+                other => panic!("expected StructuralDependency, got: {:?}", other),
+            }
+
+            drop(guard);
+        }
     }
 }
