@@ -8,27 +8,6 @@ parentArgs@{
 }:
 let
   inherit (lib) mkOption types;
-
-  membersDescription = ''
-    The member components.
-
-    A member is either:
-    - A resource component: has resource options (type, inputs, outputs, etc.)
-    - A composite component: has nested members
-
-    Example:
-    ```nix
-    members.webServer = {
-      type = providers.local.exec;
-      inputs.executable = "nginx";
-    };
-    members.database = {
-      members.primary = { ... };
-      members.replica = { ... };
-    };
-    ```
-  '';
-
 in
 {
   options.members = mkOption {
@@ -55,7 +34,25 @@ in
       }
     );
     default = { };
-    description = membersDescription;
+    description = ''
+      The member components.
+
+      A member is either:
+      - A resource component: has resource options (type, inputs, outputs, etc.)
+      - A composite component: has nested members
+
+      Example:
+      ```nix
+      members.webServer = {
+        type = providers.local.exec;
+        inputs.executable = "nginx";
+      };
+      members.database = {
+        members.primary = { ... };
+        members.replica = { ... };
+      };
+      ```
+    '';
     visible = "shallow";
   };
 
