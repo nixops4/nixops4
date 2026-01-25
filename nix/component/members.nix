@@ -1,8 +1,7 @@
-# Defines the `members` option and composite output handling for nested components.
-parentArgs@{
+# Defines the `members` option for nested components.
+{
   config,
   lib,
-  options,
   resourceProviderSystem,
   ...
 }:
@@ -18,17 +17,6 @@ in
           inherit resourceProviderSystem;
         };
         modules = [
-          # Inject outputs from parent's config.outputs.${name}
-          (
-            { name, ... }:
-            {
-              outputs =
-                { ... }:
-                {
-                  config = parentArgs.config.outputs.${name} or { };
-                };
-            }
-          )
           ./base-modules.nix
         ];
       }
@@ -59,13 +47,5 @@ in
   config = {
     # Expose members as module arg so users can access sibling outputs: members.X.outputs.Y
     _module.args.members = config.members;
-
-    # Composites need freeformType on outputs to accept children's output values
-    # lazyAttrsOf raw avoids check/thunk wrapping at each nesting layer
-    outputs =
-      { ... }:
-      {
-        freeformType = lib.mkIf (!options.resourceType.isDefined) (types.lazyAttrsOf types.raw);
-      };
   };
 }

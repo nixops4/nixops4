@@ -44,7 +44,47 @@ let
       resourceProviderSystem,
       outputValues,
       ...
-    }@args:
+    }:
+    let
+      # Recursively inject output values into resources via lexical scope.
+      # Re-declares `members` to add injector modules that capture output
+      # values through closures, keeping the internal structure (`outputValues`)
+      # private as far as the modules are concerned.
+      makeOutputInjector =
+        outputsForThis:
+        { options, ... }:
+        {
+          # imports indirection just so we can set _file
+          imports = [
+            {
+              _file = "<resource outputs from nixops>";
+              config.outputs = lib.mkIf options.resourceType.isDefined (
+                { ... }:
+                {
+                  config = outputsForThis;
+                }
+              );
+            }
+            {
+              _file = "<resource output injection support for component members>";
+              options.members = lib.mkOption {
+                type = lib.types.lazyAttrsOf (
+                  lib.types.submoduleWith {
+                    modules = [
+                      (
+                        { name, ... }:
+                        {
+                          imports = [ (makeOutputInjector (outputsForThis.${name} or { })) ];
+                        }
+                      )
+                    ];
+                  }
+                );
+              };
+            }
+          ];
+        };
+    in
     lib.evalModules (
       baseArgs
       // {
@@ -52,14 +92,7 @@ let
           inherit resourceProviderSystem;
         };
         modules = baseArgs.modules ++ [
-          # Inject output values into root's config.outputs
-          {
-            outputs =
-              { ... }:
-              {
-                config = outputValues;
-              };
-          }
+          (makeOutputInjector outputValues)
         ];
         class = "nixops4Component";
       }

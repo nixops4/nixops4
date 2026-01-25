@@ -529,7 +529,7 @@ fn perform_get_resource_input<R: Respond>(
     })())
 }
 
-/// Parse a structural dependency error from the evaluator.
+/// Parse a dependency error from the evaluator.
 ///
 /// When evaluating an expression requires a resource output that doesn't exist yet,
 /// the evaluator throws an error containing the dependency information encoded as
