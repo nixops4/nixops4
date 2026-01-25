@@ -7,6 +7,21 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Result of an evaluation step that may depend on a resource output.
+///
+/// - `Done(T)` - evaluation complete with value
+/// - `Needs(NamedProperty)` - evaluation needs this resource output to proceed
+///
+/// The `Needs` variant is NOT cached by the evaluator. This enables retry:
+/// after the work scheduler resolves the dependency (by applying the required
+/// resource), it re-sends the request and the evaluator re-evaluates with
+/// the now-available output value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StepResult<T> {
+    Done(T),
+    Needs(NamedProperty),
+}
+
 #[derive(Debug, Clone)]
 pub struct Ids {
     counter: Arc<AtomicU64>,
@@ -176,15 +191,15 @@ pub enum EvalRequest {
     /// Load the root component from a flake (returns a composite component)
     LoadRoot(AssignRequest<RootRequest>),
     /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
-    ListMembers(QueryRequest<Id<CompositeType>, (Id<CompositeType>, ListMembersState)>),
+    ListMembers(QueryRequest<Id<CompositeType>, StepResult<Vec<String>>>),
     /// Load a component by name from a parent composite (returns ComponentHandle indicating kind)
     LoadComponent(AssignRequest<ComponentRequest>),
     /// Get resource provider info for a loaded resource component
-    GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfoState>),
+    GetResource(QueryRequest<Id<ResourceType>, StepResult<ResourceProviderInfo>>),
     /// List input names for a resource
-    ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, ListResourceInputsState)>),
+    ListResourceInputs(QueryRequest<Id<ResourceType>, StepResult<Vec<String>>>),
     /// Get a specific resource input value
-    GetResourceInput(QueryRequest<Property, ResourceInputState>),
+    GetResourceInput(QueryRequest<Property, StepResult<Value>>),
     /// Provide a resource output value for the fixpoint
     PutResourceOutput(NamedProperty, Value),
 }
@@ -241,60 +256,12 @@ pub enum EvalResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
-    ListMembers((Id<CompositeType>, ListMembersState)),
+    ListMembers(StepResult<Vec<String>>),
     /// Response from LoadComponent indicating the component kind or a dependency
-    ComponentLoaded(ComponentLoadState),
-    ResourceProviderInfo(ResourceProviderInfoState),
-    ListResourceInputs((Id<ResourceType>, ListResourceInputsState)),
-    ResourceInputState((Property, ResourceInputState)),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ResourceInputState {
-    ResourceInputValue((Property, Value)),
-    ResourceInputDependency(ResourceInputDependency),
-}
-
-/// Response state for ListMembers request.
-/// Returns only member names - kind is determined when loading via LoadComponent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ListMembersState {
-    Listed(Vec<String>),
-    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
-    StructuralDependency(NamedProperty),
-}
-
-/// Response state for LoadComponent request.
-/// Returns the component handle, or indicates a structural dependency.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ComponentLoadState {
-    Loaded(ComponentHandle),
-    /// Evaluation requires a resource output that doesn't exist yet.
-    ///
-    /// Unlike `Loaded` and errors, this response is intentionally NOT cached by
-    /// the evaluator. This enables retry: after the work scheduler resolves the
-    /// dependency (by applying the required resource), it re-sends `LoadComponent`
-    /// with the same ID. Since the dependency wasn't cached, the evaluator
-    /// re-evaluates with the now-available output value.
-    StructuralDependency(NamedProperty),
-}
-
-/// Response state for GetResource request.
-/// Returns provider info, or indicates a structural dependency.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ResourceProviderInfoState {
-    Loaded(ResourceProviderInfo),
-    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
-    StructuralDependency(NamedProperty),
-}
-
-/// Response state for ListResourceInputs request.
-/// Returns input names, or indicates a structural dependency.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ListResourceInputsState {
-    Listed(Vec<String>),
-    /// See [`ComponentLoadState::StructuralDependency`] for retry semantics.
-    StructuralDependency(NamedProperty),
+    ComponentLoaded(StepResult<ComponentHandle>),
+    ResourceProviderInfo(StepResult<ResourceProviderInfo>),
+    ListResourceInputs(StepResult<Vec<String>>),
+    ResourceInputValue(StepResult<Value>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,12 +271,6 @@ pub struct ResourceProviderInfo {
     pub resource_type: String,
     /// Path to state handler component, if this resource is stateful
     pub state: Option<ComponentPath>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceInputDependency {
-    pub dependent: Property,
-    pub dependency: NamedProperty,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

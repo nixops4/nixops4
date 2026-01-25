@@ -9,10 +9,9 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AssignRequest, ComponentHandle, ComponentLoadState, CompositeType, EvalRequest, EvalResponse,
-    FlakeType, Id, IdNum, ListMembersState, ListResourceInputsState, NamedProperty, QueryRequest,
-    QueryResponseValue, RequestIdType, ResourceInputDependency, ResourceInputState,
-    ResourceProviderInfo, ResourceProviderInfoState, ResourceType,
+    AssignRequest, ComponentHandle, CompositeType, EvalRequest, EvalResponse, FlakeType, Id, IdNum,
+    NamedProperty, QueryRequest, QueryResponseValue, RequestIdType, ResourceProviderInfo,
+    ResourceType, StepResult,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -206,7 +205,7 @@ impl<R: Respond> EvaluationDriver<R> {
                 .await
             }
             // List member names in a composite (kind determined later via LoadComponent).
-            // See ListMembersState::StructuralDependency for retry semantics.
+            // See StepResult::Needs for retry semantics.
             EvalRequest::ListMembers(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListMembers, |this, req| {
                     let composite = this.get_value(req.to_owned())?.clone();
@@ -217,10 +216,10 @@ impl<R: Respond> EvaluationDriver<R> {
                         this.eval_state.require_attrs_names(&members_attrset)
                     })();
                     match result {
-                        Ok(names) => Ok((*req, ListMembersState::Listed(names))),
+                        Ok(names) => Ok(StepResult::Done(names)),
                         Err(e) => {
-                            if let Some(dep) = parse_structural_dependency_error(&e) {
-                                Ok((*req, ListMembersState::StructuralDependency(dep)))
+                            if let Some(dep) = parse_dependency_error(&e) {
+                                Ok(StepResult::Needs(dep))
                             } else {
                                 Err(e)
                             }
@@ -230,7 +229,7 @@ impl<R: Respond> EvaluationDriver<R> {
                 .await
             }
             // Load a component and determine its kind (resource or composite).
-            // See ComponentLoadState::StructuralDependency for caching/retry semantics.
+            // See StepResult::Needs for caching/retry semantics.
             EvalRequest::LoadComponent(request) => {
                 // Use the same ID number as a message ID for the response
                 let msg_id =
@@ -254,9 +253,7 @@ impl<R: Respond> EvaluationDriver<R> {
                             };
                             self.respond(EvalResponse::QueryResponse(
                                 msg_id,
-                                QueryResponseValue::ComponentLoaded(ComponentLoadState::Loaded(
-                                    handle,
-                                )),
+                                QueryResponseValue::ComponentLoaded(StepResult::Done(handle)),
                             ))
                             .await?;
                             return Ok(());
@@ -308,18 +305,16 @@ impl<R: Respond> EvaluationDriver<R> {
                         // Send response indicating the component kind
                         self.respond(EvalResponse::QueryResponse(
                             msg_id,
-                            QueryResponseValue::ComponentLoaded(ComponentLoadState::Loaded(handle)),
+                            QueryResponseValue::ComponentLoaded(StepResult::Done(handle)),
                         ))
                         .await
                     }
                     Err(e) => {
-                        // Check if this is a structural dependency
-                        if let Some(dep) = parse_structural_dependency_error(&e) {
+                        // Check if this is a dependency
+                        if let Some(dep) = parse_dependency_error(&e) {
                             self.respond(EvalResponse::QueryResponse(
                                 msg_id,
-                                QueryResponseValue::ComponentLoaded(
-                                    ComponentLoadState::StructuralDependency(dep),
-                                ),
+                                QueryResponseValue::ComponentLoaded(StepResult::Needs(dep)),
                             ))
                             .await
                         } else {
@@ -353,10 +348,10 @@ impl<R: Respond> EvaluationDriver<R> {
                             Ok(inputs)
                         })();
                         match attempt {
-                            Ok(names) => Ok((*req, ListResourceInputsState::Listed(names))),
+                            Ok(names) => Ok(StepResult::Done(names)),
                             Err(e) => {
-                                if let Some(dep) = parse_structural_dependency_error(&e) {
-                                    Ok((*req, ListResourceInputsState::StructuralDependency(dep)))
+                                if let Some(dep) = parse_dependency_error(&e) {
+                                    Ok(StepResult::Needs(dep))
                                 } else {
                                     Err(e)
                                 }
@@ -369,7 +364,7 @@ impl<R: Respond> EvaluationDriver<R> {
             EvalRequest::GetResourceInput(req) => {
                 self.handle_simple_request(
                     req,
-                    |x| QueryResponseValue::ResourceInputState((req.payload.clone(), x)),
+                    QueryResponseValue::ResourceInputValue,
                     perform_get_resource_input,
                 )
                 .await
@@ -514,15 +509,15 @@ fn perform_load_root<R: Respond>(
 fn perform_get_resource<R: Respond>(
     this: &mut EvaluationDriver<R>,
     req: &Id<nixops4_core::eval_api::ResourceType>,
-) -> Result<ResourceProviderInfoState> {
+) -> Result<StepResult<ResourceProviderInfo>> {
     let resource = this.get_value(req.to_owned())?.clone();
     let resource_name = this.resource_names.get(&req.num()).unwrap();
     let attempt = parse_resource(req, &mut this.eval_state, resource_name, resource);
     match attempt {
-        Ok(info) => Ok(ResourceProviderInfoState::Loaded(info)),
+        Ok(info) => Ok(StepResult::Done(info)),
         Err(e) => {
-            if let Some(dep) = parse_structural_dependency_error(&e) {
-                Ok(ResourceProviderInfoState::StructuralDependency(dep))
+            if let Some(dep) = parse_dependency_error(&e) {
+                Ok(StepResult::Needs(dep))
             } else {
                 Err(e)
             }
@@ -577,7 +572,7 @@ fn parse_resource(
 fn perform_get_resource_input<R: Respond>(
     this: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::Property,
-) -> std::result::Result<ResourceInputState, anyhow::Error> {
+) -> Result<StepResult<serde_json::Value>> {
     let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
         let resource = this.get_value(req.resource.to_owned())?.clone();
         let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
@@ -586,18 +581,10 @@ fn perform_get_resource_input<R: Respond>(
         Ok(json)
     })();
     match attempt {
-        Ok(json) => Ok(ResourceInputState::ResourceInputValue((
-            req.to_owned(),
-            json,
-        ))),
+        Ok(json) => Ok(StepResult::Done(json)),
         Err(e) => {
-            if let Some(named_property) = parse_structural_dependency_error(&e) {
-                Ok(ResourceInputState::ResourceInputDependency(
-                    ResourceInputDependency {
-                        dependent: req.to_owned(),
-                        dependency: named_property,
-                    },
-                ))
+            if let Some(dep) = parse_dependency_error(&e) {
+                Ok(StepResult::Needs(dep))
             } else {
                 Err(e)
             }
@@ -610,7 +597,7 @@ fn perform_get_resource_input<R: Respond>(
 /// When evaluating an expression requires a resource output that doesn't exist yet,
 /// the evaluator throws an error containing the dependency information encoded as
 /// base64 JSON. This function extracts that dependency.
-fn parse_structural_dependency_error(e: &anyhow::Error) -> Option<NamedProperty> {
+fn parse_dependency_error(e: &anyhow::Error) -> Option<NamedProperty> {
     let s = e.to_string();
     if !s.contains("__internal_exception_load_resource_property_#") {
         return None;
@@ -660,8 +647,7 @@ mod tests {
     use nix_bindings_store::store::Store;
     use nixops4_core::eval_api::{
         AnyType, AssignRequest, ComponentPath, ComponentRequest, CompositeType, FlakeRequest, Id,
-        Ids, ListMembersState, ListResourceInputsState, QueryRequest, QueryResponseValue,
-        ResourceProviderInfoState, ResourceType, RootRequest,
+        Ids, QueryRequest, QueryResponseValue, ResourceType, RootRequest, StepResult,
     };
     use tempfile::TempDir;
     use tokio::runtime;
@@ -876,16 +862,13 @@ mod tests {
                 match &r[0] {
                     EvalResponse::QueryResponse(
                         _,
-                        QueryResponseValue::ListMembers((id, state)),
-                    ) => {
-                        assert_eq!(id, &root_id);
-                        match state {
-                            ListMembersState::Listed(members) => {
-                                assert!(members.is_empty(), "expected empty members");
-                            }
-                            _ => panic!("expected Listed state, got: {:?}", state),
+                        QueryResponseValue::ListMembers(step_result),
+                    ) => match step_result {
+                        StepResult::Done(members) => {
+                            assert!(members.is_empty(), "expected empty members");
                         }
-                    }
+                        _ => panic!("expected Done, got: {:?}", step_result),
+                    },
                     _ => panic!("expected ListMembers response, got: {:?}", r[0]),
                 }
             }
@@ -1041,19 +1024,16 @@ mod tests {
                 match &r[0] {
                     EvalResponse::QueryResponse(
                         _,
-                        QueryResponseValue::ListMembers((id, state)),
-                    ) => {
-                        assert_eq!(id, &root_id);
-                        match state {
-                            ListMembersState::Listed(members) => {
-                                assert_eq!(members.len(), 3, "expected 3 members");
-                                assert!(members.contains(&"a".to_string()));
-                                assert!(members.contains(&"b".to_string()));
-                                assert!(members.contains(&"c".to_string()));
-                            }
-                            _ => panic!("expected Listed state, got: {:?}", state),
+                        QueryResponseValue::ListMembers(step_result),
+                    ) => match step_result {
+                        StepResult::Done(members) => {
+                            assert_eq!(members.len(), 3, "expected 3 members");
+                            assert!(members.contains(&"a".to_string()));
+                            assert!(members.contains(&"b".to_string()));
+                            assert!(members.contains(&"c".to_string()));
                         }
-                    }
+                        _ => panic!("expected Done, got: {:?}", step_result),
+                    },
                     _ => panic!("expected ListMembers response, got: {:?}", r[0]),
                 }
             }
@@ -1325,14 +1305,12 @@ mod tests {
             match &r[0] {
                 EvalResponse::QueryResponse(
                     _,
-                    QueryResponseValue::ResourceProviderInfo(
-                        ResourceProviderInfoState::StructuralDependency(dep),
-                    ),
+                    QueryResponseValue::ResourceProviderInfo(StepResult::Needs(dep)),
                 ) => {
                     assert_eq!(dep.resource, ComponentPath(vec!["a".to_string()]));
                     assert_eq!(dep.name, "resourceType");
                 }
-                other => panic!("expected StructuralDependency, got: {:?}", other),
+                other => panic!("expected Needs, got: {:?}", other),
             }
 
             drop(guard);
@@ -1437,21 +1415,18 @@ mod tests {
             )
             .unwrap();
 
-            // Should get a structural dependency response
+            // Should get a dependency response
             let r = responses.lock().unwrap();
             assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
             match &r[0] {
                 EvalResponse::QueryResponse(
                     _,
-                    QueryResponseValue::ListResourceInputs((
-                        _,
-                        ListResourceInputsState::StructuralDependency(dep),
-                    )),
+                    QueryResponseValue::ListResourceInputs(StepResult::Needs(dep)),
                 ) => {
                     assert_eq!(dep.resource, ComponentPath(vec!["a".to_string()]));
                     assert_eq!(dep.name, "extraInputs");
                 }
-                other => panic!("expected StructuralDependency, got: {:?}", other),
+                other => panic!("expected Needs, got: {:?}", other),
             }
 
             drop(guard);

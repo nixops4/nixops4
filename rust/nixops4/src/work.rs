@@ -9,10 +9,9 @@ use crate::{
 };
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
-    self, AnyType, AssignRequest, ComponentHandle, ComponentLoadState, ComponentPath,
-    ComponentRequest, CompositeType, EvalRequest, EvalResponse, Id, IdNum, ListMembersState,
-    ListResourceInputsState, NamedProperty, Property, QueryResponseValue, ResourceInputState,
-    ResourceProviderInfoState, ResourceType,
+    self, AnyType, AssignRequest, ComponentHandle, ComponentPath, ComponentRequest, CompositeType,
+    EvalRequest, EvalResponse, Id, IdNum, NamedProperty, Property, QueryResponseValue,
+    ResourceProviderInfo, ResourceType, StepResult,
 };
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
@@ -443,7 +442,10 @@ impl WorkContext {
     }
 
     /// Low-level helper to send ListMembers request and receive response.
-    async fn eval_list_members(&self, composite_id: Id<CompositeType>) -> Result<ListMembersState> {
+    async fn eval_list_members(
+        &self,
+        composite_id: Id<CompositeType>,
+    ) -> Result<StepResult<Vec<String>>> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
@@ -459,8 +461,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ListMembers((_dt, state)) => {
-                            return Ok(state);
+                        QueryResponseValue::ListMembers(step_result) => {
+                            return Ok(step_result);
                         }
                         _ => bail!(
                             "Unexpected response to ListMembers, {:?}",
@@ -638,9 +640,9 @@ impl WorkContext {
         Ok(Outcome::Done())
     }
 
-    /// List member names in a composite, retrying on structural dependency.
-    /// See [`ListMembersState::StructuralDependency`] for caching/retry semantics.
-    /// With mutation_cap None: returns structural dependency as preview item.
+    /// List member names in a composite, retrying on dependency.
+    /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: returns dependency as preview item.
     async fn perform_list_members(
         &self,
         context: TaskContext<Self>,
@@ -649,12 +651,12 @@ impl WorkContext {
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
-            let state = self.eval_list_members(composite_id).await?;
-            match state {
-                ListMembersState::Listed(names) => {
+            let step = self.eval_list_members(composite_id).await?;
+            match step {
+                StepResult::Done(names) => {
                     return Ok(Outcome::MembersListed(Ok(names)));
                 }
-                ListMembersState::StructuralDependency(dep) => {
+                StepResult::Needs(dep) => {
                     match mutation_cap {
                         Some(cap) => {
                             // Resolve the dependency and retry
@@ -719,7 +721,7 @@ impl WorkContext {
         id: Id<AnyType>,
         parent_id: Id<CompositeType>,
         name: String,
-    ) -> Result<ComponentLoadState> {
+    ) -> Result<StepResult<ComponentHandle>> {
         let rx = self.id_subscriptions.subscribe(vec![id.num()]).await;
         self.eval_sender
             .send(&EvalRequest::LoadComponent(AssignRequest {
@@ -741,8 +743,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ComponentLoaded(load_state) => {
-                            return Ok(load_state);
+                        QueryResponseValue::ComponentLoaded(step_result) => {
+                            return Ok(step_result);
                         }
                         _ => bail!("Unexpected response type for LoadComponent"),
                     }
@@ -753,8 +755,8 @@ impl WorkContext {
     }
 
     /// Load a member, using AssignMemberId for stable ID assignment.
-    /// See [`ComponentLoadState::StructuralDependency`] for caching/retry semantics.
-    /// With mutation_cap None: returns structural dependency as error (for preview).
+    /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: returns dependency as error (for preview).
     async fn perform_load_member(
         &self,
         context: TaskContext<Self>,
@@ -772,14 +774,14 @@ impl WorkContext {
         };
 
         loop {
-            let load_state = self
+            let step = self
                 .eval_load_component(id, parent_id, name.clone())
                 .await?;
-            match load_state {
-                ComponentLoadState::Loaded(handle) => {
+            match step {
+                StepResult::Done(handle) => {
                     return Ok(Outcome::MemberLoaded(Ok(handle)));
                 }
-                ComponentLoadState::StructuralDependency(dep) => {
+                StepResult::Needs(dep) => {
                     match mutation_cap {
                         Some(cap) => {
                             // Resolve the dependency and retry
@@ -813,7 +815,7 @@ impl WorkContext {
     async fn eval_get_resource_provider_info(
         &self,
         id: Id<ResourceType>,
-    ) -> Result<ResourceProviderInfoState> {
+    ) -> Result<StepResult<ResourceProviderInfo>> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
@@ -829,8 +831,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ResourceProviderInfo(state) => {
-                            break Ok(state);
+                        QueryResponseValue::ResourceProviderInfo(step_result) => {
+                            break Ok(step_result);
                         }
                         _ => bail!(
                             "Unexpected response to GetResourceProviderInfo, {:?}",
@@ -843,8 +845,8 @@ impl WorkContext {
         }
     }
 
-    /// Get resource provider info, retrying on structural dependency.
-    /// See [`ResourceProviderInfoState::StructuralDependency`] for caching/retry semantics.
+    /// Get resource provider info, retrying on dependency.
+    /// See [`StepResult::Needs`] for caching/retry semantics.
     async fn perform_get_resource_provider_info(
         &self,
         context: TaskContext<Self>,
@@ -853,12 +855,12 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         loop {
-            let state = self.eval_get_resource_provider_info(id).await?;
-            match state {
-                ResourceProviderInfoState::Loaded(info) => {
+            let step = self.eval_get_resource_provider_info(id).await?;
+            match step {
+                StepResult::Done(info) => {
                     return Ok(Outcome::ResourceProviderInfo(info));
                 }
-                ResourceProviderInfoState::StructuralDependency(dep) => {
+                StepResult::Needs(dep) => {
                     // Resolve the dependency and retry
                     let dep_id = self.get_resource_id(&context, &dep.resource).await?;
                     let _r = context
@@ -871,7 +873,7 @@ impl WorkContext {
                         .await
                         .with_context(|| {
                             format!(
-                                "resolving structural dependency for {}: {}.{}",
+                                "resolving dependency for {}: {}.{}",
                                 resource_path, dep.resource, dep.name
                             )
                         })?;
@@ -885,7 +887,7 @@ impl WorkContext {
     async fn eval_list_resource_inputs(
         &self,
         id: Id<ResourceType>,
-    ) -> Result<ListResourceInputsState> {
+    ) -> Result<StepResult<Vec<String>>> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
         self.eval_sender
@@ -901,8 +903,8 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ListResourceInputs((_id, state)) => {
-                            break Ok(state);
+                        QueryResponseValue::ListResourceInputs(step_result) => {
+                            break Ok(step_result);
                         }
                         _ => bail!(
                             "Unexpected response to ListResourceInputs, {:?}",
@@ -915,8 +917,8 @@ impl WorkContext {
         }
     }
 
-    /// List resource inputs, retrying on structural dependency.
-    /// See [`ListResourceInputsState::StructuralDependency`] for caching/retry semantics.
+    /// List resource inputs, retrying on dependency.
+    /// See [`StepResult::Needs`] for caching/retry semantics.
     async fn perform_list_resource_inputs(
         &self,
         context: TaskContext<Self>,
@@ -925,12 +927,12 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         loop {
-            let state = self.eval_list_resource_inputs(id).await?;
-            match state {
-                ListResourceInputsState::Listed(input_names) => {
+            let step = self.eval_list_resource_inputs(id).await?;
+            match step {
+                StepResult::Done(input_names) => {
                     return Ok(Outcome::ResourceInputsListed(input_names));
                 }
-                ListResourceInputsState::StructuralDependency(dep) => {
+                StepResult::Needs(dep) => {
                     // Resolve the dependency and retry
                     let dep_id = self.get_resource_id(&context, &dep.resource).await?;
                     let _r = context
@@ -943,7 +945,7 @@ impl WorkContext {
                         .await
                         .with_context(|| {
                             format!(
-                                "resolving structural dependency for {}: {}.{}",
+                                "resolving dependency for {}: {}.{}",
                                 resource_path, dep.resource, dep.name
                             )
                         })?;
@@ -983,47 +985,45 @@ impl WorkContext {
                 EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
                 EvalResponse::QueryResponse(_id, query_response_value) => {
                     match query_response_value {
-                        QueryResponseValue::ResourceInputState((_, state)) => {
-                            match state {
-                                ResourceInputState::ResourceInputValue((_, value)) => {
-                                    break Ok(Outcome::ResourceInputValue(value))
-                                }
-                                ResourceInputState::ResourceInputDependency(x) => {
-                                    // Get the resource ID
-                                    let dep_id = self
-                                        .get_resource_id(&context, &x.dependency.resource)
-                                        .await
-                                        .with_context(|| {
-                                            format!(
-                                                "while getting resource ID for dependency: {}",
-                                                &x.dependency.resource
-                                            )
-                                        })?;
-
-                                    let property = x.dependency.name.clone();
-                                    let resource = x.dependency.resource.clone();
-                                    let r = context
-                                        .require(Goal::GetResourceOutputValue(
-                                            dep_id,
-                                            resource,
-                                            property,
-                                            mutation_cap,
-                                        ))
-                                        .await
-                                        .with_context(|| {
-                                            format!(
-                                                "while getting resource input value: {}.{}",
-                                                &x.dependency.resource, &x.dependency.name
-                                            )
-                                        })?;
-                                    // Propagate any errors
-                                    let _outcome = clone_result(&r)?;
-
-                                    // Ignore output value, because ApplyResource already pushes all its outputs eagerly.
-                                    // Just let it loop back and let it try to evaluate the requested input again
-                                }
+                        QueryResponseValue::ResourceInputValue(step_result) => match step_result {
+                            StepResult::Done(value) => {
+                                break Ok(Outcome::ResourceInputValue(value))
                             }
-                        }
+                            StepResult::Needs(dep) => {
+                                // Get the resource ID
+                                let dep_id = self
+                                    .get_resource_id(&context, &dep.resource)
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "while getting resource ID for dependency: {}",
+                                            &dep.resource
+                                        )
+                                    })?;
+
+                                let property = dep.name.clone();
+                                let resource = dep.resource.clone();
+                                let r = context
+                                    .require(Goal::GetResourceOutputValue(
+                                        dep_id,
+                                        resource,
+                                        property,
+                                        mutation_cap,
+                                    ))
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "while getting resource input value: {}.{}",
+                                            &dep.resource, &dep.name
+                                        )
+                                    })?;
+                                // Propagate any errors
+                                let _outcome = clone_result(&r)?;
+
+                                // Ignore output value, because ApplyResource already pushes all its outputs eagerly.
+                                // Just let it loop back and let it try to evaluate the requested input again
+                            }
+                        },
                         _ => bail!(
                             "Unexpected response to GetResourceInputValue, {:?}",
                             query_response_value
