@@ -441,6 +441,27 @@ impl WorkContext {
         }
     }
 
+    /// Resolve a dependency by requiring the resource output value.
+    async fn resolve_dependency(
+        &self,
+        context: &TaskContext<Self>,
+        dep: &NamedProperty,
+        mutation_cap: MutationCapability,
+    ) -> Result<()> {
+        let dep_id = self.get_resource_id(context, &dep.resource).await?;
+        let r = context
+            .require(Goal::GetResourceOutputValue(
+                dep_id,
+                dep.resource.clone(),
+                dep.name.clone(),
+                mutation_cap,
+            ))
+            .await
+            .with_context(|| format!("resolving dependency {}.{}", dep.resource, dep.name))?;
+        clone_result(&r)?;
+        Ok(())
+    }
+
     /// Low-level helper to send ListMembers request and receive response.
     async fn eval_list_members(
         &self,
@@ -656,34 +677,17 @@ impl WorkContext {
                 StepResult::Done(names) => {
                     return Ok(Outcome::MembersListed(Ok(names)));
                 }
-                StepResult::Needs(dep) => {
-                    match mutation_cap {
-                        Some(cap) => {
-                            // Resolve the dependency and retry
-                            let dep_id = self.get_resource_id(&context, &dep.resource).await?;
-
-                            let r = context
-                                .require(Goal::GetResourceOutputValue(
-                                    dep_id,
-                                    dep.resource.clone(),
-                                    dep.name.clone(),
-                                    cap,
-                                ))
-                                .await?;
-                            let _outcome = clone_result(&r)?;
-                            // Retry listing
-                        }
-                        None => {
-                            // Preview mode: return the dependency
-                            return Ok(Outcome::MembersListed(Err(
-                                PreviewItem::StructuralDependency {
-                                    path: Some(composite_path),
-                                    depends_on: dep,
-                                },
-                            )));
-                        }
+                StepResult::Needs(dep) => match mutation_cap {
+                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    None => {
+                        return Ok(Outcome::MembersListed(Err(
+                            PreviewItem::StructuralDependency {
+                                path: Some(composite_path),
+                                depends_on: dep,
+                            },
+                        )));
                     }
-                }
+                },
             }
         }
     }
@@ -781,32 +785,17 @@ impl WorkContext {
                 StepResult::Done(handle) => {
                     return Ok(Outcome::MemberLoaded(Ok(handle)));
                 }
-                StepResult::Needs(dep) => {
-                    match mutation_cap {
-                        Some(cap) => {
-                            // Resolve the dependency and retry
-                            let dep_id = self.get_resource_id(&context, &dep.resource).await?;
-                            let _r = context
-                                .require(Goal::GetResourceOutputValue(
-                                    dep_id,
-                                    dep.resource.clone(),
-                                    dep.name.clone(),
-                                    cap,
-                                ))
-                                .await?;
-                            // Retry loading
-                        }
-                        None => {
-                            // Preview mode: return the dependency
-                            return Ok(Outcome::MemberLoaded(Err(
-                                PreviewItem::StructuralDependency {
-                                    path: None,
-                                    depends_on: dep,
-                                },
-                            )));
-                        }
+                StepResult::Needs(dep) => match mutation_cap {
+                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    None => {
+                        return Ok(Outcome::MemberLoaded(Err(
+                            PreviewItem::StructuralDependency {
+                                path: None,
+                                depends_on: dep,
+                            },
+                        )));
                     }
-                }
+                },
             }
         }
     }
@@ -851,33 +840,15 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_path: ComponentPath,
+        _resource_path: ComponentPath,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         loop {
-            let step = self.eval_get_resource_provider_info(id).await?;
-            match step {
-                StepResult::Done(info) => {
-                    return Ok(Outcome::ResourceProviderInfo(info));
-                }
+            match self.eval_get_resource_provider_info(id).await? {
+                StepResult::Done(info) => return Ok(Outcome::ResourceProviderInfo(info)),
                 StepResult::Needs(dep) => {
-                    // Resolve the dependency and retry
-                    let dep_id = self.get_resource_id(&context, &dep.resource).await?;
-                    let _r = context
-                        .require(Goal::GetResourceOutputValue(
-                            dep_id,
-                            dep.resource.clone(),
-                            dep.name.clone(),
-                            mutation_cap,
-                        ))
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "resolving dependency for {}: {}.{}",
-                                resource_path, dep.resource, dep.name
-                            )
-                        })?;
-                    // Retry getting provider info
+                    self.resolve_dependency(&context, &dep, mutation_cap)
+                        .await?
                 }
             }
         }
@@ -923,33 +894,17 @@ impl WorkContext {
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_path: ComponentPath,
+        _resource_path: ComponentPath,
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         loop {
-            let step = self.eval_list_resource_inputs(id).await?;
-            match step {
+            match self.eval_list_resource_inputs(id).await? {
                 StepResult::Done(input_names) => {
-                    return Ok(Outcome::ResourceInputsListed(input_names));
+                    return Ok(Outcome::ResourceInputsListed(input_names))
                 }
                 StepResult::Needs(dep) => {
-                    // Resolve the dependency and retry
-                    let dep_id = self.get_resource_id(&context, &dep.resource).await?;
-                    let _r = context
-                        .require(Goal::GetResourceOutputValue(
-                            dep_id,
-                            dep.resource.clone(),
-                            dep.name.clone(),
-                            mutation_cap,
-                        ))
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "resolving dependency for {}: {}.{}",
-                                resource_path, dep.resource, dep.name
-                            )
-                        })?;
-                    // Retry listing inputs
+                    self.resolve_dependency(&context, &dep, mutation_cap)
+                        .await?
                 }
             }
         }
@@ -990,38 +945,8 @@ impl WorkContext {
                                 break Ok(Outcome::ResourceInputValue(value))
                             }
                             StepResult::Needs(dep) => {
-                                // Get the resource ID
-                                let dep_id = self
-                                    .get_resource_id(&context, &dep.resource)
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            "while getting resource ID for dependency: {}",
-                                            &dep.resource
-                                        )
-                                    })?;
-
-                                let property = dep.name.clone();
-                                let resource = dep.resource.clone();
-                                let r = context
-                                    .require(Goal::GetResourceOutputValue(
-                                        dep_id,
-                                        resource,
-                                        property,
-                                        mutation_cap,
-                                    ))
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            "while getting resource input value: {}.{}",
-                                            &dep.resource, &dep.name
-                                        )
-                                    })?;
-                                // Propagate any errors
-                                let _outcome = clone_result(&r)?;
-
-                                // Ignore output value, because ApplyResource already pushes all its outputs eagerly.
-                                // Just let it loop back and let it try to evaluate the requested input again
+                                self.resolve_dependency(&context, &dep, mutation_cap)
+                                    .await?
                             }
                         },
                         _ => bail!(
