@@ -16,6 +16,24 @@ use nixops4_core::eval_api::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Convert a Result to StepResult, catching dependency exceptions.
+///
+/// When evaluating Nix expressions, a dependency on a resource output that
+/// doesn't exist yet is signaled via a special exception. This function
+/// catches that exception and converts it to `StepResult::Needs`.
+fn catch_dependency<T>(result: Result<T>) -> Result<StepResult<T>> {
+    match result {
+        Ok(val) => Ok(StepResult::Done(val)),
+        Err(e) => {
+            if let Some(dep) = parse_dependency_error(&e) {
+                Ok(StepResult::Needs(dep))
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 pub trait Respond {
     fn call(
         &mut self,
@@ -209,22 +227,12 @@ impl<R: Respond> EvaluationDriver<R> {
             EvalRequest::ListMembers(req) => {
                 self.handle_simple_request(req, QueryResponseValue::ListMembers, |this, req| {
                     let composite = this.get_value(req.to_owned())?.clone();
-                    let result = (|| -> Result<Vec<String>> {
+                    catch_dependency((|| {
                         let members_attrset = this
                             .eval_state
                             .require_attrs_select(&composite, "members")?;
                         this.eval_state.require_attrs_names(&members_attrset)
-                    })();
-                    match result {
-                        Ok(names) => Ok(StepResult::Done(names)),
-                        Err(e) => {
-                            if let Some(dep) = parse_dependency_error(&e) {
-                                Ok(StepResult::Needs(dep))
-                            } else {
-                                Err(e)
-                            }
-                        }
-                    }
+                    })())
                 })
                 .await
             }
@@ -340,23 +348,12 @@ impl<R: Respond> EvaluationDriver<R> {
                     req,
                     QueryResponseValue::ListResourceInputs,
                     |this, req| {
-                        let attempt: Result<Vec<String>> = (|| {
+                        catch_dependency((|| {
                             let resource = this.get_value(req.to_owned())?.clone();
                             let inputs =
                                 this.eval_state.require_attrs_select(&resource, "inputs")?;
-                            let inputs = this.eval_state.require_attrs_names(&inputs)?;
-                            Ok(inputs)
-                        })();
-                        match attempt {
-                            Ok(names) => Ok(StepResult::Done(names)),
-                            Err(e) => {
-                                if let Some(dep) = parse_dependency_error(&e) {
-                                    Ok(StepResult::Needs(dep))
-                                } else {
-                                    Err(e)
-                                }
-                            }
-                        }
+                            this.eval_state.require_attrs_names(&inputs)
+                        })())
                     },
                 )
                 .await
@@ -512,17 +509,12 @@ fn perform_get_resource<R: Respond>(
 ) -> Result<StepResult<ResourceProviderInfo>> {
     let resource = this.get_value(req.to_owned())?.clone();
     let resource_name = this.resource_names.get(&req.num()).unwrap();
-    let attempt = parse_resource(req, &mut this.eval_state, resource_name, resource);
-    match attempt {
-        Ok(info) => Ok(StepResult::Done(info)),
-        Err(e) => {
-            if let Some(dep) = parse_dependency_error(&e) {
-                Ok(StepResult::Needs(dep))
-            } else {
-                Err(e)
-            }
-        }
-    }
+    catch_dependency(parse_resource(
+        req,
+        &mut this.eval_state,
+        resource_name,
+        resource,
+    ))
 }
 
 fn parse_resource(
@@ -573,23 +565,12 @@ fn perform_get_resource_input<R: Respond>(
     this: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::Property,
 ) -> Result<StepResult<serde_json::Value>> {
-    let attempt: Result<serde_json::Value, anyhow::Error> = (|| {
+    catch_dependency((|| {
         let resource = this.get_value(req.resource.to_owned())?.clone();
         let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
         let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
-        let json = value_to_json(&mut this.eval_state, &input)?;
-        Ok(json)
-    })();
-    match attempt {
-        Ok(json) => Ok(StepResult::Done(json)),
-        Err(e) => {
-            if let Some(dep) = parse_dependency_error(&e) {
-                Ok(StepResult::Needs(dep))
-            } else {
-                Err(e)
-            }
-        }
-    }
+        value_to_json(&mut this.eval_state, &input)
+    })())
 }
 
 /// Parse a structural dependency error from the evaluator.
