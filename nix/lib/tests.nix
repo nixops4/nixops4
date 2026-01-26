@@ -12,26 +12,26 @@ let
 in
 
 {
-  "minimal mkDeployment call" =
+  "minimal mkRoot call" =
     let
-      d = self.lib.mkDeployment { modules = [ ]; };
+      d = self.lib.mkRoot { modules = [ ]; };
     in
     {
       "test type" = {
         expr = d._type;
-        expected = "nixops4Deployment";
+        expected = "nixops4Component";
       };
-      "test resource set" = {
-        expr = d.deploymentFunction {
-          resources = { };
+      "test empty members" = {
+        expr = d.rootFunction {
           resourceProviderSystem = system;
+          outputValues = { };
         };
         expected = {
-          resources = { };
+          members = { };
         };
       };
     };
-  "elaborate mkDeployment call" =
+  "elaborate mkRoot call" =
     let
       localProvider = {
         executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
@@ -61,25 +61,25 @@ in
         };
       };
 
-      d = self.lib.mkDeployment {
+      d = self.lib.mkRoot {
         modules = [
           { _module.args.foo = "bar"; }
-          { _class = "nixops4Deployment"; }
+          { _class = "nixops4Component"; }
           (
             {
               characteristic,
               config,
               foo,
+              members,
               options,
-              resources,
               providers,
               ...
             }:
             assert characteristic == "I'm a special snowflake";
 
             {
-              _file = "<elaborate mkDeployment call>";
-              resources.a =
+              _file = "<elaborate mkRoot call>";
+              members.a =
                 # Can't assert this much higher up because _module must be
                 # evaluatable before we ask for `foo`, which comes from
                 # `_module.args`.
@@ -111,7 +111,7 @@ in
                   requireState = false;
                 };
 
-              resources.b = {
+              members.b = {
                 resourceType = "bee";
                 provider = {
                   executable = "/foo/bin/bee";
@@ -127,15 +127,17 @@ in
                     options.a2 = mkOption {
                       type = types.str;
                     };
-                    config.a = resources.a.aResult;
-                    config.a2 = config.resources.a.outputs.aResult;
+                    # Access outputs via members.X.outputs.Y
+                    config.a = members.a.outputs.aResult;
+                    # Or equivalently via config.members.X.outputs.Y
+                    config.a2 = config.members.a.outputs.aResult;
                   };
                 outputs = { };
                 outputsSkeleton = { };
                 requireState = false;
               };
               providers.local = localProvider;
-              resources.install-mgmttool = {
+              members.install-mgmttool = {
                 type = providers.local.exec;
                 inputs.executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
               };
@@ -152,15 +154,15 @@ in
       };
 
       # What NixOps does is effectively:
-      #   fix (deploymentFunction . realWorld)
-      #   (or equivalently: fix (realWorld . deploymentFunction))
+      #   fix (rootFunction . realWorld)
+      #   (or equivalently: fix (realWorld . rootFunction))
       # In this model,
-      # forNixOps: intermediate value going from deploymentFunction to realWorld
-      # forExpr: intermediate value going from realWorld to deploymentFunction
-      forNixOps = d.deploymentFunction forExpr;
+      # forNixOps: intermediate value going from rootFunction to realWorld
+      # forExpr: intermediate value going from realWorld to rootFunction
+      forNixOps = d.rootFunction forExpr;
       forExpr = {
         resourceProviderSystem = system;
-        resources = {
+        outputValues = {
           a.aResult = "aye it's a result";
           b = { };
           install-mgmttool = {
@@ -173,56 +175,62 @@ in
     {
       "test type" = {
         expr = d._type;
-        expected = "nixops4Deployment";
+        expected = "nixops4Component";
       };
-      "test resource set passed to NixOps" = {
+      "test members passed to NixOps" = {
         expr = forNixOps;
         expected = {
-          resources = {
+          members = {
             a = {
-              inputs = { };
-              provider = {
-                args = [ "positive" ];
-                executable = "/foo/bin/agree";
-                type = "stdio";
+              resource = {
+                inputs = { };
+                provider = {
+                  args = [ "positive" ];
+                  executable = "/foo/bin/agree";
+                  type = "stdio";
+                };
+                type = "aye";
+                outputsSkeleton = {
+                  aResult = { };
+                };
+                state = null;
               };
-              type = "aye";
-              outputsSkeleton = {
-                aResult = { };
-              };
-              state = null;
             };
             b = {
-              inputs = {
-                a = "aye it's a result";
-                a2 = "aye it's a result";
+              resource = {
+                inputs = {
+                  a = "aye it's a result";
+                  a2 = "aye it's a result";
+                };
+                provider = {
+                  args = [ "buzz" ];
+                  executable = "/foo/bin/bee";
+                  type = "stdio";
+                };
+                type = "bee";
+                outputsSkeleton = { };
+                state = null;
               };
-              provider = {
-                args = [ "buzz" ];
-                executable = "/foo/bin/bee";
-                type = "stdio";
-              };
-              type = "bee";
-              outputsSkeleton = { };
-              state = null;
             };
             install-mgmttool = {
-              inputs = {
-                executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+              resource = {
+                inputs = {
+                  executable = "/fake/store/c00lg4l-mgmttool/bin/install-mgmttool";
+                };
+                provider = {
+                  args = [
+                    "positively"
+                    "an argument"
+                  ];
+                  executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
+                  type = "stdio";
+                };
+                type = "exec";
+                outputsSkeleton = {
+                  stdout = { };
+                };
+                state = null;
               };
-              provider = {
-                args = [
-                  "positively"
-                  "an argument"
-                ];
-                executable = "/fake/store/asdf-nixops4-resources-local/bin/nixops4-resources-local";
-                type = "stdio";
-              };
-              type = "exec";
-              outputsSkeleton = {
-                stdout = { };
-              };
-              state = null;
             };
           };
         };
@@ -264,13 +272,13 @@ in
       };
 
       # This should work - stateless resource without state
-      validStateless = self.lib.mkDeployment {
+      validStateless = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateless = {
+              members.myStateless = {
                 type = providers.example.stateless;
                 inputs.data = "hello";
               };
@@ -280,15 +288,15 @@ in
       };
 
       # This should work - stateful resource with state
-      validStateful = self.lib.mkDeployment {
+      validStateful = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateful = {
+              members.myStateful = {
                 type = providers.example.stateful;
-                state = "myStateHandler";
+                state = [ "myStateHandler" ];
                 inputs.data = "world";
               };
             }
@@ -297,13 +305,13 @@ in
       };
 
       # This should fail - stateful resource without state
-      invalidStateful = self.lib.mkDeployment {
+      invalidStateful = self.lib.mkRoot {
         modules = [
           (
             { config, providers, ... }:
             {
               providers.example = testProviderModule;
-              resources.myStateful = {
+              members.myStateful = {
                 type = providers.example.stateful;
                 inputs.data = "fail";
                 # state is missing - this should cause an error due to requireState = true
@@ -316,36 +324,111 @@ in
     {
       "test stateless resource works without state" = {
         expr =
-          (validStateless.deploymentFunction {
-            resources = {
+          (validStateless.rootFunction {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateless = { };
             };
-            resourceProviderSystem = system;
-          }).resources.myStateless.state;
+          }).members.myStateless.resource.state;
         expected = null;
       };
 
       "test stateful resource works with state" = {
         expr =
-          (validStateful.deploymentFunction {
-            resources = {
+          (validStateful.rootFunction {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateful = { };
             };
-            resourceProviderSystem = system;
-          }).resources.myStateful.state;
-        expected = "myStateHandler";
+          }).members.myStateful.resource.state;
+        expected = [ "myStateHandler" ];
       };
 
       "test stateful resource without state throws error" = {
         expr =
-          (invalidStateful.deploymentFunction {
-            resources = {
+          (invalidStateful.rootFunction {
+            resourceProviderSystem = system;
+            outputValues = {
               myStateful = { };
             };
-            resourceProviderSystem = system;
-          }).resources.myStateful.state;
+          }).members.myStateful.resource.state;
         expectedError.type = "ThrownError";
-        expectedError.msg = "resources\\.myStateful\\.state has not been defined";
+        expectedError.msg = "members\\.myStateful\\.state has not been defined";
+      };
+    };
+
+  "nested providers" =
+    let
+      testProviderModule = {
+        executable = "/fake/store/test-provider/bin/test-provider";
+        type = "stdio";
+        resourceTypes = {
+          simple = {
+            requireState = false;
+            inputs = {
+              options.value = mkOption { type = types.str; };
+            };
+            outputs = {
+              options.result = mkOption { type = types.str; };
+            };
+            outputsSkeleton.result = { };
+          };
+        };
+      };
+
+      # Child component defines its own provider and uses it
+      childWithOwnProvider = self.lib.mkRoot {
+        modules = [
+          {
+            members.child =
+              { providers, ... }:
+              {
+                providers.childProvider = testProviderModule;
+                type = providers.childProvider.simple;
+                inputs.value = "from-child-provider";
+              };
+          }
+        ];
+      };
+
+      # Child uses parent's provider (existing behavior)
+      childWithParentProvider = self.lib.mkRoot {
+        modules = [
+          (
+            { providers, ... }:
+            {
+              providers.parentProvider = testProviderModule;
+              members.child = {
+                type = providers.parentProvider.simple;
+                inputs.value = "from-parent-provider";
+              };
+            }
+          )
+        ];
+      };
+
+    in
+    {
+      "test child can define and use own provider" = {
+        expr =
+          (childWithOwnProvider.rootFunction {
+            resourceProviderSystem = system;
+            outputValues.child = {
+              result = "ok";
+            };
+          }).members.child.resource.inputs.value;
+        expected = "from-child-provider";
+      };
+
+      "test child can use parent provider" = {
+        expr =
+          (childWithParentProvider.rootFunction {
+            resourceProviderSystem = system;
+            outputValues.child = {
+              result = "ok";
+            };
+          }).members.child.resource.inputs.value;
+        expected = "from-parent-provider";
       };
     };
 }

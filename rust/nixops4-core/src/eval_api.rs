@@ -7,6 +7,21 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Result of an evaluation step that may depend on a resource output.
+///
+/// - `Done(T)` - evaluation complete with value
+/// - `Needs(NamedProperty)` - evaluation needs this resource output to proceed
+///
+/// The `Needs` variant is NOT cached by the evaluator. This enables retry:
+/// after the work scheduler resolves the dependency (by applying the required
+/// resource), it re-sends the request and the evaluator re-evaluates with
+/// the now-available output value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StepResult<T> {
+    Done(T),
+    Needs(NamedProperty),
+}
+
 #[derive(Debug, Clone)]
 pub struct Ids {
     counter: Arc<AtomicU64>,
@@ -38,14 +53,21 @@ pub struct Id<T> {
     id: IdNum,
     // nothing, just to accept the compile-type only T
     #[serde(skip)]
-    panthom: std::marker::PhantomData<T>,
+    phantom: std::marker::PhantomData<T>,
 }
 impl<T> Id<T> {
     fn new(id: u64) -> Self {
         Id {
             id,
-            panthom: std::marker::PhantomData,
+            phantom: std::marker::PhantomData,
         }
+    }
+    /// Reinterpret an IdNum with a different type.
+    ///
+    /// Only use this when you're absolutely certain the ID refers to an entity
+    /// of the target type (e.g., after checking the component kind).
+    pub fn same_id_with_new_type_because_im_absolutely_confident(id: IdNum) -> Self {
+        Id::new(id)
     }
     pub fn num(&self) -> IdNum {
         self.id
@@ -88,10 +110,80 @@ pub struct MessageType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlakeType;
+/// Type marker for composite component IDs (components with nested members)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeploymentType;
+pub struct CompositeType;
+/// Type marker for resource component IDs (components wrapping provider resources)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceType;
+
+/// Handle returned by GetComponentKind - determines component kind.
+/// The ID has the same numeric value as the assigned `Id<AnyType>`, but with refined type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentHandle {
+    Resource(Id<ResourceType>),
+    Composite(Id<CompositeType>),
+}
+
+/// A path to a component within nested components.
+/// An empty path represents the root component.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, valuable::Valuable,
+)]
+pub struct ComponentPath(pub Vec<String>);
+
+impl ComponentPath {
+    /// Create a new root component path
+    pub fn root() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Check if this is the root component
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Create a path to a child component
+    pub fn child(&self, name: String) -> Self {
+        let mut path = self.0.clone();
+        path.push(name);
+        Self(path)
+    }
+
+    /// Get the parent path and name of this component, if not root
+    pub fn parent(&self) -> Option<(ComponentPath, &str)> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let name = self.0.last().unwrap();
+            let parent = ComponentPath(self.0[..self.0.len() - 1].to_vec());
+            Some((parent, name))
+        }
+    }
+}
+
+impl std::fmt::Display for ComponentPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            write!(f, "(root)")
+        } else {
+            write!(f, "{}", self.0.join("."))
+        }
+    }
+}
+
+impl std::str::FromStr for ComponentPath {
+    type Err = std::convert::Infallible;
+
+    // TODO: parse quoted attributes (e.g., foo."example.com".qux)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            Ok(Self::root())
+        } else {
+            Ok(Self(s.split('.').map(String::from).collect()))
+        }
+    }
+}
 
 /// This interface is internal to NixOps4. It is used to communicate between the CLI and the evaluator.
 /// Only matching CLI and evaluator versions are compatible.
@@ -99,13 +191,25 @@ pub struct ResourceType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
-    ListDeployments(QueryRequest<Id<FlakeType>, (Id<FlakeType>, Vec<String>)>),
-    LoadDeployment(AssignRequest<DeploymentRequest>),
-    ListResources(QueryRequest<Id<DeploymentType>, (Id<DeploymentType>, Vec<String>)>),
-    LoadResource(AssignRequest<ResourceRequest>),
-    GetResource(QueryRequest<Id<ResourceType>, ResourceProviderInfo>),
-    ListResourceInputs(QueryRequest<Id<ResourceType>, (Id<ResourceType>, Vec<String>)>),
-    GetResourceInput(QueryRequest<Property, ResourceInputState>),
+    /// Load the root component from a flake (returns a composite component)
+    LoadRoot(AssignRequest<RootRequest>),
+    /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
+    ListMembers(QueryRequest<Id<CompositeType>, StepResult<Vec<String>>>),
+    /// Assign an ID to a member component and start loading it.
+    /// Fire-and-forget: no response is sent. The evaluator stores the request
+    /// so that GetComponentKind can complete the load and return the result.
+    AssignMember(AssignRequest<ComponentRequest>),
+    /// Query the component kind for a previously assigned member ID.
+    /// If the component hasn't been loaded yet (or hit a dependency), this will
+    /// attempt to load it using the stored ComponentRequest from AssignMember.
+    GetComponentKind(QueryRequest<Id<AnyType>, StepResult<ComponentHandle>>),
+    /// Get resource provider info for a loaded resource component
+    GetResource(QueryRequest<Id<ResourceType>, StepResult<ResourceProviderInfo>>),
+    /// List input names for a resource
+    ListResourceInputs(QueryRequest<Id<ResourceType>, StepResult<Vec<String>>>),
+    /// Get a specific resource input value
+    GetResourceInput(QueryRequest<Property, StepResult<Value>>),
+    /// Provide a resource output value for the fixpoint
     PutResourceOutput(NamedProperty, Value),
 }
 
@@ -129,14 +233,14 @@ pub struct QueryRequest<P, R> {
     pub message_id: Id<MessageType>,
     pub payload: P,
     #[serde(skip)]
-    panthom: std::marker::PhantomData<R>,
+    phantom: std::marker::PhantomData<R>,
 }
 impl<P, R> QueryRequest<P, R> {
     pub fn new(message_id: Id<MessageType>, payload: P) -> Self {
         QueryRequest {
             message_id,
             payload,
-            panthom: std::marker::PhantomData,
+            phantom: std::marker::PhantomData,
         }
     }
 }
@@ -161,17 +265,12 @@ pub enum EvalResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryResponseValue {
-    ListDeployments((Id<FlakeType>, Vec<String>)),
-    ListResources((Id<DeploymentType>, Vec<String>)),
-    ResourceProviderInfo(ResourceProviderInfo),
-    ListResourceInputs((Id<ResourceType>, Vec<String>)),
-    ResourceInputState((Property, ResourceInputState)),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ResourceInputState {
-    ResourceInputValue((Property, Value)),
-    ResourceInputDependency(ResourceInputDependency),
+    ListMembers(StepResult<Vec<String>>),
+    /// Response from GetComponentKind indicating the component kind or a dependency
+    ComponentKind(StepResult<ComponentHandle>),
+    ResourceProviderInfo(StepResult<ResourceProviderInfo>),
+    ListResourceInputs(StepResult<Vec<String>>),
+    ResourceInputValue(StepResult<Value>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,18 +278,14 @@ pub struct ResourceProviderInfo {
     pub id: Id<ResourceType>,
     pub provider: Value,
     pub resource_type: String,
-    pub state: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceInputDependency {
-    pub dependent: Property,
-    pub dependency: NamedProperty,
+    /// Path to state handler component, if this resource is stateful
+    pub state: Option<ComponentPath>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
-    pub resource: String,
+    /// Path to the resource component
+    pub resource: ComponentPath,
     pub name: String,
 }
 
@@ -212,32 +307,34 @@ impl RequestIdType for FlakeRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeploymentRequest {
-    /// The flake to load the deployment from.
+pub struct RootRequest {
+    /// The flake to load the root component from.
     pub flake: Id<FlakeType>,
-    /// The name of the deployment to load.
-    pub name: String,
 }
-impl RequestIdType for DeploymentRequest {
-    type IdType = DeploymentType;
+impl RequestIdType for RootRequest {
+    type IdType = CompositeType;
 }
 
+/// Payload for AssignMember: identifies a member component by parent and name.
+/// The evaluator stores this so GetComponentKind can load/retry as needed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceRequest {
-    /// The deployment to load the resource from.
-    pub deployment: Id<DeploymentType>,
-    /// The name of the resource to load.
+pub struct ComponentRequest {
+    /// The parent composite component to load from.
+    pub parent: Id<CompositeType>,
+    /// The name of the member component to load.
     pub name: String,
 }
-impl RequestIdType for ResourceRequest {
-    type IdType = ResourceType;
+impl RequestIdType for ComponentRequest {
+    /// The assigned ID is `Id<AnyType>` because we don't know yet if it's
+    /// a Resource or Composite. GetComponentKind returns the refined type.
+    type IdType = AnyType;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceSpec {
-    /// Deployment this resource is part of
-    pub id: Id<DeploymentType>,
-    /// Name of the resource in the deployment
+    /// Parent composite this resource component is part of
+    pub parent: Id<CompositeType>,
+    /// Name of the resource in the parent composite
     pub name: String,
 
     // Value of the resource
@@ -307,11 +404,10 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_request_list_deployments() {
-        let req = EvalRequest::ListDeployments(QueryRequest {
-            message_id: Id::new(2),
-            payload: Id::new(1),
-            panthom: std::marker::PhantomData,
+    fn test_eval_request_load_root() {
+        let req = EvalRequest::LoadRoot(AssignRequest {
+            assign_to: Id::new(2),
+            payload: RootRequest { flake: Id::new(1) },
         });
         let s = eval_request_to_json(&req).unwrap();
         eprintln!("{}", s);
@@ -343,7 +439,7 @@ mod tests {
             id: Id::new(2),
             provider: serde_json::json!({"executable": "/bin/memo", "type": "stdio"}),
             resource_type: "memo".to_string(),
-            state: Some("myStateHandler".to_string()),
+            state: Some(ComponentPath(vec!["myStateHandler".to_string()])),
         };
 
         // Test serialization/deserialization
@@ -352,12 +448,15 @@ mod tests {
         assert_eq!(info, info2);
 
         // Verify state field contains the expected value
-        assert_eq!(info.state, Some("myStateHandler".to_string()));
+        assert_eq!(
+            info.state,
+            Some(ComponentPath(vec!["myStateHandler".to_string()]))
+        );
     }
 
     #[test]
     fn test_resource_provider_info_json_compatibility() {
-        // Test that old JSON without state field can still be deserialized
+        // Test that JSON without state field can still be deserialized
         let json_without_state = r#"{
             "id": {"id": 3},
             "provider": {"executable": "/bin/test", "type": "stdio"},
@@ -368,16 +467,55 @@ mod tests {
         assert_eq!(info.state, None);
         assert_eq!(info.resource_type, "file");
 
-        // Test that new JSON with state field works correctly
+        // Test that JSON with state field works correctly (new ComponentPath format)
         let json_with_state = r#"{
             "id": {"id": 4},
             "provider": {"executable": "/bin/memo", "type": "stdio"},
             "resource_type": "memo",
-            "state": "myState"
+            "state": ["myState"]
         }"#;
 
         let info: ResourceProviderInfo = serde_json::from_str(json_with_state).unwrap();
-        assert_eq!(info.state, Some("myState".to_string()));
+        assert_eq!(info.state, Some(ComponentPath(vec!["myState".to_string()])));
         assert_eq!(info.resource_type, "memo");
+    }
+
+    #[test]
+    fn test_component_path() {
+        let root = ComponentPath::root();
+        assert!(root.is_root());
+        assert_eq!(root.to_string(), "(root)");
+
+        let child = root.child("foo".to_string());
+        assert!(!child.is_root());
+        assert_eq!(child.to_string(), "foo");
+
+        let grandchild = child.child("bar".to_string());
+        assert_eq!(grandchild.to_string(), "foo.bar");
+
+        // Test parent()
+        let (parent, name) = grandchild.parent().unwrap();
+        assert_eq!(name, "bar");
+        assert_eq!(parent.to_string(), "foo");
+    }
+
+    #[test]
+    fn test_component_handle() {
+        let ids = Ids::new();
+        let resource_id: Id<ResourceType> = ids.next();
+        let composite_id: Id<CompositeType> = ids.next();
+
+        let handle_r = ComponentHandle::Resource(resource_id);
+        let handle_c = ComponentHandle::Composite(composite_id);
+
+        // Test serialization
+        let json_r = serde_json::to_string(&handle_r).unwrap();
+        let json_c = serde_json::to_string(&handle_c).unwrap();
+
+        let handle_r2: ComponentHandle = serde_json::from_str(&json_r).unwrap();
+        let handle_c2: ComponentHandle = serde_json::from_str(&json_c).unwrap();
+
+        assert_eq!(handle_r, handle_r2);
+        assert_eq!(handle_c, handle_c2);
     }
 }

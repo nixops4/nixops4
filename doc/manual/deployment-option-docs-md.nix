@@ -6,16 +6,16 @@
 }:
 let
   configuration =
-    self.lib.evalDeployment
+    self.lib.evalRoot
       {
         modules = [
-          ../../nix/deployment/base-modules.nix
+          ../../nix/component/base-modules.nix
           hideModuleArgs
         ];
         specialArgs = { };
       }
       {
-        resources = { };
+        outputValues = { };
         resourceProviderSystem = "<resourceProviderSystem>";
       };
   hideModuleArgs =

@@ -22,19 +22,24 @@
       cp ${builtins.toFile "flake.nix" ''
         {
           outputs = { ... }: {
-            nixops4Deployments = {
-              deployment-one = throw "not implemented one";
-              deployment-two = throw "not implemented two";
+            nixops4 = {
+              _type = "nixops4Component";
+              rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                members = {
+                  member-one = throw "not implemented one";
+                  member-two = throw "not implemented two";
+                };
+              };
             };
           };
         }
       ''} ./flake.nix
-      nixops4 deployments list > deployments
-      cat 1>&2 deployments
-      grep deployment-one deployments
-      grep deployment-two deployments
-      [[ $(wc -l <deployments) == 2 ]]
-      rm deployments
+      nixops4 members list > members
+      cat 1>&2 members
+      grep member-one members
+      grep member-two members
+      [[ $(wc -l <members) == 2 ]]
+      rm members
       rm flake.nix
     ''}");
   '';

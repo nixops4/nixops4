@@ -25,3 +25,65 @@ When a resource type has `requireState = true`:
 When a resource type has `requireState = false`:
 - The resource does not need a state handler
 - The resource is stateless and can be idempotently recreated from its inputs
+
+## Resource Dependencies
+
+Resources can depend on each other in two different ways:
+
+### Output → Input Dependencies
+
+Most dependencies between resources involve one resource's output becomes another resource's input.
+The resource graph topology is static:
+
+```nix
+{ members, ... }:
+{
+  members.database = {
+    type = "postgresql_database";
+    inputs.name = "myapp";
+  };
+
+  members.user = {
+    type = "postgresql_user";
+    inputs.database = members.database.outputs.name;
+  };
+}
+```
+
+### Structural Dependencies
+
+The component graph topology itself depends on resource outputs. Sub-component attributes are computed dynamically.
+
+```nix
+{ lib, members, ... }:
+{
+  members.settings = {
+    imports = [ ./settings-resource.nix ];
+    inputs.location = "https://panel.example.com/config.json";
+  };
+
+  members.clients.members =
+    # Structural dependency: the members structure under clients depends on the outputs of the settings resource
+    lib.mapAttrs
+      (clientName: clientConfig: {
+        imports = [ ./client.nix ];
+        clientConfig = clientConfig;
+      })
+      members.settings.outputs.clients;
+
+  members.shared.members = {
+    # Static members here would not be structural dependencies
+  }
+  # This conditional member is also a structural dependency on the settings resource
+  // lib.optionalAttrs members.settings.outputs.logging.enable {
+    log_token = {
+      # ...
+    };
+  };
+}
+```
+
+Structural dependencies can only refer to `members` attrsets that can be evaluated independently of the affected structure.
+Specifically:
+- A structural dependency in `members` cannot refer to any of the members contained within that member set.
+- It *is* possible to refer to sibling or parent members, assuming no mutual structural dependencies.

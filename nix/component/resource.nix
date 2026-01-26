@@ -86,7 +86,7 @@ in
       '';
     };
     state = mkOption {
-      type = types.nullOr types.str;
+      type = types.nullOr (types.listOf types.str);
       description = ''
         The state handler for the resource, if needed.
       '';

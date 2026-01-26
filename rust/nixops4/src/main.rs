@@ -7,13 +7,15 @@ mod provider;
 mod state;
 mod work;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core::eval_api::{
-    AssignRequest, EvalRequest, EvalResponse, FlakeRequest, QueryResponseValue,
+    AssignRequest, ComponentPath, EvalRequest, EvalResponse, FlakeRequest, RootRequest,
 };
 use std::process::exit;
+use std::sync::Arc;
+use work::{Goal, Outcome, WorkContext};
 
 fn main() {
     let interrupt_state = set_up_process_interrupt_handler();
@@ -36,14 +38,14 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             logging.tear_down()?;
             Ok(())
         }
-        Commands::Deployments(sub) => {
+        Commands::Members(sub) => {
             match sub {
-                Deployments::List {} => {
+                Members::List { path } => {
                     let mut logging = set_up_logging(interrupt_state, &args)?;
-                    let deployments = deployments_list(&args.options).await?;
+                    let members = members_list(&args.options, path.as_deref()).await?;
                     logging.tear_down()?;
-                    for d in deployments {
-                        println!("{}", d);
+                    for m in members {
+                        println!("{}", m);
                     }
                 }
             };
@@ -118,15 +120,22 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
     }
 }
 
-// TODO: clean up, unify with apply infrastructure
-async fn deployments_list(options: &Options) -> Result<Vec<String>> {
+/// List members at a given component path
+async fn members_list(options: &Options, path: Option<&str>) -> Result<Vec<String>> {
+    // TODO: Support nested paths by traversing to the composite
+    let target_path = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
+    if !target_path.is_root() {
+        bail!(
+            "Listing members at nested paths is not yet implemented. Use root path (no argument)."
+        );
+    }
+
     let eval_options = to_eval_options(options);
     let eval_options_2 = eval_options.clone();
     eval_client::EvalSender::with(&eval_options, |s, mut r| async move {
         let flake_id = s.next_id();
-        // TODO: use better file path string type more
         let cwd = std::env::current_dir()
-            .unwrap()
+            .context("getting current directory")?
             .to_string_lossy()
             .to_string();
         s.send(&EvalRequest::LoadFlake(AssignRequest {
@@ -138,32 +147,68 @@ async fn deployments_list(options: &Options) -> Result<Vec<String>> {
         }))
         .await?;
 
-        s.query(s.next_id(), &EvalRequest::ListDeployments, flake_id)
-            .await?;
+        let root_id = s.next_id();
+        s.send(&EvalRequest::LoadRoot(AssignRequest {
+            assign_to: root_id,
+            payload: RootRequest { flake: flake_id },
+        }))
+        .await?;
 
-        let deployments = loop {
-            match r.recv().await {
-                None => {
-                    bail!("Error: no response from evaluator");
-                }
-                Some(EvalResponse::Error(_id, e)) => {
-                    bail!("Error: {}", e);
-                }
-                Some(EvalResponse::QueryResponse(
-                    _,
-                    QueryResponseValue::ListDeployments((_id, deployments)),
-                )) => {
-                    break deployments.to_vec();
-                }
-                Some(EvalResponse::QueryResponse(_, _)) => {
-                    // Ignore other query responses
-                }
-                Some(EvalResponse::TracingEvent(_value)) => {
-                    // Already handled in an EvalSender::with thread => ignore
+        // Set up work context with the root and use Preview goal to list members
+        let work_context = WorkContext {
+            root_composite_id: root_id,
+            options: options.clone(),
+            interrupt_state: interrupt::InterruptState::new(),
+            eval_sender: s.clone(),
+            state: Default::default(),
+            id_subscriptions: pubsub_rs::Pubsub::new(),
+        };
+
+        let id_subscriptions = work_context.id_subscriptions.clone();
+        let work_context = Arc::new(work_context);
+        let tasks = control::task_tracker::TaskTracker::new(work_context.clone());
+
+        // Spawn response handler
+        let h: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
+            while let Some(msg) = r.recv().await {
+                match &msg {
+                    EvalResponse::Error(id, _) => {
+                        id_subscriptions.publish(id.num(), msg).await;
+                    }
+                    EvalResponse::QueryResponse(id, _) => {
+                        id_subscriptions.publish(id.num(), msg).await;
+                    }
+                    EvalResponse::TracingEvent(_value) => {
+                        // Already handled in an EvalSender::with thread => ignore
+                    }
                 }
             }
-        };
-        Ok(deployments)
+            Ok(())
+        });
+
+        // Use ListMembers goal without mutation capability (preview mode)
+        let result = tasks
+            .run(Goal::ListMembers(root_id, target_path.clone(), None))
+            .await;
+
+        s.close().await;
+        h.await??;
+
+        // Extract member names from the result
+        match result.as_ref() {
+            Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
+            Ok(Outcome::MembersListed(Err(preview_item))) => {
+                bail!(
+                    "Cannot list members at '{}': blocked by structural dependency: {}",
+                    target_path,
+                    preview_item
+                )
+            }
+            Ok(other) => {
+                bail!("Unexpected outcome from ListMembers: {:?}", other)
+            }
+            Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
+        }
     })
     .await
 }
@@ -218,20 +263,27 @@ struct Options {
 }
 
 #[derive(Subcommand, Debug)]
-enum Deployments {
-    /// List the deployments based on the expressions in the flake
-    List {},
+enum Members {
+    /// List members at a component path (default: root)
+    List {
+        /// Component path (dot-separated, e.g., "production.database")
+        #[arg()]
+        path: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Apply changes so that the resources are in the desired state
+    /// Apply changes so that the resources are in the desired state.
+    ///
+    /// When paths are specified, all members below those paths are applied,
+    /// as well as any resources they transitively depend on.
     #[command()]
     Apply(apply::Args),
 
-    /// Commands that operate on all deployments
+    /// Commands that operate on component members
     #[command(subcommand)]
-    Deployments(Deployments),
+    Members(Members),
 
     /// Generate markdown documentation for nixops4-resource-runner
     #[command(hide = true)]

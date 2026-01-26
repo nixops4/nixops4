@@ -11,22 +11,20 @@ let
 in
 {
   options = {
-    nixops4Deployments = mkOption {
+    nixops4 = mkOption {
       description = ''
-        An attribute set of NixOps4 deployments.
+        The NixOps4 root component configuration.
         See [`Module Options`](https://nixops.dev/manual/development/modules/).
 
-        Each deployment passed to [`mkDeployment`](https://nixops.dev/manual/development/lib/#mkDeployment).
+        This module is passed to [`mkRoot`](https://nixops.dev/manual/development/lib/#mkRoot).
 
-        Definitions in `nixops4Deployments.<name>` give rise to the definitions:
-        - `flake.nixops4Configurations.<name>` - the flake output attribute for NixOps4,
-        - `perSystem.checks.nixops-deployment-providers-<name>` ([`perSystem.checks`](flake-parts.md#opt-perSystem.checks)), to make sure the deployment's resource providers are available on the supported flake systems - i.e. that the deployment can performed _from_ all [systems](flake-parts.md#opt-systems).
+        Defining `nixops4` gives rise to the definitions:
+        - `flake.nixops4` - the flake output attribute for NixOps4,
+        - `perSystem.checks.nixops-providers` ([`perSystem.checks`](flake-parts.md#opt-perSystem.checks)), to make sure the root's resource providers are available on the supported flake systems - i.e. that operations can be performed _from_ all [systems](flake-parts.md#opt-systems).
       '';
-      type = types.lazyAttrsOf (
-        types.deferredModuleWith {
-          staticModules = [ self.modules.nixops4Deployment.default ];
-        }
-      );
+      type = types.deferredModuleWith {
+        staticModules = [ self.modules.nixops4Component.default ];
+      };
       default = { };
     };
   };
@@ -34,31 +32,25 @@ in
     perSystem =
       { pkgs, system, ... }:
       {
-        checks = lib.concatMapAttrs (name: deployment: {
-          "nixops-deployment-providers-${name}" = deployment.getProviders { inherit system; };
-        }) config.flake.nixops4Deployments;
+        checks = {
+          nixops-providers = config.flake.nixops4.getProviders { inherit system; };
+        };
       };
     flake = {
-      nixops4Deployments = lib.mapAttrs (
-        name: module:
-        self.lib.mkDeployment {
-          modules = [
-            (
-              { resourceProviderSystem, ... }:
-              {
-                _file = ./flake-parts.nix;
-                _module.args.withResourceProviderSystem = lib.mkDefault (withSystem resourceProviderSystem);
-              }
-            )
-            module
-          ];
-          specialArgs = { };
-          prefix = [
-            "nixops4Deployments"
-            name
-          ];
-        }
-      ) config.nixops4Deployments;
+      nixops4 = self.lib.mkRoot {
+        modules = [
+          (
+            { resourceProviderSystem, ... }:
+            {
+              _file = ./flake-parts.nix;
+              _module.args.withResourceProviderSystem = lib.mkDefault (withSystem resourceProviderSystem);
+            }
+          )
+          config.nixops4
+        ];
+        specialArgs = { };
+        prefix = [ "nixops4" ];
+      };
     };
   };
 }
