@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2cd12235.js";
+            window.path_to_searchindex_js = "../searchindex-4ffa5b2f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-a76a9e4b.js"></script>
@@ -178,8 +178,8 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="module-options"><a class="header" href="#module-options">Module Options</a></h1>
-<p>NixOps4 deployments are composable using the <a href="https://nixos.org/manual/nixpkgs/stable/#module-system">Module System</a>.</p>
-<p>Modules loaded into <a href="../lib/index.html#mkDeployment">mkDeployment</a> can define values for these options, as well as any custom <code>options</code> and options provided by other imported modules.</p>
+<p>NixOps4 components are composable using the <a href="https://nixos.org/manual/nixpkgs/stable/#module-system">Module System</a>.</p>
+<p>Modules loaded into <a href="../lib/index.html#mkRoot">mkRoot</a> can define values for these options, as well as any custom <code>options</code> and options provided by other imported modules.</p>
 <div class="warning">
 <p><strong>Pay attention to examples in the parent options</strong></p>
 <p>The NixOps4 modules use a patterns you may not be familiar with as a NixOS user or contributor: <code>imports</code> into <code>submodule</code>, and the <code>deferredModule</code> type.</p>
@@ -188,6 +188,79 @@
 </div>
 
 <h2 id="options"><a class="header" href="#options">Options</a></h2>
+<h2 id="opt-inputs"><a class="header" href="#opt-inputs">inputs</a></h2>
+<p>The inputs to the resource.</p>
+<p>These parameters primarily control the configuration of the resource.
+They are set by you (a module author or configuration author) and are passed to the resource provider executable.</p>
+<p><em>Type:</em>
+submodule</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
+</ul>
+<h2 id="opt-members"><a class="header" href="#opt-members">members</a></h2>
+<p>The member components.</p>
+<p>A member is either:</p>
+<ul>
+<li>A resource component: has resource options (type, inputs, outputs, etc.)</li>
+<li>A composite component: has nested members</li>
+</ul>
+<p>Example:</p>
+<pre><code class="language-nix">members.webServer = {
+  type = providers.local.exec;
+  inputs.executable = "nginx";
+};
+members.database = {
+  members.primary = { ... };
+  members.replica = { ... };
+};
+</code></pre>
+<p><em>Type:</em>
+lazy attribute set of (submodule)</p>
+<p><em>Default:</em>
+<code>{ }</code></p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/members.nix">nixops4/nix/component/members.nix</a></li>
+</ul>
+<h2 id="opt-outputs"><a class="header" href="#opt-outputs">outputs</a></h2>
+<p>The outputs of the resource.</p>
+<p>These follow from the real world existence of the resource.
+They are set by NixOps, which in turn gets this information from resource providers.</p>
+<p><em>Type:</em>
+submodule</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
+</ul>
+<h2 id="opt-provider.args"><a class="header" href="#opt-provider.args">provider.args</a></h2>
+<p>Any command line arguments to pass to the executable.</p>
+<p><em>Type:</em>
+list of (string or (string or absolute path or signed integer) convertible to it)</p>
+<p><em>Default:</em>
+<code>[ ]</code></p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
+</ul>
+<h2 id="opt-provider.executable"><a class="header" href="#opt-provider.executable">provider.executable</a></h2>
+<p>The path to the executable that implements the resource operations.</p>
+<p><em>Type:</em>
+string</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
+</ul>
+<h2 id="opt-provider.type"><a class="header" href="#opt-provider.type">provider.type</a></h2>
+<p>The type of communication to use with the resource provider executable.</p>
+<p><em>Type:</em>
+value “stdio” (singular enum)</p>
+<p><em>Default:</em>
+<code>"stdio"</code></p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
+</ul>
 <h2 id="opt-providers"><a class="header" href="#opt-providers">providers</a></h2>
 <p>The resource providers to use.</p>
 <p>Resource providers are the executables that implement the operations on resources.</p>
@@ -206,7 +279,7 @@ lazy attribute set of (submodule)</p>
 </code></pre>
 <p><em>Declared by:</em></p>
 <ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/providers.nix">nixops4/nix/deployment/providers.nix</a></li>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/provider-declarations.nix">nixops4/nix/component/provider-declarations.nix</a></li>
 </ul>
 <h2 id="opt-providers._name_.args"><a class="header" href="#opt-providers._name_.args">providers.&lt;name&gt;.args</a></h2>
 <p>Any command line arguments to pass to the executable.</p>
@@ -355,92 +428,33 @@ string</p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
 </ul>
-<h2 id="opt-resources"><a class="header" href="#opt-resources">resources</a></h2>
-<p>The resources to deploy.</p>
-<p><em>Type:</em>
-lazy attribute set of (submodule)</p>
-<p><em>Default:</em>
-<code>{ }</code></p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/providers.nix">nixops4/nix/deployment/providers.nix</a></li>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resources.nix">nixops4/nix/deployment/resources.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.inputs"><a class="header" href="#opt-resources._name_.inputs">resources.&lt;name&gt;.inputs</a></h2>
-<p>The inputs to the resource.</p>
-<p>These parameters primarily control the configuration of the resource.
-They are set by you (a module author or configuration author) and are passed to the resource provider executable.</p>
-<p><em>Type:</em>
-submodule</p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.outputs"><a class="header" href="#opt-resources._name_.outputs">resources.&lt;name&gt;.outputs</a></h2>
-<p>The outputs of the resource.</p>
-<p>These follow from the real world existence of the resource.
-They are set by NixOps, which in turn gets this information from resource providers.</p>
-<p><em>Type:</em>
-submodule</p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.provider.args"><a class="header" href="#opt-resources._name_.provider.args">resources.&lt;name&gt;.provider.args</a></h2>
-<p>Any command line arguments to pass to the executable.</p>
-<p><em>Type:</em>
-list of (string or (string or absolute path or signed integer) convertible to it)</p>
-<p><em>Default:</em>
-<code>[ ]</code></p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.provider.executable"><a class="header" href="#opt-resources._name_.provider.executable">resources.&lt;name&gt;.provider.executable</a></h2>
-<p>The path to the executable that implements the resource operations.</p>
-<p><em>Type:</em>
-string</p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.provider.type"><a class="header" href="#opt-resources._name_.provider.type">resources.&lt;name&gt;.provider.type</a></h2>
-<p>The type of communication to use with the resource provider executable.</p>
-<p><em>Type:</em>
-value “stdio” (singular enum)</p>
-<p><em>Default:</em>
-<code>"stdio"</code></p>
-<p><em>Declared by:</em></p>
-<ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
-</ul>
-<h2 id="opt-resources._name_.requireState"><a class="header" href="#opt-resources._name_.requireState">resources.&lt;name&gt;.requireState</a></h2>
+<h2 id="opt-requireState"><a class="header" href="#opt-requireState">requireState</a></h2>
 <p>Whether the resource requires state to be stored.</p>
 <p><em>Type:</em>
 boolean</p>
 <p><em>Declared by:</em></p>
 <ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
 </ul>
-<h2 id="opt-resources._name_.resourceType"><a class="header" href="#opt-resources._name_.resourceType">resources.&lt;name&gt;.resourceType</a></h2>
+<h2 id="opt-resourceType"><a class="header" href="#opt-resourceType">resourceType</a></h2>
 <p>The type of resource to create. Most resource providers will have some fixed set of resource types.</p>
 <p><em>Type:</em>
 string</p>
 <p><em>Declared by:</em></p>
 <ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
 </ul>
-<h2 id="opt-resources._name_.state"><a class="header" href="#opt-resources._name_.state">resources.&lt;name&gt;.state</a></h2>
+<h2 id="opt-state"><a class="header" href="#opt-state">state</a></h2>
 <p>The state handler for the resource, if needed.</p>
 <p><em>Type:</em>
-null or string</p>
+null or (list of string)</p>
 <p><em>Default:</em>
 <code>null</code></p>
 <p><em>Declared by:</em></p>
 <ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/resource.nix">nixops4/nix/deployment/resource.nix</a></li>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
 </ul>
-<h2 id="opt-resources._name_.type"><a class="header" href="#opt-resources._name_.type">resources.&lt;name&gt;.type</a></h2>
+<h2 id="opt-type"><a class="header" href="#opt-type">type</a></h2>
 <p>A resource type from the <code>providers</code> module argument.</p>
 <p><em>Type:</em>
 raw value</p>
@@ -450,7 +464,7 @@ raw value</p>
 </code></pre>
 <p><em>Declared by:</em></p>
 <ul>
-<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/deployment/providers.nix">nixops4/nix/deployment/providers.nix</a></li>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/provider-values.nix">nixops4/nix/component/provider-values.nix</a></li>
 </ul>
 
                     </main>

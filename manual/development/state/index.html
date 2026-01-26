@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2cd12235.js";
+            window.path_to_searchindex_js = "../searchindex-4ffa5b2f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-a76a9e4b.js"></script>
@@ -260,16 +260,16 @@ You can use it to store connection details for a more sophisticated state provid
 <!-- TODO: put a piece of real world deployment here -->
 <pre><code class="language-nix">{
   # Define the state provider resource
-  resources.myStateFile = {
+  members.myStateFile = {
     type = providers.local.state_file;
     inputs.name = "deployment-state.json";
   };
 
   # Use it for a stateful resource.
   # A generated unique ID (for example) will be stored in myStateFile.
-  resources.myReverseProxy = {
+  members.myReverseProxy = {
     type = providers.cloud.reverse_proxy;
-    state = "myStateFile"; # References the state provider resource above
+    state = [ "myStateFile" ]; # References the state provider resource above
     inputs = {
       rules = [
         # ...

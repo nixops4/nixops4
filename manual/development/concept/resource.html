@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2cd12235.js";
+            window.path_to_searchindex_js = "../searchindex-4ffa5b2f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-a76a9e4b.js"></script>
@@ -199,6 +199,59 @@ An input may depend on zero or more outputs, but the references between resource
 <ul>
 <li>The resource does not need a state handler</li>
 <li>The resource is stateless and can be idempotently recreated from its inputs</li>
+</ul>
+<h2 id="resource-dependencies"><a class="header" href="#resource-dependencies">Resource Dependencies</a></h2>
+<p>Resources can depend on each other in two different ways:</p>
+<h3 id="output--input-dependencies"><a class="header" href="#output--input-dependencies">Output → Input Dependencies</a></h3>
+<p>Most dependencies between resources involve one resource’s output becomes another resource’s input.
+The resource graph topology is static:</p>
+<pre><code class="language-nix">{ members, ... }:
+{
+  members.database = {
+    type = "postgresql_database";
+    inputs.name = "myapp";
+  };
+
+  members.user = {
+    type = "postgresql_user";
+    inputs.database = members.database.outputs.name;
+  };
+}
+</code></pre>
+<h3 id="structural-dependencies"><a class="header" href="#structural-dependencies">Structural Dependencies</a></h3>
+<p>The component graph topology itself depends on resource outputs. Sub-component attributes are computed dynamically.</p>
+<pre><code class="language-nix">{ lib, members, ... }:
+{
+  members.settings = {
+    imports = [ ./settings-resource.nix ];
+    inputs.location = "https://panel.example.com/config.json";
+  };
+
+  members.clients.members =
+    # Structural dependency: the members structure under clients depends on the outputs of the settings resource
+    lib.mapAttrs
+      (clientName: clientConfig: {
+        imports = [ ./client.nix ];
+        clientConfig = clientConfig;
+      })
+      members.settings.outputs.clients;
+
+  members.shared.members = {
+    # Static members here would not be structural dependencies
+  }
+  # This conditional member is also a structural dependency on the settings resource
+  // lib.optionalAttrs members.settings.outputs.logging.enable {
+    log_token = {
+      # ...
+    };
+  };
+}
+</code></pre>
+<p>Structural dependencies can only refer to <code>members</code> attrsets that can be evaluated independently of the affected structure.
+Specifically:</p>
+<ul>
+<li>A structural dependency in <code>members</code> cannot refer to any of the members contained within that member set.</li>
+<li>It <em>is</em> possible to refer to sibling or parent members, assuming no mutual structural dependencies.</li>
 </ul>
 
                     </main>

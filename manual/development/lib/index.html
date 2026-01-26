@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2cd12235.js";
+            window.path_to_searchindex_js = "../searchindex-4ffa5b2f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-a76a9e4b.js"></script>
@@ -179,55 +179,55 @@
                     <main>
                         <h1 id="library"><a class="header" href="#library">Library</a></h1>
 <p>The flake comes with a <code>lib</code> attribute, e.g. <code>inputs.nixops4.lib</code>.
-It provides the main entrypoint, <a href="#mkDeployment"><code>inputs.nixops4.lib.mkDeployment</code></a>.</p>
-<h2 id="evalDeployment"><a class="header" href="#evalDeployment"><code>evalDeployment</code></a></h2>
-<p>Evaluate a deployment configuration. This is a building block for <a href="#mkDeployment"><code>mkDeployment</code></a>, which is the usual entry point for defining deployments.</p>
-<h3 id="evalDeployment-type"><a class="header" href="#evalDeployment-type">Type</a></h3>
+It provides the main entrypoint, <a href="#mkRoot"><code>inputs.nixops4.lib.mkRoot</code></a>.</p>
+<h2 id="evalRoot"><a class="header" href="#evalRoot"><code>evalRoot</code></a></h2>
+<p>Evaluate a root component configuration. This is a building block for <a href="#mkRoot"><code>mkRoot</code></a>, which is the usual entry point for defining the root.</p>
+<h3 id="evalRoot-type"><a class="header" href="#evalRoot-type">Type</a></h3>
 <pre><code>EvalModulesArguments -&gt; NixOpsArguments -&gt; Configuration
 </code></pre>
-<h3 id="evalDeployment-input"><a class="header" href="#evalDeployment-input">Inputs</a></h3>
+<h3 id="evalRoot-input"><a class="header" href="#evalRoot-input">Inputs</a></h3>
 <ol>
 <li>
 <p>Arguments for <a href="https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules">evalModules</a> - i.e. the Module System.
 These are adjusted to include NixOps-specific arguments.</p>
 </li>
 <li>
-<p>Arguments provided by NixOps. These provide the context of the deployment, including the resource outputs.</p>
+<p>Arguments provided by NixOps. These provide the context of the component, including the resource outputs.</p>
 </li>
 </ol>
-<h3 id="evalDeployment-output"><a class="header" href="#evalDeployment-output">Output</a></h3>
+<h3 id="evalRoot-output"><a class="header" href="#evalRoot-output">Output</a></h3>
 <p>The return value is a <a href="https://nixos.org/manual/nixpkgs/stable/#module-system-lib-evalModules-return-value">Module System <code>configuration</code></a>, including attributes such as <code>config</code> and <code>options</code>.</p>
-<h2 id="mkDeployment"><a class="header" href="#mkDeployment"><code>mkDeployment</code></a></h2>
-<p>Turn a list of deployment modules and some other parameters into the format expected by the <code>nixops4</code> command, and add a few useful attributes.</p>
-<h3 id="mkDeployment-type"><a class="header" href="#mkDeployment-type">Type</a></h3>
-<pre><code>{ modules, ... } -&gt; nixops4Deployment
+<h2 id="mkRoot"><a class="header" href="#mkRoot"><code>mkRoot</code></a></h2>
+<p>Turn a list of root component modules and some other parameters into the format expected by the <code>nixops4</code> command, and add a few useful attributes.</p>
+<h3 id="mkRoot-type"><a class="header" href="#mkRoot-type">Type</a></h3>
+<pre><code>{ modules, ... } -&gt; nixops4Component
 </code></pre>
-<h3 id="mkDeployment-input"><a class="header" href="#mkDeployment-input">Input attributes</a></h3>
+<h3 id="mkRoot-input"><a class="header" href="#mkRoot-input">Input attributes</a></h3>
 <ul>
 <li>
-<p><a id="mkDeployment-input-modules" href="#mkDeployment-input-modules"><code>modules</code></a>: A list of modules to evaluate.</p>
+<p><a id="mkRoot-input-modules" href="#mkRoot-input-modules"><code>modules</code></a>: A list of modules to evaluate.</p>
 </li>
 <li>
-<p><a id="mkDeployment-input-specialArgs" href="#mkDeployment-input-specialArgs"><code>specialArgs</code></a>: A set of arguments to pass to the modules these are available while <code>imports</code> are evaluated, but are not overridable or extensible, unlike the <code>_module.args</code> option.</p>
+<p><a id="mkRoot-input-specialArgs" href="#mkRoot-input-specialArgs"><code>specialArgs</code></a>: A set of arguments to pass to the modules these are available while <code>imports</code> are evaluated, but are not overridable or extensible, unlike the <code>_module.args</code> option.</p>
 </li>
 <li>
-<p><a id="mkDeployment-input-prefix" href="#mkDeployment-input-prefix"><code>prefix</code></a>: A list of strings representing the location of the deployment.
-Typical value: <code>[ "nixops4Deployments" name ]</code></p>
+<p><a id="mkRoot-input-prefix" href="#mkRoot-input-prefix"><code>prefix</code></a>: A list of strings representing the location of the root.
+Typical value: <code>[ "nixops4" ]</code></p>
 </li>
 </ul>
-<h3 id="mkDeployment-output"><a class="header" href="#mkDeployment-output">Output attributes</a></h3>
+<h3 id="mkRoot-output"><a class="header" href="#mkRoot-output">Output attributes</a></h3>
 <ul>
 <li>
-<p><a id="mkDeployment-output-_type" href="#mkDeployment-output-_type"><code>_type</code></a>: <code>"nixops4Deployment"</code></p>
+<p><a id="mkRoot-output-_type" href="#mkRoot-output-_type"><code>_type</code></a>: <code>"nixops4Component"</code></p>
 </li>
 <li>
-<p><a id="mkDeployment-output-deploymentFunction" href="#mkDeployment-output-deploymentFunction"><code>deploymentFunction</code></a>: Internal value for <code>nixops4</code> to use.</p>
+<p><a id="mkRoot-output-rootFunction" href="#mkRoot-output-rootFunction"><code>rootFunction</code></a>: Internal value for <code>nixops4</code> to use.</p>
 </li>
 <li>
-<p><a id="mkDeployment-output-getProviders" href="#mkDeployment-output-getProviders"><code>getProviders</code></a>: A function that returns a derivation for the providers of the deployment.</p>
-<p><a id="mkDeployment-output-getProviders-input" href="#mkDeployment-output-getProviders-input"><strong>Input attributes</strong></a></p>
+<p><a id="mkRoot-output-getProviders" href="#mkRoot-output-getProviders"><code>getProviders</code></a>: A function that returns a derivation for the providers of the root.</p>
+<p><a id="mkRoot-output-getProviders-input" href="#mkRoot-output-getProviders-input"><strong>Input attributes</strong></a></p>
 <ul>
-<li><a id="mkDeployment-output-getProviders-input-system" href="#mkDeployment-output-getProviders-input-system"><code>system</code></a>: The system<!-- TODO: link to docs in https://github.com/NixOS/nixpkgs/pull/324614 when merged --> for which to get the providers.
+<li><a id="mkRoot-output-getProviders-input-system" href="#mkRoot-output-getProviders-input-system"><code>system</code></a>: The system<!-- TODO: link to docs in https://github.com/NixOS/nixpkgs/pull/324614 when merged --> for which to get the providers.
 Examples:
 <ul>
 <li><code>"x86_64-linux"</code></li>
@@ -235,8 +235,10 @@ Examples:
 </ul>
 </li>
 </ul>
-<p><a id="mkDeployment-output-getProviders-output" href="#mkDeployment-output-getProviders-output"><strong>Output</strong></a></p>
-<p>A derivation whose output references the providers for the deployment.</p>
+<p><a id="mkRoot-output-getProviders-output" href="#mkRoot-output-getProviders-output"><strong>Output</strong></a></p>
+<p>A derivation whose output references the providers for the root.</p>
+<p>Note: Currently only collects providers defined at the root level.
+Providers defined in nested components are not included.</p>
 </li>
 </ul>
 <h2 id="renderProviderDocs"><a class="header" href="#renderProviderDocs"><code>renderProviderDocs</code></a></h2>
