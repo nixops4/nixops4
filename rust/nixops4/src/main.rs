@@ -274,7 +274,10 @@ enum Members {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Apply changes so that the resources are in the desired state
+    /// Apply changes so that the resources are in the desired state.
+    ///
+    /// When paths are specified, all members below those paths are applied,
+    /// as well as any resources they transitively depend on.
     #[command()]
     Apply(apply::Args),
 

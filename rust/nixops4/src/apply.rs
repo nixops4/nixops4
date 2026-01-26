@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 #[derive(clap::Parser, Debug)]
 pub(crate) struct Args {
-    /// Component paths to apply (empty = entire root)
+    /// Component paths to apply, including nested members and transitive dependencies (empty = entire root)
     #[arg()]
     paths: Vec<String>,
 }
