@@ -100,6 +100,14 @@ in
             "must not be null"
         }" x;
     };
+    absoluteMemberPath = mkOption {
+      type = types.listOf types.str;
+      description = ''
+        The absolute path to this resource from the root component.
+      '';
+      internal = true;
+      readOnly = true;
+    };
   };
   config = {
     _resourceForNixOps = {

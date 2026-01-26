@@ -84,6 +84,38 @@ let
             }
           ];
         };
+
+      # Recursively inject the absolute member path into resources via lexical scope.
+      # Users should not need to refer to absolute paths in composites. If they do
+      # that would seem like an issue with the design.
+      makePathInjector =
+        currentPath:
+        { options, ... }:
+        {
+          imports = [
+            {
+              _file = "<resource path injection>";
+              config.absoluteMemberPath = lib.mkIf options.resourceType.isDefined currentPath;
+            }
+            {
+              _file = "<resource path injection for members>";
+              options.members = lib.mkOption {
+                type = lib.types.lazyAttrsOf (
+                  lib.types.submoduleWith {
+                    modules = [
+                      (
+                        { name, ... }:
+                        {
+                          imports = [ (makePathInjector (currentPath ++ [ name ])) ];
+                        }
+                      )
+                    ];
+                  }
+                );
+              };
+            }
+          ];
+        };
     in
     lib.evalModules (
       baseArgs
@@ -93,6 +125,7 @@ let
         };
         modules = baseArgs.modules ++ [
           (makeOutputInjector outputValues)
+          (makePathInjector [ ])
         ];
         class = "nixops4Component";
       }
