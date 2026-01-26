@@ -343,28 +343,77 @@ runCommand "itest-nixops4-with-local"
       grep -E "db-api-v1\.0\.0" nested-output.log || echo "Database version expected"
       
       # The deployment summary should contain all values
-      grep -E "deploymentSummary.*parent:v1\.0\.0.*frontend:frontend-v1\.0\.0.*backend:api-v1\.0\.0.*assets:assets-frontend-v1\.0\.0.*db:db-api-v1\.0\.0" nested-output.log || {
+      grep -E "deploymentSummary.*parent:v1\.0\.0.*static:nested-static-v1.*frontend:frontend-v1\.0\.0.*backend:api-v1\.0\.0.*assets:assets-frontend-v1\.0\.0.*db:db-api-v1\.0\.0" nested-output.log || {
         echo "ERROR: Deployment summary does not contain expected values"
-        echo "Expected pattern: parent:v1.0.0|frontend:frontend-v1.0.0|backend:api-v1.0.0|assets:assets-frontend-v1.0.0|db:db-api-v1.0.0"
+        echo "Expected pattern: parent:v1.0.0|static:nested-static-v1|frontend:frontend-v1.0.0|backend:api-v1.0.0|assets:assets-frontend-v1.0.0|db:db-api-v1.0.0"
         cat nested-output.log
         exit 1
       }
       
       echo "=== Testing state persistence in nested deployments ==="
-      
-      # Update parent version
+
+      # Verify sed patterns exist before replacing (sanity check for test setup)
+      grep -q 'inputs.initialize_with = "v1.0.0"' flake.nix || {
+        echo "ERROR: Test setup broken - pattern 'inputs.initialize_with = \"v1.0.0\"' not found in flake.nix"
+        exit 1
+      }
+      grep -q 'inputs.initialize_with = "nested-static-v1"' flake.nix || {
+        echo "ERROR: Test setup broken - pattern 'inputs.initialize_with = \"nested-static-v1\"' not found in flake.nix"
+        exit 1
+      }
+
+      # Update parent version AND a nested resource's input directly
       sed -i 's/inputs.initialize_with = "v1.0.0"/inputs.initialize_with = "v2.0.0"/' flake.nix
-      
+      sed -i 's/inputs.initialize_with = "nested-static-v1"/inputs.initialize_with = "nested-static-v2"/' flake.nix
+
       # Apply again
       nixops4 apply -v nestedDeployment --show-trace 2>&1 | tee nested-output2.log
-      
+
       # Parent version should remain v1.0.0 (memo preserves state)
       grep -E "deploymentSummary.*parent:v1\.0\.0" nested-output2.log || {
         echo "ERROR: Parent version changed when it should have been preserved"
         cat nested-output2.log
         exit 1
       }
-      
+
+      # Nested staticVersion should remain "nested-static-v1" despite input changing to v2
+      # This directly tests that nested memo state is read back correctly
+      grep -E "deploymentSummary.*static:nested-static-v1" nested-output2.log || {
+        echo "ERROR: Nested staticVersion changed when it should have been preserved"
+        echo "This indicates nested memo state was not read back correctly"
+        cat nested-output2.log
+        exit 1
+      }
+
+      # Nested resource state should also be preserved
+      # frontend.webVersion should still be "frontend-v1.0.0"
+      grep -E "deploymentSummary.*frontend:frontend-v1\.0\.0" nested-output2.log || {
+        echo "ERROR: Nested frontend version changed when it should have been preserved"
+        cat nested-output2.log
+        exit 1
+      }
+
+      # Deeply nested: frontend.assets.assetVersion should still be "assets-frontend-v1.0.0"
+      grep -E "deploymentSummary.*assets:assets-frontend-v1\.0\.0" nested-output2.log || {
+        echo "ERROR: Deeply nested assets version changed when it should have been preserved"
+        cat nested-output2.log
+        exit 1
+      }
+
+      # backend.apiVersion should still be "api-v1.0.0"
+      grep -E "deploymentSummary.*backend:api-v1\.0\.0" nested-output2.log || {
+        echo "ERROR: Nested backend version changed when it should have been preserved"
+        cat nested-output2.log
+        exit 1
+      }
+
+      # Deeply nested: backend.database.dbVersion should still be "db-api-v1.0.0"
+      grep -E "deploymentSummary.*db:db-api-v1\.0\.0" nested-output2.log || {
+        echo "ERROR: Deeply nested database version changed when it should have been preserved"
+        cat nested-output2.log
+        exit 1
+      }
+
       # Clean up
       rm -f nested-parent-state.json nested-output.log nested-output2.log
     )

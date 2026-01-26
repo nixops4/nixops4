@@ -149,6 +149,16 @@
 
               # Child composite 1 - frontend
               members.frontend = {
+                # A nested memo with static input for testing state persistence directly
+                members.staticVersion = {
+                  type = providers.local.memo;
+                  state = [
+                    "nestedDeployment"
+                    "parentState"
+                  ];
+                  inputs.initialize_with = "nested-static-v1";
+                };
+
                 members.webVersion = {
                   type = providers.local.memo;
                   state = [
@@ -240,6 +250,7 @@
                 ];
                 inputs.initialize_with = lib.concatStringsSep "|" [
                   "parent:${members.nestedDeployment.members.parentVersion.outputs.value}"
+                  "static:${members.nestedDeployment.members.frontend.members.staticVersion.outputs.value}"
                   "frontend:${members.nestedDeployment.members.frontend.members.webVersion.outputs.value}"
                   "backend:${members.nestedDeployment.members.backend.members.apiVersion.outputs.value}"
                   "assets:${members.nestedDeployment.members.frontend.members.assets.members.assetVersion.outputs.value}"
