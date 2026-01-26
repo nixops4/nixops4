@@ -291,12 +291,21 @@ in
       validStateful = self.lib.mkRoot {
         modules = [
           (
-            { config, providers, ... }:
+            {
+              config,
+              providers,
+              members,
+              ...
+            }:
             {
               providers.example = testProviderModule;
+              members.myStateHandler = {
+                type = providers.example.stateless;
+                inputs.data = "state-handler";
+              };
               members.myStateful = {
                 type = providers.example.stateful;
-                state = [ "myStateHandler" ];
+                state = members.myStateHandler;
                 inputs.data = "world";
               };
             }
@@ -338,6 +347,7 @@ in
           (validStateful.rootFunction {
             resourceProviderSystem = system;
             outputValues = {
+              myStateHandler = { };
               myStateful = { };
             };
           }).members.myStateful.resource.state;

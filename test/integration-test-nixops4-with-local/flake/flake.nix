@@ -93,10 +93,7 @@
 
                   members.initial_version = {
                     type = providers.local.memo;
-                    state = [
-                      "statefulDeployment"
-                      "state"
-                    ];
+                    state = members.statefulDeployment.members.state;
                     inputs.initialize_with = config.currentVersion;
                   };
 
@@ -131,19 +128,13 @@
 
               members.parentVersion = {
                 type = providers.local.memo;
-                state = [
-                  "nestedDeployment"
-                  "parentState"
-                ];
+                state = members.nestedDeployment.members.parentState;
                 inputs.initialize_with = "v1.0.0";
               };
 
               members.parentConfig = {
                 type = providers.local.memo;
-                state = [
-                  "nestedDeployment"
-                  "parentState"
-                ];
+                state = members.nestedDeployment.members.parentState;
                 inputs.initialize_with = "production";
               };
 
@@ -152,28 +143,19 @@
                 # A nested memo with static input for testing state persistence directly
                 members.staticVersion = {
                   type = providers.local.memo;
-                  state = [
-                    "nestedDeployment"
-                    "parentState"
-                  ];
+                  state = members.nestedDeployment.members.parentState;
                   inputs.initialize_with = "nested-static-v1";
                 };
 
                 members.webVersion = {
                   type = providers.local.memo;
-                  state = [
-                    "nestedDeployment"
-                    "parentState"
-                  ];
+                  state = members.nestedDeployment.members.parentState;
                   inputs.initialize_with = "frontend-${members.nestedDeployment.members.parentVersion.outputs.value}";
                 };
 
                 members.webConfig = {
                   type = providers.local.memo;
-                  state = [
-                    "nestedDeployment"
-                    "parentState"
-                  ];
+                  state = members.nestedDeployment.members.parentState;
                   inputs.initialize_with = "web-${members.nestedDeployment.members.parentConfig.outputs.value}";
                 };
 
@@ -181,19 +163,13 @@
                 members.assets = {
                   members.assetVersion = {
                     type = providers.local.memo;
-                    state = [
-                      "nestedDeployment"
-                      "parentState"
-                    ];
+                    state = members.nestedDeployment.members.parentState;
                     inputs.initialize_with = "assets-${members.nestedDeployment.members.frontend.members.webVersion.outputs.value}";
                   };
 
                   members.assetConfig = {
                     type = providers.local.memo;
-                    state = [
-                      "nestedDeployment"
-                      "parentState"
-                    ];
+                    state = members.nestedDeployment.members.parentState;
                     inputs.initialize_with = "cdn-config-${members.nestedDeployment.members.frontend.members.webConfig.outputs.value}";
                   };
                 };
@@ -203,19 +179,13 @@
               members.backend = {
                 members.apiVersion = {
                   type = providers.local.memo;
-                  state = [
-                    "nestedDeployment"
-                    "parentState"
-                  ];
+                  state = members.nestedDeployment.members.parentState;
                   inputs.initialize_with = "api-${members.nestedDeployment.members.parentVersion.outputs.value}";
                 };
 
                 members.apiConfig = {
                   type = providers.local.memo;
-                  state = [
-                    "nestedDeployment"
-                    "parentState"
-                  ];
+                  state = members.nestedDeployment.members.parentState;
                   inputs.initialize_with = "backend-${members.nestedDeployment.members.parentConfig.outputs.value}-frontend-${members.nestedDeployment.members.frontend.members.webVersion.outputs.value}";
                 };
 
@@ -223,19 +193,13 @@
                 members.database = {
                   members.dbVersion = {
                     type = providers.local.memo;
-                    state = [
-                      "nestedDeployment"
-                      "parentState"
-                    ];
+                    state = members.nestedDeployment.members.parentState;
                     inputs.initialize_with = "db-${members.nestedDeployment.members.backend.members.apiVersion.outputs.value}";
                   };
 
                   members.dbConfig = {
                     type = providers.local.memo;
-                    state = [
-                      "nestedDeployment"
-                      "parentState"
-                    ];
+                    state = members.nestedDeployment.members.parentState;
                     inputs.initialize_with = "postgres-${members.nestedDeployment.members.backend.members.apiConfig.outputs.value}";
                   };
                 };
@@ -244,10 +208,7 @@
               # Parent resource that depends on child members
               members.deploymentSummary = {
                 type = providers.local.memo;
-                state = [
-                  "nestedDeployment"
-                  "parentState"
-                ];
+                state = members.nestedDeployment.members.parentState;
                 inputs.initialize_with = lib.concatStringsSep "|" [
                   "parent:${members.nestedDeployment.members.parentVersion.outputs.value}"
                   "static:${members.nestedDeployment.members.frontend.members.staticVersion.outputs.value}"
@@ -272,10 +233,7 @@
               # This resource's output determines which members exist in the nested composite
               members.selector = {
                 type = providers.local.memo;
-                state = [
-                  "structuralDeploymentsAttr"
-                  "stateFile"
-                ];
+                state = members.structuralDeploymentsAttr.members.stateFile;
                 inputs.initialize_with = "enabled";
               };
 
@@ -288,10 +246,7 @@
                     {
                       childResource = {
                         type = providers.local.memo;
-                        state = [
-                          "structuralDeploymentsAttr"
-                          "stateFile"
-                        ];
+                        state = members.structuralDeploymentsAttr.members.stateFile;
                         inputs.initialize_with = "child-value";
                       };
                     };
@@ -310,10 +265,7 @@
               # This resource's output determines which resources exist in the child
               members.selector = {
                 type = providers.local.memo;
-                state = [
-                  "structuralResourcesAttr"
-                  "stateFile"
-                ];
+                state = members.structuralResourcesAttr.members.stateFile;
                 inputs.initialize_with = "enabled";
               };
 
@@ -326,10 +278,7 @@
                     {
                       conditionalResource = {
                         type = providers.local.memo;
-                        state = [
-                          "structuralResourcesAttr"
-                          "stateFile"
-                        ];
+                        state = members.structuralResourcesAttr.members.stateFile;
                         inputs.initialize_with = "conditional-value";
                       };
                     };
@@ -349,10 +298,7 @@
               # This resource's output determines whether dynamicMember is a resource or composite
               members.selector = {
                 type = providers.local.memo;
-                state = [
-                  "dynamicKind"
-                  "stateFile"
-                ];
+                state = members.dynamicKind.members.stateFile;
                 inputs.initialize_with = "resource"; # could be "composite" to test the other branch
               };
 
@@ -361,20 +307,14 @@
                 if members.dynamicKind.members.selector.outputs.value == "resource" then
                   {
                     type = providers.local.memo;
-                    state = [
-                      "dynamicKind"
-                      "stateFile"
-                    ];
+                    state = members.dynamicKind.members.stateFile;
                     inputs.initialize_with = "I am a resource";
                   }
                 else
                   {
                     members.nestedResource = {
                       type = providers.local.memo;
-                      state = [
-                        "dynamicKind"
-                        "stateFile"
-                      ];
+                      state = members.dynamicKind.members.stateFile;
                       inputs.initialize_with = "I am inside a composite";
                     };
                   };
@@ -394,10 +334,7 @@
               # A simple parent resource - does NOT reference nested composite
               members.parentResource = {
                 type = providers.local.memo;
-                state = [
-                  "unreferencedNesting"
-                  "stateFile"
-                ];
+                state = members.unreferencedNesting.members.stateFile;
                 inputs.initialize_with = "parent-value";
               };
 
@@ -406,10 +343,7 @@
               members.orphan = {
                 members.orphanedResource = {
                   type = providers.local.memo;
-                  state = [
-                    "unreferencedNesting"
-                    "stateFile"
-                  ];
+                  state = members.unreferencedNesting.members.stateFile;
                   inputs.initialize_with = "orphan-value";
                 };
               };
@@ -488,19 +422,13 @@
 
               members.resourceA = {
                 type = providers.local.memo;
-                state = [
-                  "circularDependency"
-                  "stateFile"
-                ];
+                state = members.circularDependency.members.stateFile;
                 inputs.initialize_with = members.circularDependency.members.resourceB.outputs.value;
               };
 
               members.resourceB = {
                 type = providers.local.memo;
-                state = [
-                  "circularDependency"
-                  "stateFile"
-                ];
+                state = members.circularDependency.members.stateFile;
                 inputs.initialize_with = members.circularDependency.members.resourceA.outputs.value;
               };
             };
@@ -518,10 +446,7 @@
                 # This resource's input depends on a sibling member's output
                 selector = {
                   type = providers.local.memo;
-                  state = [
-                    "structuralCycle"
-                    "stateFile"
-                  ];
+                  state = members.structuralCycle.members.stateFile;
                   inputs.initialize_with = members.structuralCycle.members.inner.outputs.value;
                 };
               }
@@ -531,10 +456,7 @@
                 # existence depends on selector.outputs.value
                 inner = {
                   type = providers.local.memo;
-                  state = [
-                    "structuralCycle"
-                    "stateFile"
-                  ];
+                  state = members.structuralCycle.members.stateFile;
                   inputs.initialize_with = "inner-value";
                 };
               };
