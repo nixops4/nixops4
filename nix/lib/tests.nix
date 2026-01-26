@@ -291,12 +291,21 @@ in
       validStateful = self.lib.mkRoot {
         modules = [
           (
-            { config, providers, ... }:
+            {
+              config,
+              providers,
+              members,
+              ...
+            }:
             {
               providers.example = testProviderModule;
+              members.myStateHandler = {
+                type = providers.example.stateless;
+                inputs.data = "state-handler";
+              };
               members.myStateful = {
                 type = providers.example.stateful;
-                state = [ "myStateHandler" ];
+                state = members.myStateHandler;
                 inputs.data = "world";
               };
             }
@@ -338,6 +347,7 @@ in
           (validStateful.rootFunction {
             resourceProviderSystem = system;
             outputValues = {
+              myStateHandler = { };
               myStateful = { };
             };
           }).members.myStateful.resource.state;
@@ -429,6 +439,90 @@ in
             };
           }).members.child.resource.inputs.value;
         expected = "from-parent-provider";
+      };
+    };
+
+  "absoluteMemberPath" =
+    let
+      testProviderModule = {
+        executable = "/fake/store/test-provider/bin/test-provider";
+        type = "stdio";
+        resourceTypes = {
+          simple = {
+            requireState = false;
+            inputs = { };
+            outputs = { };
+            outputsSkeleton = { };
+          };
+        };
+      };
+
+      # Access the evaluated config to check absoluteMemberPath
+      evalConfig =
+        self.lib.evalRoot
+          {
+            specialArgs = { };
+            modules = [
+              ../component/base-modules.nix
+              (
+                { providers, ... }:
+                {
+                  providers.test = testProviderModule;
+
+                  members.topResource = {
+                    type = providers.test.simple;
+                  };
+
+                  members.parent = {
+                    members.childResource = {
+                      type = providers.test.simple;
+                    };
+
+                    members.nested = {
+                      members.deepResource = {
+                        type = providers.test.simple;
+                      };
+                    };
+                  };
+                }
+              )
+            ];
+          }
+          {
+            resourceProviderSystem = system;
+            outputValues = {
+              topResource = { };
+              parent = {
+                childResource = { };
+                nested = {
+                  deepResource = { };
+                };
+              };
+            };
+          };
+
+    in
+    {
+      "test top-level resource path" = {
+        expr = evalConfig.config.members.topResource.absoluteMemberPath;
+        expected = [ "topResource" ];
+      };
+
+      "test nested resource path" = {
+        expr = evalConfig.config.members.parent.members.childResource.absoluteMemberPath;
+        expected = [
+          "parent"
+          "childResource"
+        ];
+      };
+
+      "test deeply nested resource path" = {
+        expr = evalConfig.config.members.parent.members.nested.members.deepResource.absoluteMemberPath;
+        expected = [
+          "parent"
+          "nested"
+          "deepResource"
+        ];
       };
     };
 }

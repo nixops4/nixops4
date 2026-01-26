@@ -9,6 +9,20 @@
 }:
 let
   inherit (lib) mkOption types;
+
+  # Option type for referencing a resource, e.g. `members.foo`
+  resource = lib.mkOptionType {
+    name = "resource";
+    description = "resource reference";
+    descriptionClass = "noun";
+    check = value: value ? absoluteMemberPath;
+    merge = lib.mergeUniqueOption { message = "A resource reference cannot be merged."; };
+  };
+
+  # Backwards-compatible type that accepts either a resource or a path list
+  legacyResource = types.coercedTo (types.listOf types.str) (path: {
+    absoluteMemberPath = path;
+  }) resource;
 in
 {
   options = {
@@ -86,19 +100,32 @@ in
       '';
     };
     state = mkOption {
-      type = types.nullOr (types.listOf types.str);
+      type = types.nullOr legacyResource;
       description = ''
         The state handler for the resource, if needed.
       '';
       default = null;
       apply =
         x:
-        lib.throwIf (config.requireState && x == null) "${options.state} ${
-          if options.state.highestPrio >= lib.modules.defaultOverridePriority then
-            "has not been defined"
-          else
-            "must not be null"
-        }" x;
+        lib.warnIf (lib.any lib.isList options.state.definitions)
+          "Option ${options.state} is defined as a list. Use a `members.<name>` reference instead."
+          lib.throwIf
+          (config.requireState && x == null)
+          "${options.state} ${
+            if options.state.highestPrio >= lib.modules.defaultOverridePriority then
+              "has not been defined"
+            else
+              "must not be null"
+          }"
+          x;
+    };
+    absoluteMemberPath = mkOption {
+      type = types.listOf types.str;
+      description = ''
+        The absolute path to this resource from the root component.
+      '';
+      internal = true;
+      readOnly = true;
     };
   };
   config = {
@@ -107,8 +134,8 @@ in
         provider
         inputs
         outputsSkeleton
-        state
         ;
+      state = if config.state == null then null else config.state.absoluteMemberPath;
       type = config.resourceType;
     };
   };
