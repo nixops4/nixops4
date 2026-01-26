@@ -38,7 +38,7 @@
       };
       nix-unit.allowNetwork = true;
 
-      pre-commit.settings.hooks.nixfmt-rfc-style.enable = true;
+      pre-commit.settings.hooks.nixfmt.enable = true;
       pre-commit.settings.hooks.rustfmt.enable = true;
       pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
 
