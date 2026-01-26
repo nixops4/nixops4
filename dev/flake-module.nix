@@ -38,7 +38,7 @@
       };
       nix-unit.allowNetwork = true;
 
-      pre-commit.settings.hooks.nixfmt-rfc-style.enable = true;
+      pre-commit.settings.hooks.nixfmt.enable = true;
       pre-commit.settings.hooks.rustfmt.enable = true;
       pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
 
@@ -86,7 +86,7 @@
           ];
           nativeBuildInputs = [
             pkgs.rust-analyzer
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
             pkgs.rustfmt
             pkgs.pkg-config
             pkgs.clang-tools # clangd
@@ -96,7 +96,7 @@
           ]
           ++ config.packages.manual.externalBuildTools;
           shellHook = ''
-            ${config.pre-commit.installationScript}
+            ${config.pre-commit.shellHook}
             source ${inputs.nix-bindings-rust + "/bindgen-gcc.sh"}
             source ${../rust/artifact-shell.sh}
             echo 1>&2 "Welcome to the development shell!"
