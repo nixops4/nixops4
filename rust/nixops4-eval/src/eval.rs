@@ -237,11 +237,19 @@ impl<R: Respond> EvaluationDriver<R> {
                 Some(resource_data) => {
                     self.values.insert(id_num, Ok(resource_data));
                     self.resource_names.insert(id_num, req.name.clone());
-                    ComponentHandle::Resource(Id::<ResourceType>::from_num(id_num))
+                    ComponentHandle::Resource(
+                        Id::<ResourceType>::same_id_with_new_type_because_im_absolutely_confident(
+                            id_num,
+                        ),
+                    )
                 }
                 None => {
                     self.values.insert(id_num, Ok(member));
-                    ComponentHandle::Composite(Id::<CompositeType>::from_num(id_num))
+                    ComponentHandle::Composite(
+                        Id::<CompositeType>::same_id_with_new_type_because_im_absolutely_confident(
+                            id_num,
+                        ),
+                    )
                 }
             };
             Ok(handle)
@@ -1234,7 +1242,10 @@ mod tests {
             // Clear responses and try GetResource on b
             responses.lock().unwrap().clear();
 
-            let b_resource_id = Id::<ResourceType>::from_num(b_id.num());
+            let b_resource_id =
+                Id::<ResourceType>::same_id_with_new_type_because_im_absolutely_confident(
+                    b_id.num(),
+                );
             block_on(
                 driver.perform_request(&EvalRequest::GetResource(QueryRequest::new(
                     ids.next(),
@@ -1357,7 +1368,10 @@ mod tests {
             // Clear responses and try ListResourceInputs on b
             responses.lock().unwrap().clear();
 
-            let b_resource_id = Id::<ResourceType>::from_num(b_id.num());
+            let b_resource_id =
+                Id::<ResourceType>::same_id_with_new_type_because_im_absolutely_confident(
+                    b_id.num(),
+                );
             block_on(
                 driver.perform_request(&EvalRequest::ListResourceInputs(QueryRequest::new(
                     ids.next(),

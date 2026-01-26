@@ -62,9 +62,11 @@ impl<T> Id<T> {
             phantom: std::marker::PhantomData,
         }
     }
-    /// Create an Id with a specific type from an IdNum.
-    /// Used by the evaluator to create typed IDs in responses.
-    pub fn from_num(id: IdNum) -> Self {
+    /// Reinterpret an IdNum with a different type.
+    ///
+    /// Only use this when you're absolutely certain the ID refers to an entity
+    /// of the target type (e.g., after checking the component kind).
+    pub fn same_id_with_new_type_because_im_absolutely_confident(id: IdNum) -> Self {
         Id::new(id)
     }
     pub fn num(&self) -> IdNum {
