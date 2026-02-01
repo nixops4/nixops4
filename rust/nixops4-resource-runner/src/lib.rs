@@ -85,7 +85,13 @@ impl ResourceProviderClient {
                     bail_provider_exit_code(r)?
                 }
             }
-            Ok(_) => Ok(serde_json::from_str(&response)?),
+            Ok(_) => {
+                let resp: v0::Response = serde_json::from_str(&response)?;
+                if let v0::Response::ErrorResponse(e) = resp {
+                    anyhow::bail!("{}", e.message);
+                }
+                Ok(resp)
+            }
         }
     }
     pub async fn create(

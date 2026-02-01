@@ -50,7 +50,7 @@ fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<
     out.flush().context("flushing response")
 }
 
-pub async fn run_main(provider: impl ResourceProvider) {
+pub async fn run_main(provider: impl ResourceProvider + Sync) {
     let pipe = {
         let pipe = init_stdio();
         pipe_fds_to_files(pipe)
@@ -71,9 +71,13 @@ pub async fn run_main(provider: impl ResourceProvider) {
                     // EOF - client closed stdin, exit gracefully
                     break;
                 }
-                Ok(_) => serde_json::from_str(&line)
-                    .with_context(|| "Could not parse request message")
-                    .unwrap_or_exit(),
+                Ok(_) => match serde_json::from_str(&line) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        eprintln!("Could not parse request message: {}", e);
+                        break;
+                    }
+                },
                 Err(e) => {
                     eprintln!("Error reading request: {}", e);
                     break;
@@ -81,49 +85,42 @@ pub async fn run_main(provider: impl ResourceProvider) {
             }
         };
 
-        match request {
-            v0::Request::CreateResourceRequest(r) => {
-                let resp = provider
-                    .create(r)
-                    .await
-                    .with_context(|| "Could not create resource")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::CreateResourceResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::UpdateResourceRequest(r) => {
-                let resp = provider
-                    .update(r)
-                    .await
-                    .with_context(|| "Could not update resource")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::UpdateResourceResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::StateResourceEvent(r) => {
-                let resp = provider
-                    .state_event(r)
-                    .await
-                    .with_context(|| "Could not handle state event")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::StateResourceEventResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
-            v0::Request::StateResourceReadRequest(r) => {
-                let resp = provider
-                    .state_read(r)
-                    .await
-                    .with_context(|| "Could not read state")
-                    .unwrap_or_exit();
-                write_response(&mut out, &v0::Response::StateResourceReadResponse(resp))
-                    .context("writing response")
-                    .unwrap_or_exit();
-            }
+        let response = handle_request(&provider, request).await;
+        if let Err(e) = write_response(&mut out, &response) {
+            eprintln!("Error writing response: {}", e);
+            break;
         }
     }
+}
+
+async fn handle_request(
+    provider: &(impl ResourceProvider + Sync),
+    request: v0::Request,
+) -> v0::Response {
+    match request {
+        v0::Request::CreateResourceRequest(r) => match provider.create(r).await {
+            Ok(resp) => v0::Response::CreateResourceResponse(resp),
+            Err(e) => error_response(e),
+        },
+        v0::Request::UpdateResourceRequest(r) => match provider.update(r).await {
+            Ok(resp) => v0::Response::UpdateResourceResponse(resp),
+            Err(e) => error_response(e),
+        },
+        v0::Request::StateResourceEvent(r) => match provider.state_event(r).await {
+            Ok(resp) => v0::Response::StateResourceEventResponse(resp),
+            Err(e) => error_response(e),
+        },
+        v0::Request::StateResourceReadRequest(r) => match provider.state_read(r).await {
+            Ok(resp) => v0::Response::StateResourceReadResponse(resp),
+            Err(e) => error_response(e),
+        },
+    }
+}
+
+fn error_response(e: anyhow::Error) -> v0::Response {
+    v0::Response::ErrorResponse(v0::ErrorResponse {
+        message: format!("{:?}", e),
+    })
 }
 
 /// A pair of `T` values: one for input and one for output.
@@ -179,22 +176,5 @@ fn pipe_fds_to_files(pipe: InOut<i32>) -> InOut<std::fs::File> {
     InOut {
         in_: unsafe { std::fs::File::from_raw_fd(pipe.in_) },
         out: unsafe { std::fs::File::from_raw_fd(pipe.out) },
-    }
-}
-
-trait NixOps4MainError<T> {
-    type V;
-    fn unwrap_or_exit(self) -> Self::V;
-}
-impl<T> NixOps4MainError<Result<T>> for Result<T> {
-    type V = T;
-    fn unwrap_or_exit(self) -> T {
-        match self {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Error: {:?}", e);
-                std::process::exit(1);
-            }
-        }
     }
 }

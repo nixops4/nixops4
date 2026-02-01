@@ -172,6 +172,20 @@
       "properties": {},
       "additionalProperties": false
     },
+    "ErrorResponse": {
+      "type": "object",
+      "description": "An error response from the resource provider, indicating that the requested operation failed.",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "A human-readable error message describing what went wrong."
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": false
+    },
     "Request": {
       "oneOf": [
         {
@@ -276,6 +290,18 @@
           },
           "required": [
             "stateResourceReadResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "ErrorResponse",
+          "properties": {
+            "errorResponse": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "required": [
+            "errorResponse"
           ]
         }
       ]
