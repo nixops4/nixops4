@@ -4,7 +4,8 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use nix::unistd::{dup, dup2};
+use nix::fcntl::{fcntl, FcntlArg};
+use nix::unistd::dup2;
 
 use crate::schema::v0;
 
@@ -145,8 +146,12 @@ type Fd = i32;
 /// ```
 fn init_stdio() -> InOut<Fd> {
     let r = InOut {
-        in_: dup(0).with_context(|| "dup(0)").unwrap(),
-        out: dup(1).with_context(|| "dup(1)").unwrap(),
+        in_: fcntl(0, FcntlArg::F_DUPFD_CLOEXEC(0))
+            .with_context(|| "F_DUPFD_CLOEXEC(stdin)")
+            .unwrap(),
+        out: fcntl(1, FcntlArg::F_DUPFD_CLOEXEC(0))
+            .with_context(|| "F_DUPFD_CLOEXEC(stdout)")
+            .unwrap(),
     };
 
     // 0: dev/null
