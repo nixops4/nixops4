@@ -402,6 +402,96 @@ impl ClientConnection {
         }
     }
 
+    /// Destroy a resource via ApplyResourceChange with null planned_state
+    pub async fn destroy_resource_change(
+        &mut self,
+        resource_type: &str,
+        prior_state: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        // Get resource schema to complete prior state
+        let raw_schema = self.get_provider_schema().await?;
+        let schema = crate::schema::ProviderSchema::from_raw_response(raw_schema);
+        let resource_schema = schema.resource_schemas.get(resource_type).context(format!(
+            "Resource type '{}' not found in provider schema",
+            resource_type
+        ))?;
+        let resource_block = resource_schema
+            .block
+            .as_ref()
+            .context("Resource schema missing block definition")?;
+
+        let complete_prior_state = Self::complete_resource_state(prior_state, resource_block)?;
+
+        match self {
+            ClientConnection::V5(client) => {
+                let prior_state_dv = Self::json_map_to_dynamic_value_v5(complete_prior_state)?;
+                let planned_state_dv = Self::null_dynamic_value_v5()?;
+                let config_dv = Self::null_dynamic_value_v5()?;
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin5_9::apply_resource_change::Request {
+                        type_name: resource_type.to_string(),
+                        prior_state: Some(prior_state_dv),
+                        planned_state: Some(planned_state_dv),
+                        config: Some(config_dv),
+                        planned_private: vec![],
+                        provider_meta: None,
+                        planned_identity: None,
+                    });
+                let response = client
+                    .apply_resource_change(request)
+                    .await
+                    .context("Failed to call ApplyResourceChange for destroy (v5)")?;
+
+                let response = response.into_inner();
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin5_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error during destroy: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+                Ok(())
+            }
+            ClientConnection::V6(client) => {
+                let prior_state_dv = Self::json_map_to_dynamic_value_v6(complete_prior_state)?;
+                let planned_state_dv = Self::null_dynamic_value_v6()?;
+                let config_dv = Self::null_dynamic_value_v6()?;
+                let request =
+                    tonic::Request::new(super::grpc::tfplugin6_9::apply_resource_change::Request {
+                        type_name: resource_type.to_string(),
+                        prior_state: Some(prior_state_dv),
+                        planned_state: Some(planned_state_dv),
+                        config: Some(config_dv),
+                        planned_private: vec![],
+                        provider_meta: None,
+                        planned_identity: None,
+                    });
+                let response = client
+                    .apply_resource_change(request)
+                    .await
+                    .context("Failed to call ApplyResourceChange for destroy (v6)")?;
+
+                let response = response.into_inner();
+                for diagnostic in &response.diagnostics {
+                    if diagnostic.severity
+                        == super::grpc::tfplugin6_9::diagnostic::Severity::Error as i32
+                    {
+                        bail!(
+                            "Terraform provider error during destroy: {} - {}",
+                            diagnostic.summary,
+                            diagnostic.detail
+                        );
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Convert DynamicValue back to JSON map, handling null responses (v5)
     fn dynamic_value_v5_to_optional_json_map(
         dynamic_value: super::grpc::tfplugin5_9::DynamicValue,
