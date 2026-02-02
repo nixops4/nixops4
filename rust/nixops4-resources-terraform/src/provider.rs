@@ -101,6 +101,53 @@ impl ResourceProvider for TerraformProvider {
         })
     }
 
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        let mut client = ProviderClient::launch(&self.provider_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to launch Terraform provider: {}",
+                    self.provider_path
+                )
+            })?;
+
+        let provider_config = Self::extract_provider_config(&request.resource.input_properties.0);
+
+        if !provider_config.is_empty() {
+            client
+                .client_connection()?
+                .configure_provider(provider_config)
+                .await
+                .context("Failed to configure Terraform provider")?;
+        }
+
+        let prior_state = if let Some(ref output_props) = request.resource.output_properties {
+            output_props
+                .0
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<HashMap<String, Value>>()
+        } else {
+            HashMap::new()
+        };
+
+        client
+            .client_connection()?
+            .destroy_resource_change(&request.resource.type_.0, prior_state)
+            .await
+            .context("Failed to destroy resource with Terraform provider")?;
+
+        client
+            .shutdown()
+            .await
+            .context("Failed to shutdown Terraform provider")?;
+
+        Ok(v0::DestroyResourceResponse {})
+    }
+
     async fn update(
         &self,
         request: v0::UpdateResourceRequest,
