@@ -906,9 +906,11 @@ impl ProviderClient {
     /// Shutdown the provider gracefully
     ///
     /// Sends a gRPC StopProvider request to the provider if connected, then terminates the process.
+    /// On success paths, prefer calling this method for a clean shutdown.
+    /// On error paths, the Drop impl will SIGKILL the process as a safety net.
     pub async fn shutdown(mut self) -> Result<()> {
         // Send stop signal via gRPC if connected (only available in v6)
-        if let Some(client) = self.client {
+        if let Some(client) = self.client.take() {
             match client {
                 ClientConnection::V5(_) => {
                     // Protocol v5 doesn't have stop_provider, just kill the process
@@ -928,6 +930,17 @@ impl ProviderClient {
             .context("Failed to kill provider process")?;
 
         Ok(())
+    }
+}
+
+impl Drop for ProviderClient {
+    fn drop(&mut self) {
+        // Ensure the provider process is killed when the client is dropped.
+        // On error paths, ProviderClient may be dropped without calling shutdown(),
+        // leaving the provider process running indefinitely. This blocks nixops4's
+        // shutdown because the orphaned process can hold resources (fds, ports) that
+        // prevent clean exit of parent processes in the chain.
+        let _ = self.process.start_kill();
     }
 }
 

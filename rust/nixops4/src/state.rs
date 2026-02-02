@@ -210,9 +210,12 @@ impl StateHandle {
 
     pub async fn close(self: Arc<Self>) -> Result<()> {
         // Only close if this is the last reference
-        if let Ok(handle) = Arc::try_unwrap(self) {
-            let mut provider = handle.state_provider.lock().await;
-            provider.close_wait().await?;
+        match Arc::try_unwrap(self) {
+            Ok(handle) => {
+                let mut provider = handle.state_provider.lock().await;
+                provider.close_wait().await?;
+            }
+            Err(_arc) => {}
         }
         Ok(())
     }
