@@ -923,6 +923,7 @@ impl WorkContext {
         }
     }
 
+    /// With mutation_cap None: bails on structural dependency (read-only mode).
     async fn perform_get_resource_input_value(
         &self,
         context: TaskContext<Self>,
