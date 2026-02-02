@@ -104,13 +104,21 @@ pub enum Goal {
     LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
     /// Get resource provider info for a loaded resource.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, MutationCapability),
+    /// Option<MutationCapability>: Some = retry on dependency (apply), None = bail on dependency (read-only)
+    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// List resource inputs.
     /// Note: path is only used for logging; id is the source of truth.
-    ListResourceInputs(Id<ResourceType>, ComponentPath, MutationCapability),
+    /// Option<MutationCapability>: Some = retry on dependency (apply), None = bail on dependency (read-only)
+    ListResourceInputs(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// Get a specific resource input value.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
+    /// Option<MutationCapability>: Some = retry on dependency (apply), None = bail on dependency (read-only)
+    GetResourceInputValue(
+        Id<ResourceType>,
+        ComponentPath,
+        String,
+        Option<MutationCapability>,
+    ),
     /// Get a resource output value (goes to ApplyResource).
     /// Note: path is only used for logging; id is the source of truth.
     GetResourceOutputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
@@ -832,20 +840,27 @@ impl WorkContext {
 
     /// Get resource provider info, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: bails on structural dependency (read-only mode).
     async fn perform_get_resource_provider_info(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_get_resource_provider_info(id).await? {
                 StepResult::Done(info) => return Ok(Outcome::ResourceProviderInfo(info)),
-                StepResult::Needs(dep) => {
-                    self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
-                }
+                StepResult::Needs(dep) => match mutation_cap {
+                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    None => {
+                        bail!(
+                            "Cannot resolve structural dependency {}.{} in read-only mode",
+                            dep.resource,
+                            dep.name
+                        )
+                    }
+                },
             }
         }
     }
@@ -886,33 +901,41 @@ impl WorkContext {
 
     /// List resource inputs, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: bails on structural dependency (read-only mode).
     async fn perform_list_resource_inputs(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_list_resource_inputs(id).await? {
                 StepResult::Done(input_names) => {
                     return Ok(Outcome::ResourceInputsListed(input_names))
                 }
-                StepResult::Needs(dep) => {
-                    self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
-                }
+                StepResult::Needs(dep) => match mutation_cap {
+                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    None => {
+                        bail!(
+                            "Cannot resolve structural dependency {}.{} in read-only mode",
+                            dep.resource,
+                            dep.name
+                        )
+                    }
+                },
             }
         }
     }
 
+    /// With mutation_cap None: bails on structural dependency (read-only mode).
     async fn perform_get_resource_input_value(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
         input_name: String,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -940,10 +963,16 @@ impl WorkContext {
                             StepResult::Done(value) => {
                                 break Ok(Outcome::ResourceInputValue(value))
                             }
-                            StepResult::Needs(dep) => {
-                                self.resolve_dependency(&context, &dep, mutation_cap)
-                                    .await?
-                            }
+                            StepResult::Needs(dep) => match mutation_cap {
+                                Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                                None => {
+                                    bail!(
+                                        "Cannot resolve structural dependency {}.{} in read-only mode",
+                                        dep.resource,
+                                        dep.name
+                                    )
+                                }
+                            },
                         },
                         _ => bail!(
                             "Unexpected response to GetResourceInputValue, {:?}",
@@ -1000,7 +1029,7 @@ impl WorkContext {
             .spawn(Goal::GetResourceProviderInfo(
                 id,
                 resource_path.clone(),
-                mutation_cap,
+                Some(mutation_cap),
             ))
             .await?;
 
@@ -1008,7 +1037,7 @@ impl WorkContext {
             .spawn(Goal::ListResourceInputs(
                 id,
                 resource_path.clone(),
-                mutation_cap,
+                Some(mutation_cap),
             ))
             .await?;
 
@@ -1029,7 +1058,7 @@ impl WorkContext {
                     id,
                     resource_path.clone(),
                     input_name.clone(),
-                    mutation_cap,
+                    Some(mutation_cap),
                 ))
                 .await?;
             inputs_thunks.insert(input_name, input_id);
@@ -1362,7 +1391,7 @@ impl TaskWork for WorkContext {
 
                     // Get the provider info
                     let provider_info_thunk = context
-                        .spawn(Goal::GetResourceProviderInfo(id, path.clone(), cap))
+                        .spawn(Goal::GetResourceProviderInfo(id, path.clone(), Some(cap)))
                         .await
                         .with_context(|| {
                             format!("Failed to get provider info for resource {}", path)
