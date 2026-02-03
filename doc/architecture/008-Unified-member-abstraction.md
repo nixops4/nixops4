@@ -33,5 +33,3 @@ Key terminology:
 - Refactoring between resource and composite no longer breaks references
 - `members` module argument provides sibling access at each level
 - Providers can be defined at any component level, not just root
-
-See [008-Unified-member-abstraction-plan.md](./008-Unified-member-abstraction-plan.md) for detailed design.
