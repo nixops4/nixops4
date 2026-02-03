@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b1fc064f.js";
+            window.path_to_searchindex_js = "../searchindex-8a1db40a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-9e39c76f.js"></script>
@@ -317,6 +317,15 @@
 <li><a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse">2.4.1. Property <code>stateResourceReadResponse</code></a>
 <ul>
 <li><a href="#oneOf_i1_oneOf_i3_stateResourceReadResponse_state">2.4.1.1. Property <code>state</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#oneOf_i1_oneOf_i4">2.5. Property <code>ErrorResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i4_errorResponse">2.5.1. Property <code>errorResponse</code></a>
+<ul>
+<li><a href="#oneOf_i1_oneOf_i4_errorResponse_message">2.5.1.1. Property <code>message</code></a></li>
 </ul>
 </li>
 </ul>
@@ -1094,6 +1103,7 @@
 <tr><td><a href="#oneOf_i1_oneOf_i1">UpdateResourceResponse</a></td></tr>
 <tr><td><a href="#oneOf_i1_oneOf_i2">StateResourceEventResponse</a></td></tr>
 <tr><td><a href="#oneOf_i1_oneOf_i3">StateResourceReadResponse</a></td></tr>
+<tr><td><a href="#oneOf_i1_oneOf_i4">ErrorResponse</a></td></tr>
 </tbody>
 </table>
 </div>
@@ -1342,6 +1352,68 @@
 </tbody>
 </table>
 </div>
+<h4 id="25-property-errorresponse"><a class="header" href="#25-property-errorresponse"><a id="oneOf_i1_oneOf_i4"></a>2.5. Property <code>ErrorResponse</code></a></h4>
+<p><strong>Title:</strong> ErrorResponse</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th></th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>No</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Any type allowed</td></tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr>
+</thead>
+<tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i4_errorResponse">errorResponse</a></td><td>object</td><td>No</td><td>An error response from the resource provider, indicating that the requested operation failed.</td></tr>
+</tbody>
+</table>
+</div>
+<h5 id="251-property-errorresponse"><a class="header" href="#251-property-errorresponse"><a id="oneOf_i1_oneOf_i4_errorResponse"></a>2.5.1. Property <code>errorResponse</code></a></h5>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th></th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Type</strong></td><td><code>object</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+<tr><td><strong>Additional properties</strong></td><td>Not allowed</td></tr>
+<tr><td><strong>Defined in</strong></td><td>#/definitions/ErrorResponse</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Description:</strong> An error response from the resource provider, indicating that the requested operation failed.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Property</th><th>Type</th><th>Pattern</th><th>Title/Description</th></tr>
+</thead>
+<tbody>
+<tr><td>+ <a href="#oneOf_i1_oneOf_i4_errorResponse_message">message</a></td><td>string</td><td>No</td><td>A human-readable error message describing what went wrong.</td></tr>
+</tbody>
+</table>
+</div>
+<h6 id="2511-property-message"><a class="header" href="#2511-property-message"><a id="oneOf_i1_oneOf_i4_errorResponse_message"></a>2.5.1.1. Property <code>message</code></a></h6>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th></th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Type</strong></td><td><code>string</code></td></tr>
+<tr><td><strong>Required</strong></td><td>Yes</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Description:</strong> A human-readable error message describing what went wrong.</p>
 <hr></div>
 
 
