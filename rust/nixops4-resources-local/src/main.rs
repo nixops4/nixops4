@@ -27,10 +27,12 @@ struct ExecInProperties {
     executable: String,
     args: Vec<String>,
     stdin: Option<String>,
+    #[serde(default = "const_false")]
+    once: bool,
     // TODO parseJSON: bool  (for convenience and presentation purposes)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct ExecOutProperties {
     stdout: String,
 }
@@ -116,7 +118,22 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
             "file" => {
                 bail!("Internal error: update called on stateless file resource");
             }
-            "exec" => do_update(&request, run_exec),
+            "exec" => do_update(&request, |p: ExecInProperties| {
+                if p.once {
+                    let previous = request.resource.output_properties.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("exec resource with once=true requires previous output properties on update")
+                    })?;
+                    serde_json::from_value::<ExecOutProperties>(Value::Object(
+                        previous
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
+                    ))
+                    .context("Could not deserialize previous output properties for exec resource")
+                } else {
+                    run_exec(p)
+                }
+            }),
             "state_file" => {
                 bail!("Internal error: update called on stateless state_file resource");
             }
@@ -206,6 +223,10 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
             ),
         }
     }
+}
+
+fn const_false() -> bool {
+    false
 }
 
 fn run_exec(p: ExecInProperties) -> Result<ExecOutProperties> {
