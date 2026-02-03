@@ -3,7 +3,7 @@ use crate::{
     eval_client::EvalSender,
     interrupt::InterruptState,
     to_eval_options,
-    work::{Goal, MutationCapability, Outcome, WorkContext},
+    work::{clone_anyhow_from_arc, Goal, MutationCapability, Outcome, WorkContext},
     Options,
 };
 use anyhow::{bail, Context, Result};
@@ -128,7 +128,7 @@ pub(crate) async fn apply(
                                     other
                                 ))
                             }
-                            Err(e) => return Err(anyhow::anyhow!("{}", e)),
+                            Err(e) => return Err(clone_anyhow_from_arc(e)),
                         };
 
                         // Apply with matching id/path
@@ -138,7 +138,7 @@ pub(crate) async fn apply(
                             .as_ref()
                         {
                             Ok(_) => Ok(()),
-                            Err(e) => Err(anyhow::anyhow!("{}", e)),
+                            Err(e) => Err(clone_anyhow_from_arc(e)),
                         }
                     })
                 })
@@ -161,7 +161,7 @@ pub(crate) async fn apply(
                     "{}",
                     errors
                         .iter()
-                        .map(|e| e.to_string())
+                        .map(|e| format!("{:#}", e))
                         .collect::<Vec<_>>()
                         .join("\n")
                 ))
@@ -177,12 +177,7 @@ pub(crate) async fn apply(
             h.await??;
             result
         };
-        match r.as_ref() {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                bail!("{}", e);
-            }
-        }
+        r
     })
     .await
 }

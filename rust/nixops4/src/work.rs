@@ -1396,8 +1396,22 @@ impl TaskWork for WorkContext {
 fn clone_result<T: Clone>(r: &std::result::Result<T, Arc<anyhow::Error>>) -> Result<T> {
     match r {
         Ok(v) => Ok(v.clone()),
-        Err(e) => bail!("{}", e),
+        Err(e) => Err(clone_anyhow_from_arc(e)),
     }
+}
+
+/// Reconstruct an [`anyhow::Error`] from an `Arc`, preserving the full error chain.
+///
+/// `anyhow::Error` doesn't implement `Clone`, but the task system wraps errors in
+/// `Arc` for sharing across consumers. This reconstructs the chain by iterating
+/// from root cause to outermost context, re-adding each layer via `.context()`.
+pub(crate) fn clone_anyhow_from_arc(e: &Arc<anyhow::Error>) -> anyhow::Error {
+    let chain: Vec<String> = e.chain().map(|c| c.to_string()).collect();
+    let mut err = anyhow::anyhow!("{}", chain.last().unwrap());
+    for msg in chain.iter().rev().skip(1) {
+        err = err.context(msg.to_string());
+    }
+    err
 }
 
 fn indented_json(v: &Value) -> String {
