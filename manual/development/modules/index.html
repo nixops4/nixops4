@@ -38,7 +38,7 @@
             window.path_to_searchindex_js = "../searchindex-b1fc064f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-a76a9e4b.js"></script>
+        <script src="../toc-9e39c76f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -217,8 +217,9 @@ members.database = {
 </code></pre>
 <p><em>Type:</em>
 lazy attribute set of (submodule)</p>
-<p><em>Default:</em>
-<code>{ }</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">{ }
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/members.nix">nixops4/nix/component/members.nix</a></li>
@@ -237,8 +238,9 @@ submodule</p>
 <p>Any command line arguments to pass to the executable.</p>
 <p><em>Type:</em>
 list of (string or (string or absolute path or signed integer) convertible to it)</p>
-<p><em>Default:</em>
-<code>[ ]</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">[ ]
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
@@ -255,8 +257,9 @@ string</p>
 <p>The type of communication to use with the resource provider executable.</p>
 <p><em>Type:</em>
 value “stdio” (singular enum)</p>
-<p><em>Default:</em>
-<code>"stdio"</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">"stdio"
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
@@ -268,10 +271,11 @@ value “stdio” (singular enum)</p>
 <p>It also allows for expressions to extract just the providers from a deployment configuration.</p>
 <p><em>Type:</em>
 lazy attribute set of (submodule)</p>
-<p><em>Default:</em>
-<code>{ }</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">{ }
+</code></pre>
 <p><em>Example:</em></p>
-<pre><code>{
+<pre><code class="language-nix">{
   local = inputs.nixops4.modules.nixops4Provider.local;
   foo = inputs.nixops4-resources-foo.modules.nixops4Provider.default;
 }
@@ -285,8 +289,9 @@ lazy attribute set of (submodule)</p>
 <p>Any command line arguments to pass to the executable.</p>
 <p><em>Type:</em>
 list of string</p>
-<p><em>Default:</em>
-<code>[ ]</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">[ ]
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
@@ -422,8 +427,9 @@ string</p>
 <p>The type of communication to use with the resource provider executable.</p>
 <p><em>Type:</em>
 string</p>
-<p><em>Default:</em>
-<code>"stdio"</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">"stdio"
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/provider/provider.nix">nixops4/nix/provider/provider.nix</a></li>
@@ -448,8 +454,9 @@ string</p>
 <p>The state handler for the resource, if needed.</p>
 <p><em>Type:</em>
 null or (resource reference or (list of string) convertible to it)</p>
-<p><em>Default:</em>
-<code>null</code></p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">null
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/component/resource.nix">nixops4/nix/component/resource.nix</a></li>
@@ -459,7 +466,7 @@ null or (resource reference or (list of string) convertible to it)</p>
 <p><em>Type:</em>
 raw value</p>
 <p><em>Example:</em></p>
-<pre><code>providers.local.file
+<pre><code class="language-nix">providers.local.file
 
 </code></pre>
 <p><em>Declared by:</em></p>
