@@ -22,12 +22,11 @@ let
 
   moduleLoc = dropEnd 2 options.provider.executable.loc;
 
-  docResources =
+  docComponent =
     dropEnd
       # usually mounted on providers.<name>.resourceTypes.<name>
       4
-      moduleLoc
-    ++ [ "resources" ];
+      moduleLoc;
 
   # Incomplete, but good enough for now
   renderFragment = loc: replaceStrings [ "<" ">" ] [ "_" "_" ] (showOption loc);
@@ -53,9 +52,8 @@ in
       description = ''
         Value to be used for ${
           linkOptionLoc (
-            docResources
+            docComponent
             ++ [
-              "<name>"
               "provider"
               "executable"
             ]
@@ -73,9 +71,8 @@ in
       description = ''
         Value to be used for ${
           linkOptionLoc (
-            docResources
+            docComponent
             ++ [
-              "<name>"
               "provider"
               "args"
             ]
@@ -93,9 +90,8 @@ in
       description = ''
         Value to be used for ${
           linkOptionLoc (
-            docResources
+            docComponent
             ++ [
-              "<name>"
               "provider"
               "type"
             ]
