@@ -16,8 +16,10 @@ This distinction creates friction:
 Unify resources and nested deployments into a single abstraction: **components**.
 
 A component is either:
-- **Resource component**: Defines `resource` - wraps a provider-managed resource
+- **Resource component**: Has resource options (`provider`, `inputs`, `outputs`, etc.) - wraps a provider-managed resource
 - **Composite component**: Defines `members` - contains other components
+
+Grouping the resource options under a `resource` attribute was considered, but would have been too verbose in practice. Instead, resource options are defined directly on the component.
 
 The path `foo.bar.baz` uniformly means "the member `baz` inside member `bar` inside member `foo`". The final component may be either a resource or composite; the preceding components must be composites.
 
