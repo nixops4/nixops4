@@ -21,7 +21,10 @@ signed integer
 
 
 *Default:*
-` 1 `
+
+```nix
+1
+```
 
 
 
