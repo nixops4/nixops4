@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::provider;
 
 /// The root of a state file.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct State {
     #[serde(flatten)]
     pub deployment: DeploymentState,
