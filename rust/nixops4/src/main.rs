@@ -116,19 +116,31 @@ async fn members_list(
 ) -> Result<Vec<String>> {
     let target_path: ComponentPath = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
 
-    // TODO: Support nested paths by traversing to the composite
-    if !target_path.is_root() {
-        bail!(
-            "Listing members at nested paths is not yet implemented. Use root path (no argument)."
-        );
-    }
-
     application::with_eval(interrupt_state, options, |work_context, tasks| async move {
         let root_id = work_context.root_composite_id;
 
+        // Resolve the target path to a composite ID
+        let composite_id = if target_path.is_root() {
+            root_id
+        } else {
+            match tasks
+                .run(Goal::ResolveCompositePath(target_path.clone()))
+                .await
+                .as_ref()
+            {
+                Ok(Outcome::CompositeResolved(id)) => *id,
+                Ok(other) => {
+                    bail!("Unexpected outcome from ResolveCompositePath: {:?}", other)
+                }
+                Err(e) => {
+                    bail!("Failed to resolve path '{}': {}", target_path, e)
+                }
+            }
+        };
+
         // Use ListMembers goal without mutation capability (preview mode)
         let result = tasks
-            .run(Goal::ListMembers(root_id, target_path.clone(), None))
+            .run(Goal::ListMembers(composite_id, target_path.clone(), None))
             .await;
 
         // Extract member names from the result
