@@ -3,7 +3,7 @@ use crate::{
     eval_client::EvalSender,
     interrupt::InterruptState,
     to_eval_options,
-    work::{clone_anyhow_from_arc, Goal, MutationCapability, Outcome, WorkContext},
+    work::{clone_anyhow_from_arc, resolve_composite_path, Goal, MutationCapability, WorkContext},
     Options,
 };
 use anyhow::{bail, Context, Result};
@@ -115,21 +115,7 @@ pub(crate) async fn apply(
                 .map(|path| {
                     let tasks = tasks.clone();
                     tokio::spawn(async move {
-                        // Resolve path to get the target composite ID
-                        let target_id = match tasks
-                            .run(Goal::ResolveCompositePath(path.clone()))
-                            .await
-                            .as_ref()
-                        {
-                            Ok(Outcome::CompositeResolved(id)) => *id,
-                            Ok(other) => {
-                                return Err(anyhow::anyhow!(
-                                    "Unexpected outcome from ResolveCompositePath: {:?}",
-                                    other
-                                ))
-                            }
-                            Err(e) => return Err(clone_anyhow_from_arc(e)),
-                        };
+                        let target_id = resolve_composite_path(&tasks, path.clone()).await?;
 
                         // Apply with matching id/path
                         match tasks

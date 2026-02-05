@@ -1414,6 +1414,18 @@ pub(crate) fn clone_anyhow_from_arc(e: &Arc<anyhow::Error>) -> anyhow::Error {
     err
 }
 
+/// Resolve a component path to a composite ID.
+pub(crate) async fn resolve_composite_path(
+    tasks: &crate::control::task_tracker::TaskTracker<WorkContext>,
+    path: ComponentPath,
+) -> Result<Id<CompositeType>> {
+    match tasks.run(Goal::ResolveCompositePath(path)).await.as_ref() {
+        Ok(Outcome::CompositeResolved(id)) => Ok(*id),
+        Ok(other) => bail!("Unexpected outcome from ResolveCompositePath: {:?}", other),
+        Err(e) => Err(clone_anyhow_from_arc(e)),
+    }
+}
+
 fn indented_json(v: &Value) -> String {
     let s = serde_json::to_string_pretty(v).unwrap();
     s.replace("\n", "\n            ")
