@@ -42,7 +42,8 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             match sub {
                 Members::List { path } => {
                     let mut logging = set_up_logging(interrupt_state, &args)?;
-                    let members = members_list(&args.options, path.as_deref()).await?;
+                    let members =
+                        members_list(interrupt_state, &args.options, path.as_deref()).await?;
                     logging.tear_down()?;
                     for m in members {
                         println!("{}", m);
@@ -127,7 +128,11 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
 }
 
 /// List members at a given component path
-async fn members_list(options: &Options, path: Option<&str>) -> Result<Vec<String>> {
+async fn members_list(
+    interrupt_state: &InterruptState,
+    options: &Options,
+    path: Option<&str>,
+) -> Result<Vec<String>> {
     // TODO: Support nested paths by traversing to the composite
     let target_path = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
     if !target_path.is_root() {
@@ -164,7 +169,7 @@ async fn members_list(options: &Options, path: Option<&str>) -> Result<Vec<Strin
         let work_context = WorkContext {
             root_composite_id: root_id,
             options: options.clone(),
-            interrupt_state: interrupt::InterruptState::new(),
+            interrupt_state: interrupt_state.clone(),
             eval_sender: s.clone(),
             state: Default::default(),
             id_subscriptions: pubsub_rs::Pubsub::new(),
