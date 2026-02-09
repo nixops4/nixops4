@@ -1,0 +1,36 @@
+Patch the clap_complete generated bash script to avoid splitting on ':'
+
+Bash's COMP_WORDBREAKS includes ':' by default, causing arguments like
+'github:foo/bar' to be split incorrectly during completion. This uses
+_get_comp_words_by_ref from bash-completion to preserve colons.
+
+TODO: Remove when clap_complete gains native support for this.
+--- completion.bash
++++ completion.bash
+@@ -1,16 +1,23 @@
+
+ _clap_complete_nixops4() {
+     local IFS=$'\013'
+-    local _CLAP_COMPLETE_INDEX=${COMP_CWORD}
+     local _CLAP_COMPLETE_COMP_TYPE=${COMP_TYPE}
+     if compopt +o nospace 2> /dev/null; then
+         local _CLAP_COMPLETE_SPACE=false
+     else
+         local _CLAP_COMPLETE_SPACE=true
+     fi
+-    local words=("${COMP_WORDS[@]}")
++    # Use _get_comp_words_by_ref to avoid COMP_WORDBREAKS splitting on ':'
++    local words cword
++    if type _get_comp_words_by_ref &>/dev/null; then
++        _get_comp_words_by_ref -n : words cword
++    else
++        words=("${COMP_WORDS[@]}")
++        cword=${COMP_CWORD}
++    fi
++    local _CLAP_COMPLETE_INDEX=${cword}
+     if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
+-        words[COMP_CWORD]="$2"
++        words[cword]="$2"
+     fi
+     COMPREPLY=( $( \
+         _CLAP_IFS="$IFS" \
