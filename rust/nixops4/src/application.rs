@@ -120,10 +120,8 @@ where
 
         let result = f(work_context, tasks).await;
 
-        if result.is_ok() {
-            s.close().await;
-            h.await??;
-        }
+        s.close().await;
+        h.await??;
 
         result
     })
