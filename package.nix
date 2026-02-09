@@ -29,6 +29,8 @@ stdenv.mkDerivation {
     nixops4 generate-man > nixops4.1
 
     COMPLETE=bash nixops4 > completion.bash
+    patch -p0 < ${./bash-completion-wordbreaks.patch}
+
     COMPLETE=zsh nixops4 > completion.zsh
   '';
 
