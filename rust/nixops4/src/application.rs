@@ -65,8 +65,24 @@ where
     Fut: Future<Output = Result<R>>,
 {
     let eval_options = to_eval_options(options);
+    with_eval_impl(interrupt_state, options, &eval_options, f).await
+}
 
-    EvalSender::with(&eval_options.clone(), |s, mut r| async move {
+/// Internal implementation that takes explicit eval_options.
+async fn with_eval_impl<F, Fut, R>(
+    interrupt_state: &InterruptState,
+    options: &Options,
+    eval_options: &eval_client::Options,
+    f: F,
+) -> Result<R>
+where
+    F: FnOnce(Arc<WorkContext>, TaskTracker<WorkContext>) -> Fut,
+    Fut: Future<Output = Result<R>>,
+{
+    let eval_options = eval_options.clone();
+    let flake_input_overrides = eval_options.flake_input_overrides.clone();
+
+    EvalSender::with(&eval_options, |s, mut r| async move {
         let flake_id = s.next_id();
         let cwd = std::env::current_dir()
             .context("getting current directory")?
@@ -76,7 +92,7 @@ where
             assign_to: flake_id,
             payload: FlakeRequest {
                 abspath: cwd,
-                input_overrides: eval_options.flake_input_overrides.clone(),
+                input_overrides: flake_input_overrides,
             },
         }))
         .await?;
