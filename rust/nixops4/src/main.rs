@@ -115,7 +115,13 @@ fn to_eval_options(options: &Options) -> eval_client::Options {
         flake_input_overrides: options
             .override_input
             .chunks(2)
-            .map(|pair| (pair[0].to_string(), pair[1].to_string()))
+            .map(|pair| {
+                assert!(
+                    pair.len() == 2,
+                    "override_input must have an even number of elements (clap num_args = 2)"
+                );
+                (pair[0].to_string(), pair[1].to_string())
+            })
             .collect(),
     }
 }
