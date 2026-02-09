@@ -47,6 +47,7 @@ pub fn to_eval_options(options: &Options) -> eval_client::Options {
                 (pair[0].to_string(), pair[1].to_string())
             })
             .collect(),
+        force_quiet: false,
     }
 }
 
