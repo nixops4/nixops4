@@ -1,5 +1,6 @@
 mod application;
 mod apply;
+mod complete;
 mod control;
 mod eval_client;
 mod interrupt;
@@ -11,12 +12,21 @@ mod work;
 
 use anyhow::{bail, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
+use clap_complete::engine::ArgValueCompleter;
+use clap_complete::env::CompleteEnv;
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core::eval_api::ComponentPath;
 use options::Options;
 use work::{Goal, Outcome};
 
 fn main() {
+    // Handle shell completion if requested via environment.
+    // Use .completer("nixops4") to emit the command name instead of the full path,
+    // so that wrappers (like the Nix makeBinaryWrapper) work correctly.
+    CompleteEnv::with_factory(Args::command)
+        .completer("nixops4")
+        .complete();
+
     let interrupt_state = set_up_process_interrupt_handler();
 
     let rt = application::runtime();
@@ -60,13 +70,6 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             let opts = clap_markdown::MarkdownOptions::new().show_footer(false);
             let markdown: String = clap_markdown::help_markdown_custom::<Args>(&opts);
             println!("{}", markdown);
-            Ok(())
-        }
-        Commands::GenerateCompletion { shell } => {
-            // TODO: remove the generate-* commands from the completion
-            //       same problem in nixops4-resource-runner
-            let mut cmd = Args::command();
-            clap_complete::generate(*shell, &mut cmd, "nixops4", &mut std::io::stdout());
             Ok(())
         }
     }
@@ -163,7 +166,7 @@ enum Members {
     /// List members at a component path (default: root)
     List {
         /// Component path (dot-separated, e.g., "production.database")
-        #[arg()]
+        #[arg(add = ArgValueCompleter::new(complete::component_path_completer_composite))]
         path: Option<String>,
     },
 }
@@ -188,12 +191,4 @@ enum Commands {
     /// Generate a manpage for nixops4-resource-runner
     #[command(hide = true)]
     GenerateMan,
-
-    /// Generate shell completion for nixops4-resource-runner
-    #[command(hide = true)]
-    GenerateCompletion {
-        /// The shell to generate completion for
-        #[arg(long)]
-        shell: clap_complete::Shell,
-    },
 }

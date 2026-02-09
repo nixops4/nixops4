@@ -27,8 +27,9 @@ stdenv.mkDerivation {
       ;
 
     nixops4 generate-man > nixops4.1
-    nixops4 generate-completion --shell bash > completion.bash
-    nixops4 generate-completion --shell zsh > completion.zsh 
+
+    COMPLETE=bash nixops4 > completion.bash
+    COMPLETE=zsh nixops4 > completion.zsh
   '';
 
   installPhase = ''

@@ -1,7 +1,7 @@
 use crate::control::task_tracker::TaskTracker;
 use crate::eval_client::{self, EvalSender};
 use crate::interrupt::InterruptState;
-use crate::options::Options;
+use crate::options::{parse_options_for_completion, Options};
 use crate::work::WorkContext;
 use anyhow::{Context, Result};
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, EvalResponse, FlakeRequest, RootRequest};
@@ -14,10 +14,17 @@ use std::sync::Arc;
 ///
 /// Panics if the runtime cannot be created.
 pub fn runtime() -> tokio::runtime::Runtime {
+    try_runtime().expect("failed to initialize tokio runtime")
+}
+
+/// Create the single-threaded tokio runtime used by the CLI.
+///
+/// Returns `Err` on failure, for callers that handle errors via `Result`
+/// (e.g., clap_complete completers).
+pub fn try_runtime() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("failed to initialize tokio runtime")
 }
 
 /// Handle a Result, printing the error and exiting with code 1 on failure.
@@ -155,4 +162,32 @@ fn and_cleanup<T>(primary: Result<T>, cleanup: Result<()>) -> Result<T> {
         (Err(e), Ok(())) => Err(e),
         (Err(e1), Err(e2)) => Err(e1.context(format!("Additionally, cleanup failed: {}", e2))),
     }
+}
+
+/// Run a command with evaluation context, using quiet settings.
+///
+/// Like `with_eval`, but suitable for shell completion:
+/// - Creates a fresh `InterruptState`
+/// - Uses quiet eval options (suppresses evaluator output)
+/// - Parses global options (like `--override-input`) from the command line
+///
+/// Set `_NIXOPS4_DEBUG_COMPLETIONS=1` to use `with_eval` instead for debugging.
+pub async fn with_eval_dead_quiet<F, Fut, R>(f: F) -> Result<R>
+where
+    F: FnOnce(Arc<WorkContext>, TaskTracker<WorkContext>) -> Fut,
+    Fut: Future<Output = Result<R>>,
+{
+    let mut options = parse_options_for_completion();
+
+    if std::env::var("_NIXOPS4_DEBUG_COMPLETIONS").is_ok_and(|v| v == "1") {
+        let interrupt_state = InterruptState::new();
+        return with_eval(&interrupt_state, &options, f).await;
+    }
+
+    options.verbose = false;
+    let mut eval_options = to_eval_options(&options);
+    eval_options.force_quiet = true;
+
+    let interrupt_state = InterruptState::new();
+    with_eval_impl(&interrupt_state, &options, &eval_options, f).await
 }

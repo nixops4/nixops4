@@ -1,16 +1,17 @@
 use crate::{
-    application,
+    application, complete,
     interrupt::InterruptState,
+    options::Options,
     work::{clone_anyhow_from_arc, resolve_composite_path, Goal, MutationCapability},
-    Options,
 };
 use anyhow::{bail, Result};
+use clap_complete::engine::ArgValueCompleter;
 use nixops4_core::eval_api::ComponentPath;
 
 #[derive(clap::Parser, Debug)]
 pub(crate) struct Args {
     /// Component paths to apply, including nested members and transitive dependencies (empty = entire root)
-    #[arg()]
+    #[arg(add = ArgValueCompleter::new(complete::component_path_completer_all))]
     paths: Vec<String>,
 }
 
