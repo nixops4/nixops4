@@ -1,8 +1,8 @@
 use crate::control::task_tracker::TaskTracker;
 use crate::eval_client::{self, EvalSender};
 use crate::interrupt::InterruptState;
+use crate::options::Options;
 use crate::work::WorkContext;
-use crate::Options;
 use anyhow::{Context, Result};
 use nixops4_core::eval_api::{AssignRequest, EvalRequest, EvalResponse, FlakeRequest, RootRequest};
 use pubsub_rs::Pubsub;

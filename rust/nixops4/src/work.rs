@@ -208,7 +208,7 @@ pub enum Outcome {
 }
 
 pub struct WorkContext {
-    pub options: crate::Options,
+    pub options: crate::options::Options,
     pub eval_sender: eval_client::EvalSender,
     pub root_composite_id: Id<CompositeType>,
     pub interrupt_state: InterruptState,

@@ -4,6 +4,7 @@ mod control;
 mod eval_client;
 mod interrupt;
 mod logging;
+mod options;
 mod provider;
 mod state;
 mod work;
@@ -12,6 +13,7 @@ use anyhow::{bail, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core::eval_api::ComponentPath;
+use options::Options;
 use work::{Goal, Outcome};
 
 fn main() {
@@ -154,34 +156,6 @@ struct Args {
 
     #[command(flatten)]
     options: Options,
-}
-
-#[derive(Parser, Debug, Clone)]
-struct Options {
-    #[arg(short, long, global = true, default_value = "false")]
-    verbose: bool,
-
-    #[arg(long, global = true, default_value_t = ColorChoice::Auto)]
-    color: ColorChoice,
-
-    #[arg(long, global = true, default_value_t = false)]
-    interactive: bool,
-
-    #[arg(
-        long,
-        global = true,
-        default_value_t = false,
-        conflicts_with = "interactive"
-    )]
-    no_interactive: bool,
-
-    #[arg(long, global = true, default_value_t = false)]
-    show_trace: bool,
-
-    /// Temporarily use a different flake input
-    // will be post-processed to pair them up
-    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
-    override_input: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
