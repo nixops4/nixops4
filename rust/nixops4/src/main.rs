@@ -1,3 +1,4 @@
+mod application;
 mod apply;
 mod control;
 mod eval_client;
@@ -7,26 +8,19 @@ mod provider;
 mod state;
 mod work;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
-use nixops4_core::eval_api::{
-    AssignRequest, ComponentPath, EvalRequest, EvalResponse, FlakeRequest, RootRequest,
-};
-use std::process::exit;
-use std::sync::Arc;
-use work::{Goal, Outcome, WorkContext};
+use nixops4_core::eval_api::ComponentPath;
+use work::{Goal, Outcome};
 
 fn main() {
     let interrupt_state = set_up_process_interrupt_handler();
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to initialize tokio runtime");
+    let rt = application::runtime();
     rt.block_on(async {
         let args = Args::parse();
-        handle_result(run_args(&interrupt_state, args).await);
+        application::handle_result(run_args(&interrupt_state, args).await);
     })
 }
 
@@ -109,101 +103,28 @@ fn set_up_logging(
     )
 }
 
-fn to_eval_options(options: &Options) -> eval_client::Options {
-    eval_client::Options {
-        verbose: options.verbose,
-        show_trace: options.show_trace,
-        flake_input_overrides: options
-            .override_input
-            .chunks(2)
-            .map(|pair| {
-                assert!(
-                    pair.len() == 2,
-                    "override_input must have an even number of elements (clap num_args = 2)"
-                );
-                (pair[0].to_string(), pair[1].to_string())
-            })
-            .collect(),
-    }
-}
-
 /// List members at a given component path
 async fn members_list(
     interrupt_state: &InterruptState,
     options: &Options,
     path: Option<&str>,
 ) -> Result<Vec<String>> {
+    let target_path: ComponentPath = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
+
     // TODO: Support nested paths by traversing to the composite
-    let target_path = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
     if !target_path.is_root() {
         bail!(
             "Listing members at nested paths is not yet implemented. Use root path (no argument)."
         );
     }
 
-    let eval_options = to_eval_options(options);
-    let eval_options_2 = eval_options.clone();
-    eval_client::EvalSender::with(&eval_options, |s, mut r| async move {
-        let flake_id = s.next_id();
-        let cwd = std::env::current_dir()
-            .context("getting current directory")?
-            .to_string_lossy()
-            .to_string();
-        s.send(&EvalRequest::LoadFlake(AssignRequest {
-            assign_to: flake_id,
-            payload: FlakeRequest {
-                abspath: cwd,
-                input_overrides: eval_options_2.flake_input_overrides.clone(),
-            },
-        }))
-        .await?;
-
-        let root_id = s.next_id();
-        s.send(&EvalRequest::LoadRoot(AssignRequest {
-            assign_to: root_id,
-            payload: RootRequest { flake: flake_id },
-        }))
-        .await?;
-
-        // Set up work context with the root and use Preview goal to list members
-        let work_context = WorkContext {
-            root_composite_id: root_id,
-            options: options.clone(),
-            interrupt_state: interrupt_state.clone(),
-            eval_sender: s.clone(),
-            state: Default::default(),
-            id_subscriptions: pubsub_rs::Pubsub::new(),
-        };
-
-        let id_subscriptions = work_context.id_subscriptions.clone();
-        let work_context = Arc::new(work_context);
-        let tasks = control::task_tracker::TaskTracker::new(work_context.clone());
-
-        // Spawn response handler
-        let h: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
-            while let Some(msg) = r.recv().await {
-                match &msg {
-                    EvalResponse::Error(id, _) => {
-                        id_subscriptions.publish(id.num(), msg).await;
-                    }
-                    EvalResponse::QueryResponse(id, _) => {
-                        id_subscriptions.publish(id.num(), msg).await;
-                    }
-                    EvalResponse::TracingEvent(_value) => {
-                        // Already handled in an EvalSender::with thread => ignore
-                    }
-                }
-            }
-            Ok(())
-        });
+    application::with_eval(interrupt_state, options, |work_context, tasks| async move {
+        let root_id = work_context.root_composite_id;
 
         // Use ListMembers goal without mutation capability (preview mode)
         let result = tasks
             .run(Goal::ListMembers(root_id, target_path.clone(), None))
             .await;
-
-        s.close().await;
-        h.await??;
 
         // Extract member names from the result
         match result.as_ref() {
@@ -222,16 +143,6 @@ async fn members_list(
         }
     })
     .await
-}
-
-fn handle_result(r: Result<()>) {
-    match r {
-        Ok(()) => {}
-        Err(e) => {
-            eprintln!("nixops4 error: {:?}", e);
-            exit(1);
-        }
-    }
 }
 
 /// NixOps: manage resources declaratively
