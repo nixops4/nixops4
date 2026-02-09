@@ -118,12 +118,24 @@ where
             Ok(())
         });
 
-        let result = f(work_context, tasks).await;
+        let result = f(work_context.clone(), tasks).await;
+
+        let cleanup_result = work_context.clean_up_state_providers().await;
 
         s.close().await;
         h.await??;
 
-        result
+        and_cleanup(result, cleanup_result)
     })
     .await
+}
+
+/// Combine a primary result with a cleanup result, preserving both errors if both fail.
+fn and_cleanup<T>(primary: Result<T>, cleanup: Result<()>) -> Result<T> {
+    match (primary, cleanup) {
+        (Ok(r), Ok(())) => Ok(r),
+        (Ok(_), Err(e)) => Err(e),
+        (Err(e), Ok(())) => Err(e),
+        (Err(e1), Err(e2)) => Err(e1.context(format!("Additionally, cleanup failed: {}", e2))),
+    }
 }

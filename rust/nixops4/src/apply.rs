@@ -48,7 +48,7 @@ pub(crate) async fn apply(
     };
     validate_no_overlapping_paths(&paths)?;
 
-    application::with_eval(interrupt_state, options, |work_context, tasks| async move {
+    application::with_eval(interrupt_state, options, |_work_ctx, tasks| async move {
         // Spawn all path applications concurrently
         let handles: Vec<_> = paths
             .into_iter()
@@ -92,12 +92,6 @@ pub(crate) async fn apply(
                     .join("\n")
             ))
         };
-
-        // TODO: These cleanup operations should collect all errors and report them together
-        // instead of stopping at the first error, since we want all cleanup to complete
-
-        // Clean up state providers after apply completes - fatal error if this fails
-        work_context.clean_up_state_providers().await?;
 
         result
     })
