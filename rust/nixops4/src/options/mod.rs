@@ -1,3 +1,5 @@
+pub mod lenient_parse;
+
 use clap::{ColorChoice, Parser};
 
 #[derive(Parser, Debug, Clone)]
