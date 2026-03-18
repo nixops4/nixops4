@@ -90,9 +90,11 @@
             pkgs.rustfmt
             pkgs.pkg-config
             pkgs.clang-tools # clangd
-            pkgs.gdb
             pkgs.hci
             inputs'.nix-unit.packages.nix-unit
+          ]
+          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            pkgs.gdb # Currently broken on darwin see https://github.com/NixOS/nixpkgs/issues/483562 for more info
           ]
           ++ config.packages.manual.externalBuildTools;
           shellHook = ''
