@@ -15,6 +15,8 @@ pub(crate) struct Options {
     pub(crate) verbose: bool,
     pub(crate) show_trace: bool,
     pub(crate) flake_input_overrides: Vec<(String, String)>,
+    /// Discard stderr from the evaluator process
+    pub(crate) force_quiet: bool,
 }
 
 #[derive(Clone)]
@@ -36,11 +38,15 @@ impl EvalSender {
         if options.show_trace {
             nix_config.push_str("\nshow-trace = true\n");
         }
-        let mut process = tokio::process::Command::new(exe)
-            .stdin(std::process::Stdio::piped())
+        let mut cmd = tokio::process::Command::new(exe);
+        cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .arg("<subprocess>")
-            .env("NIX_CONFIG", nix_config)
+            .env("NIX_CONFIG", nix_config);
+        if options.force_quiet {
+            cmd.stderr(std::process::Stdio::null());
+        }
+        let mut process = cmd
             .spawn()
             .context("while starting the nixops4 evaluator process")?;
 
