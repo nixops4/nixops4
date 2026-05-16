@@ -24,7 +24,7 @@ rust_artifact_shell_setup() {
   if [[ -x "$here/target/debug/nixops4" ]]; then
     echo >&2 "Refreshing bash completion scripts"
     mkdir -p "$here/target/_nixops4_xdg_data/bash-completion/completions"
-    "$here/target/debug/nixops4" generate-completion --shell bash \
+    COMPLETE=bash "$here/target/debug/nixops4" \
       > "$here/target/_nixops4_xdg_data/bash-completion/completions/nixops4"
   else
     echo >&2 -e "\033[1;35mwarning:\033[0m nixops4 not built yet, skipping completion generation"
