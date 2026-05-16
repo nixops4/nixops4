@@ -20,7 +20,10 @@
       ...
     }:
     {
-
+      # Run with either:
+      #   nix-unit --flake .#tests.systems.<system>
+      # or, slower:
+      #   nix build .#checks.<system>.nix-unit
       nix-unit.tests = {
         lib = import ../nix/lib/tests.nix {
           inherit lib self system;
@@ -85,6 +88,7 @@
             config.nix-bindings-rust.nixPackage
           ];
           nativeBuildInputs = [
+            pkgs.nix-unit
             pkgs.rust-analyzer
             pkgs.nixfmt
             pkgs.rustfmt
