@@ -5,7 +5,7 @@ use base64::engine::Engine;
 use cstr::cstr;
 use nix_bindings_expr::{
     eval_state::EvalState,
-    primop::{PrimOp, PrimOpMeta},
+    primop::{PrimOp, PrimOpMeta, RecoverableError},
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
@@ -442,11 +442,12 @@ fn perform_load_root<R: Respond>(
                 //        perhaps a number that refers to a hashmap?
                 // FIXME: this will probably leak memory when accessing outputs before all providers are loaded, etc
                 {
-                    Err(anyhow::anyhow!(
+                    Err(RecoverableError::new(format!(
                         "__internal_exception_load_resource_property_#{}#",
                         base64::engine::general_purpose::STANDARD
                             .encode(serde_json::to_string(&property).unwrap()),
                     ))
+                    .into())
                 }
             }
         }),

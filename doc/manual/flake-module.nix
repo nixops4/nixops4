@@ -44,6 +44,8 @@
       packages.manual-provider-option-docs-md-local = config.builders.renderProviderDocs {
         module = self.modules.nixops4Provider.local;
       };
-      checks.manual-links = pkgs.callPackage ./test.nix { site = config.packages.manual; };
+      checks.manual-links = pkgs.callPackage ./test.nix {
+        site = config.packages.manual.html;
+      };
     };
 }
