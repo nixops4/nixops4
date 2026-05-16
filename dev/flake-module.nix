@@ -85,6 +85,7 @@
             config.nix-bindings-rust.nixPackage
           ];
           nativeBuildInputs = [
+            pkgs.nix-unit
             pkgs.rust-analyzer
             pkgs.nixfmt
             pkgs.rustfmt
