@@ -900,9 +900,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-bdwgc-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "915215aae1cf3e7d83621e8634e59a3e12fdaf31406566315cb6b2c3ac87cace"
+checksum = "7d8a54cf9f669e8a3ca5ae0ceea78dca5047ae8c0a469432d35c246d3a562a7f"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -910,14 +910,13 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-expr"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e6920535b3dac0ddec8d5ccb13588fd6acf973f5427d43828142aac302e31a9"
+checksum = "0522c2fd2dae3b65fdfc5593b2220bea344c68fd622788dcd0c9c381618e8a27"
 dependencies = [
  "anyhow",
  "cstr",
  "ctor",
- "lazy_static",
  "nix-bindings-bdwgc-sys",
  "nix-bindings-expr-sys",
  "nix-bindings-store",
@@ -930,9 +929,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-expr-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7a36c0a4822512497f19ed1a0aa516e82e7eb9c056c8b35b9585aa923afd967"
+checksum = "f145ea1f8668a6466e8b75b750dcbe58899d65238f2a1aa6ecaec1faac72402c"
 dependencies = [
  "bindgen",
  "nix-bindings-store-sys",
@@ -942,9 +941,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-fetchers"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf783aeef5615d3ea860cbd038fdac6157124af7a23668f3c36f8d9630a1dcfa"
+checksum = "cbb062475e5ed0a2bda3ed266f3dd4491695a9706ad980fe0d643ff618571e46"
 dependencies = [
  "anyhow",
  "cstr",
@@ -957,9 +956,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-fetchers-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b503d845bc9673959239dd73a3d0408a2703622ca50189a4d9ed7bb4cc68883"
+checksum = "294e7987d68e8ea120894e266a0e2ce434cb81c6032f3298008a06fed0d012ee"
 dependencies = [
  "bindgen",
  "nix-bindings-util-sys",
@@ -968,14 +967,13 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-flake"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b773984590aad9cb12d70c502d62b78fb02432c2861807b265f14ebac4313d20"
+checksum = "b5b4563f210cbc0659f5aaa9b158719858f68b9a1ccb7aec739f600d3098ed42"
 dependencies = [
  "anyhow",
  "cstr",
  "ctor",
- "lazy_static",
  "nix-bindings-expr",
  "nix-bindings-fetchers",
  "nix-bindings-flake-sys",
@@ -986,9 +984,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-flake-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c16f47bf98bf83934b1e748fc80bace430d20662285d95998fcd53efd626df3d"
+checksum = "3ee360c906760c394d4e393c071cb77823aae69e313f7b99600aaa40f4df9ac3"
 dependencies = [
  "bindgen",
  "nix-bindings-bdwgc-sys",
@@ -1001,34 +999,35 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-store"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cf7d9d79ac686db0d555440511627d549ec82d684cef987b728ab01fd656a73"
+checksum = "2e0846132a618eecd654d74efeaa8717e8071f2f63741baef0831352c44faa2c"
 dependencies = [
  "anyhow",
- "lazy_static",
  "nix-bindings-store-sys",
  "nix-bindings-util",
  "nix-bindings-util-sys",
  "pkg-config",
+ "zerocopy",
 ]
 
 [[package]]
 name = "nix-bindings-store-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7875215b42bdbf44bb1a5e9aafca5298f9f07217018eb8f1e5aff9009a7b34f"
+checksum = "3afc1756385f67a08d74a622dd092e72fc4f7d66fde4bc980b52bbc6a6984e12"
 dependencies = [
  "bindgen",
  "nix-bindings-util-sys",
  "pkg-config",
+ "zerocopy",
 ]
 
 [[package]]
 name = "nix-bindings-util"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e5642310879899e78fc764325c4349ecf55b4dc50763239e4dceb750e07daf"
+checksum = "7cd345349582f466c00c394a1b7582e0310fe5a03790a3710231194d8d9f8ddd"
 dependencies = [
  "anyhow",
  "nix-bindings-util-sys",
@@ -1036,9 +1035,9 @@ dependencies = [
 
 [[package]]
 name = "nix-bindings-util-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "969f65460b5c4f8ad7a5f4466c77acb609693a3e83d1d5ba21e021954cfdd181"
+checksum = "0c5073fc96ec157a2d7c81307f985ba72498b9c4510fc60bb5d0dd849782b80a"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2226,4 +2225,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
