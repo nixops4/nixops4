@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::provider;
 
 /// The root of a state file.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct State {
     #[serde(flatten)]
     pub deployment: DeploymentState,
@@ -165,11 +165,57 @@ impl StateHandle {
         Ok(())
     }
 
+    /// Remove a resource from state and send a destroy event to the state provider.
+    pub async fn resource_destroy_event(&self, resource_path: &ComponentPath) -> Result<()> {
+        let mut current_state = self.current.lock().await;
+
+        let old_state = serde_json::to_value(&current_state.deployment)
+            .with_context(|| "Failed to serialize current deployment state")?;
+
+        let mut new_state = old_state.clone();
+        remove_resource_from_deployment_state(&mut new_state, resource_path)?;
+
+        let patch = json_patch::diff(&old_state, &new_state);
+        if patch.0.is_empty() {
+            bail!("Resource {} not found in state", resource_path);
+        }
+
+        let patch_count = patch.0.len();
+
+        let event = v0::StateResourceEvent {
+            resource: self.state_provider_resource.clone(),
+            event: "destroy".to_string(),
+            nixops_version: "0.1.0".to_string(),
+            patch,
+        };
+
+        self.state_provider
+            .lock()
+            .await
+            .state_event(event)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to remove resource '{}' from state - {} field(s) changed",
+                    resource_path, patch_count
+                )
+            })?;
+
+        let new_deployment_state: DeploymentState = serde_json::from_value(new_state)
+            .with_context(|| "Failed to deserialize updated deployment state")?;
+        current_state.deployment = new_deployment_state;
+
+        Ok(())
+    }
+
     pub async fn close(self: Arc<Self>) -> Result<()> {
         // Only close if this is the last reference
-        if let Ok(handle) = Arc::try_unwrap(self) {
-            let mut provider = handle.state_provider.lock().await;
-            provider.close_wait().await?;
+        match Arc::try_unwrap(self) {
+            Ok(handle) => {
+                let mut provider = handle.state_provider.lock().await;
+                provider.close_wait().await?;
+            }
+            Err(_arc) => {}
         }
         Ok(())
     }
@@ -224,6 +270,50 @@ fn update_resource_in_deployment_state(
     // Set the resource (last element of path is the resource name)
     let resource_name = &path_parts[path_parts.len() - 1];
     current["resources"][resource_name] = resource_json;
+
+    Ok(())
+}
+
+/// Remove a resource from a complete deployment state JSON structure.
+/// This modifies the deployment state JSON in-place to remove the resource at the given path.
+fn remove_resource_from_deployment_state(
+    deployment_state: &mut serde_json::Value,
+    resource_path: &ComponentPath,
+) -> Result<()> {
+    let path_parts = &resource_path.0;
+    if path_parts.is_empty() {
+        bail!("Empty resource path");
+    }
+
+    // Navigate to the correct deployment
+    let mut current = &mut *deployment_state;
+    for deployment_name in &path_parts[..path_parts.len() - 1] {
+        current = current
+            .get_mut("deployments")
+            .and_then(|d| d.get_mut(deployment_name))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Deployment '{}' not found in state while removing resource {}",
+                    deployment_name,
+                    resource_path
+                )
+            })?;
+    }
+
+    let resource_name = &path_parts[path_parts.len() - 1];
+    let resources = current
+        .get_mut("resources")
+        .and_then(|r| r.as_object_mut())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No resources object found in state while removing resource {}",
+                resource_path
+            )
+        })?;
+
+    if resources.remove(resource_name).is_none() {
+        bail!("Resource '{}' not found in state", resource_path);
+    }
 
     Ok(())
 }
@@ -489,5 +579,57 @@ mod tests {
             }
         });
         assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_root() {
+        let mut state = serde_json::json!({
+            "resources": {
+                "myresource": {"type": "test", "input_properties": {}, "output_properties": {}},
+                "other": {"type": "other"}
+            }
+        });
+
+        let resource_path = ComponentPath(vec!["myresource".to_string()]);
+        remove_resource_from_deployment_state(&mut state, &resource_path).unwrap();
+
+        assert!(state["resources"].get("myresource").is_none());
+        assert!(state["resources"].get("other").is_some());
+    }
+
+    #[test]
+    fn test_remove_resource_nested() {
+        let mut state = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "target": {"type": "test"},
+                        "sibling": {"type": "sibling"}
+                    }
+                }
+            }
+        });
+
+        let resource_path = ComponentPath(vec!["deploy1".to_string(), "target".to_string()]);
+        remove_resource_from_deployment_state(&mut state, &resource_path).unwrap();
+
+        assert!(state["deployments"]["deploy1"]["resources"]
+            .get("target")
+            .is_none());
+        assert!(state["deployments"]["deploy1"]["resources"]
+            .get("sibling")
+            .is_some());
+    }
+
+    #[test]
+    fn test_remove_resource_not_found() {
+        let mut state = serde_json::json!({
+            "resources": {}
+        });
+
+        let resource_path = ComponentPath(vec!["nonexistent".to_string()]);
+        let result = remove_resource_from_deployment_state(&mut state, &resource_path);
+        assert!(result.is_err());
     }
 }

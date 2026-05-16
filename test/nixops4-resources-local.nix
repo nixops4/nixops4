@@ -90,6 +90,46 @@ runCommand "check-nixops4-resources-local"
 
     (set -x; jq -e '. == { "value": "hello world" }' memo_update.json)
 
+    # Test "exec" resource - update (re-executes the command)
+
+    nixops4-resource-runner update \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --inputs-json '{"executable": "hello", "args": ["--greeting", "updated"]}' \
+      --previous-inputs-json '{"executable": "hello", "args": ["--greeting", "hi there"]}' \
+      --previous-outputs-json '{"stdout": "hi there\n"}' \
+      > exec_update.json
+    cat exec_update.json
+
+    (set -x; jq -e '. == { "stdout": "updated\n" }' exec_update.json)
+
+    # Test "exec" resource with once=true - create
+
+    nixops4-resource-runner create \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --stateful \
+      --input-str executable 'hello' \
+      --input-json args '["--greeting", "first result"]' \
+      --input-json once 'true' \
+      > exec_once_create.json
+    cat exec_once_create.json
+
+    (set -x; jq -e '. == { "stdout": "first result\n" }' exec_once_create.json)
+
+    # Test "exec" resource with once=true - update (should preserve original output)
+
+    nixops4-resource-runner update \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --inputs-json '{"executable": "hello", "args": ["--greeting", "new value"], "once": true}' \
+      --previous-inputs-json '{"executable": "hello", "args": ["--greeting", "first result"], "once": true}' \
+      --previous-outputs-json '{"stdout": "first result\n"}' \
+      > exec_once_update.json
+    cat exec_once_update.json
+
+    (set -x; jq -e '. == { "stdout": "first result\n" }' exec_once_update.json)
+
     # Test that stateless resources bail on update
 
     (

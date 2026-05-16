@@ -37,6 +37,14 @@ pub trait ResourceProvider {
         let _ = request;
         anyhow::bail!("State event not implemented by resource provider")
     }
+
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        let _ = request;
+        anyhow::bail!("Destroy not implemented by resource provider")
+    }
 }
 
 fn write_response<W: std::io::Write>(mut out: W, resp: &v0::Response) -> Result<()> {
@@ -112,6 +120,10 @@ async fn handle_request(
         },
         v0::Request::StateResourceReadRequest(r) => match provider.state_read(r).await {
             Ok(resp) => v0::Response::StateResourceReadResponse(resp),
+            Err(e) => error_response(e),
+        },
+        v0::Request::DestroyResourceRequest(r) => match provider.destroy(r).await {
+            Ok(resp) => v0::Response::DestroyResourceResponse(resp),
             Err(e) => error_response(e),
         },
     }

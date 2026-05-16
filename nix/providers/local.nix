@@ -83,6 +83,14 @@ in
               Optional input to provide on stdin.
             '';
           };
+          once = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              If true, the command is only executed on creation. Subsequent updates
+              preserve the original output, similar to [`memo`](memo.md).
+            '';
+          };
         };
       };
       outputs = {

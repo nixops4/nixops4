@@ -2,6 +2,8 @@ mod application;
 mod apply;
 mod complete;
 mod control;
+mod destroy_resource;
+mod dump_state;
 mod eval_client;
 mod interrupt;
 mod logging;
@@ -58,6 +60,23 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
             };
             Ok(())
         }
+        Commands::Destroy { resource_path } => {
+            let mut logging = set_up_logging(interrupt_state, &args)?;
+            destroy_resource::destroy_resource(interrupt_state, &args.options, resource_path)
+                .await?;
+            logging.tear_down()?;
+            Ok(())
+        }
+        Commands::State(sub) => match sub {
+            State::Dump { resource_path } => {
+                let mut logging = set_up_logging(interrupt_state, &args)?;
+                let state =
+                    dump_state::dump_state(interrupt_state, &args.options, resource_path).await?;
+                logging.tear_down()?;
+                println!("{}", state);
+                Ok(())
+            }
+        },
         Commands::GenerateMan => (|| {
             let cmd = Args::command();
             let man = clap_mangen::Man::new(cmd);
@@ -116,19 +135,31 @@ async fn members_list(
 ) -> Result<Vec<String>> {
     let target_path: ComponentPath = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
 
-    // TODO: Support nested paths by traversing to the composite
-    if !target_path.is_root() {
-        bail!(
-            "Listing members at nested paths is not yet implemented. Use root path (no argument)."
-        );
-    }
-
     application::with_eval(interrupt_state, options, |work_context, tasks| async move {
         let root_id = work_context.root_composite_id;
 
+        // Resolve the target path to a composite ID
+        let composite_id = if target_path.is_root() {
+            root_id
+        } else {
+            match tasks
+                .run(Goal::ResolveCompositePath(target_path.clone()))
+                .await
+                .as_ref()
+            {
+                Ok(Outcome::CompositeResolved(id)) => *id,
+                Ok(other) => {
+                    bail!("Unexpected outcome from ResolveCompositePath: {:?}", other)
+                }
+                Err(e) => {
+                    bail!("Failed to resolve path '{}': {}", target_path, e)
+                }
+            }
+        };
+
         // Use ListMembers goal without mutation capability (preview mode)
         let result = tasks
-            .run(Goal::ListMembers(root_id, target_path.clone(), None))
+            .run(Goal::ListMembers(composite_id, target_path.clone(), None))
             .await;
 
         // Extract member names from the result
@@ -172,6 +203,15 @@ enum Members {
 }
 
 #[derive(Subcommand, Debug)]
+enum State {
+    /// Dump the resolved state for a resource path
+    Dump {
+        /// Resource path to dump state for (dot-separated, e.g., "production.state")
+        resource_path: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Apply changes so that the resources are in the desired state.
     ///
@@ -183,6 +223,16 @@ enum Commands {
     /// Commands that operate on component members
     #[command(subcommand)]
     Members(Members),
+
+    /// Destroy a resource, removing it from both the provider and state.
+    Destroy {
+        /// Resource path (dot-separated, e.g., "production.myvm")
+        resource_path: String,
+    },
+
+    /// Commands that operate on state
+    #[command(subcommand)]
+    State(State),
 
     /// Generate markdown documentation for nixops4-resource-runner
     #[command(hide = true)]
