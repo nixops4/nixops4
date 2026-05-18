@@ -44,6 +44,7 @@ pub fn to_eval_options(options: &Options) -> eval_client::Options {
         verbose: options.verbose,
         show_trace: options.show_trace,
         flake_input_overrides: options
+            .flake
             .override_input
             .chunks(2)
             .map(|pair| {

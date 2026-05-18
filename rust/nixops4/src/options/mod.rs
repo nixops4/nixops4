@@ -3,6 +3,16 @@ pub mod lenient_parse;
 use clap::{ColorChoice, Parser};
 use lenient_parse::parse_longest_prefix;
 
+/// Options specific to flake-based evaluation.
+/// Irrelevant when using nixops4.nix or --file.
+#[derive(Parser, Debug, Clone)]
+pub struct FlakeOptions {
+    /// Temporarily use a different flake input
+    // will be post-processed to pair them up
+    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
+    pub override_input: Vec<String>,
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct Options {
     #[arg(short, long, global = true, default_value = "false")]
@@ -25,10 +35,8 @@ pub struct Options {
     #[arg(long, global = true, default_value_t = false)]
     pub show_trace: bool,
 
-    /// Temporarily use a different flake input
-    // will be post-processed to pair them up
-    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
-    pub override_input: Vec<String>,
+    #[command(flatten)]
+    pub flake: FlakeOptions,
 }
 
 /// Wrapper to parse global Options from a partial command line.
