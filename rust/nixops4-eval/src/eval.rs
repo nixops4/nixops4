@@ -271,6 +271,18 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
+            EvalRequest::LoadFile(req) => {
+                let known_outputs = Rc::clone(&self.known_outputs);
+                self.handle_assign_request(req, |this, req| {
+                    let import_fn = this
+                        .eval_state
+                        .eval_from_string("builtins.import", "<nixops4 file>")?;
+                    let path_val = this.eval_state.new_value_str(&req.abspath)?;
+                    let imported = this.eval_state.call(import_fn, path_val)?;
+                    evaluate_root_component(&mut this.eval_state, &imported, known_outputs)
+                })
+                .await
+            }
             // List member names in a composite (kind determined later via GetComponentKind).
             // See StepResult::Needs for retry semantics.
             EvalRequest::ListMembers(req) => {

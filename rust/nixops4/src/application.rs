@@ -4,7 +4,9 @@ use crate::interrupt::InterruptState;
 use crate::options::{parse_options_for_completion, Options};
 use crate::work::WorkContext;
 use anyhow::{Context, Result};
-use nixops4_core::eval_api::{AssignRequest, EvalRequest, EvalResponse, FlakeRequest, RootRequest};
+use nixops4_core::eval_api::{
+    AssignRequest, EvalRequest, EvalResponse, FileRequest, FlakeRequest, RootRequest,
+};
 use pubsub_rs::Pubsub;
 use std::future::Future;
 use std::process::exit;
@@ -92,26 +94,65 @@ where
     let flake_input_overrides = eval_options.flake_input_overrides.clone();
 
     EvalSender::with(&eval_options, |s, mut r| async move {
-        let flake_id = s.next_id();
-        let cwd = std::env::current_dir()
-            .context("getting current directory")?
-            .to_string_lossy()
+        let cwd_path = std::env::current_dir().context("getting current directory")?;
+        let cwd = cwd_path
+            .to_str()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "current directory is not valid UTF-8: {}",
+                    cwd_path.display()
+                )
+            })?
             .to_string();
-        s.send(&EvalRequest::LoadFlake(AssignRequest {
-            assign_to: flake_id,
-            payload: FlakeRequest {
-                abspath: cwd,
-                input_overrides: flake_input_overrides,
-            },
-        }))
-        .await?;
 
-        let root_id = s.next_id();
-        s.send(&EvalRequest::LoadRoot(AssignRequest {
-            assign_to: root_id,
-            payload: RootRequest { flake: flake_id },
-        }))
-        .await?;
+        let nixops4_nix = std::path::Path::new(&cwd).join("nixops4.nix");
+        let root_id = if nixops4_nix.exists() {
+            if options.verbose {
+                eprintln!("using nixops4.nix as entry point");
+            }
+            let flake_flags = options.flake.active_flags();
+            if !flake_flags.is_empty() {
+                anyhow::bail!(
+                    "nixops4.nix found in current directory; {} not applicable in file mode",
+                    flake_flags.join(", ")
+                );
+            }
+            let root_id = s.next_id();
+            s.send(&EvalRequest::LoadFile(AssignRequest {
+                assign_to: root_id,
+                payload: FileRequest {
+                    abspath: nixops4_nix
+                        .to_str()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "file path is not valid UTF-8: {}",
+                                nixops4_nix.display()
+                            )
+                        })?
+                        .to_string(),
+                },
+            }))
+            .await?;
+            root_id
+        } else {
+            let flake_id = s.next_id();
+            s.send(&EvalRequest::LoadFlake(AssignRequest {
+                assign_to: flake_id,
+                payload: FlakeRequest {
+                    abspath: cwd,
+                    input_overrides: flake_input_overrides,
+                },
+            }))
+            .await?;
+
+            let root_id = s.next_id();
+            s.send(&EvalRequest::LoadRoot(AssignRequest {
+                assign_to: root_id,
+                payload: RootRequest { flake: flake_id },
+            }))
+            .await?;
+            root_id
+        };
 
         let work_context = WorkContext {
             root_composite_id: root_id,

@@ -84,6 +84,12 @@
                   inherit (config.packages) nixops4 flake-in-a-bottle die;
                   inherit inputs;
                 };
+            checks.itest-nixops4-resources-local-file =
+              pkgs.callPackage ./test/integration-test-nixops4-with-local/check-file.nix
+                {
+                  inherit (config.packages) nixops4 die;
+                  inherit inputs;
+                };
 
             /**
               A shell containing the packages of this flake. For development, use the `default` dev shell.
