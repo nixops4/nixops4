@@ -194,7 +194,7 @@ runCommand "itest-nixops4-with-local-file"
       cp ${nixops4File "Hello from nixops4.nix"} nixops4.nix
     )
 
-    h1 FLAKE OPTIONS CONFLICT
+    h1 FLAKE OPTIONS CONFLICT WITH NIXOPS4.NIX
     (
       set -x
       # nixops4.nix is present, so --override-input must be rejected
@@ -205,6 +205,75 @@ runCommand "itest-nixops4-with-local-file"
       )
       [[ ! -s conflict.stdout ]]
       grep -F 'nixops4.nix found in current directory' conflict.stderr
+    )
+
+    # Create explicit-file.nix with a distinct greeting.
+    # nixops4.nix ("Hello from nixops4.nix") stays in place so we can
+    # prove --file takes priority through the output content.
+    cp --no-preserve=mode ${nixops4File "Hello from --file"} explicit-file.nix
+
+    h1 EXPLICIT --file TAKES PRIORITY OVER NIXOPS4.NIX
+    (
+      set -x
+      # nixops4.nix is still present with "Hello from nixops4.nix".
+      # The distinct greeting proves --file was used instead.
+      nixops4 apply -v --file explicit-file.nix myDeployment --show-trace
+
+      test -f file.txt
+      [[ "Hello from --file" == "$(cat file.txt)" ]]
+      rm file.txt
+    )
+
+    h1 --file FILE NOT FOUND
+    (
+      set -x
+      (
+        set +e
+        nixops4 apply --file /nonexistent/path.nix myDeployment > notfound.stdout 2> notfound.stderr
+        [[ $? != 0 ]]
+      )
+      [[ ! -s notfound.stdout ]]
+      # Nix inserts ANSI codes around the path, so match the surrounding text
+      grep "path.*nonexistent/path.nix.*does not exist" notfound.stderr
+    )
+
+    h1 --file SYNTAX ERROR
+    (
+      set -x
+      echo 'this is not { valid nix' > bad-syntax.nix
+      (
+        set +e
+        nixops4 apply --file bad-syntax.nix myDeployment > syntax.stdout 2> syntax.stderr
+        [[ $? != 0 ]]
+      )
+      [[ ! -s syntax.stdout ]]
+      grep -F 'syntax error, unexpected' syntax.stderr
+    )
+
+    h1 --file WRONG TYPE
+    (
+      set -x
+      echo '{ }' > wrong-type.nix
+      (
+        set +e
+        nixops4 apply --file wrong-type.nix myDeployment > type.stdout 2> type.stderr
+        [[ $? != 0 ]]
+      )
+      [[ ! -s type.stdout ]]
+      grep -F 'attribute `_type` not found' type.stderr
+    )
+
+    h1 --file FLAKE OPTIONS CONFLICT
+    (
+      set -x
+      (
+        set +e
+        # clap should reject this at parse time
+        nixops4 apply --file explicit-file.nix --override-input nixpkgs /dev/null myDeployment > file-conflict.stdout 2> file-conflict.stderr
+        [[ $? != 0 ]]
+      )
+      [[ ! -s file-conflict.stdout ]]
+      grep -F "cannot be used with '--override-input" file-conflict.stderr
     )
 
     h1 SUCCESS

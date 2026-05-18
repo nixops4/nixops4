@@ -105,29 +105,38 @@ where
             })?
             .to_string();
 
-        let nixops4_nix = std::path::Path::new(&cwd).join("nixops4.nix");
-        let root_id = if nixops4_nix.exists() {
-            if options.verbose {
-                eprintln!("using nixops4.nix as entry point");
+        // --file takes priority, then nixops4.nix discovery, then flake.
+        // clap's conflicts_with rejects --file + --override-input at parse time.
+        let file_path = if let Some(file) = &options.file {
+            Some(std::path::Path::new(&cwd).join(file))
+        } else {
+            let nixops4_nix = std::path::Path::new(&cwd).join("nixops4.nix");
+            if nixops4_nix.exists() {
+                if options.verbose {
+                    eprintln!("using nixops4.nix as entry point");
+                }
+                let flake_flags = options.flake.active_flags();
+                if !flake_flags.is_empty() {
+                    anyhow::bail!(
+                        "nixops4.nix found in current directory; {} not applicable in file mode",
+                        flake_flags.join(", ")
+                    );
+                }
+                Some(nixops4_nix)
+            } else {
+                None
             }
-            let flake_flags = options.flake.active_flags();
-            if !flake_flags.is_empty() {
-                anyhow::bail!(
-                    "nixops4.nix found in current directory; {} not applicable in file mode",
-                    flake_flags.join(", ")
-                );
-            }
+        };
+
+        let root_id = if let Some(path) = file_path {
             let root_id = s.next_id();
             s.send(&EvalRequest::LoadFile(AssignRequest {
                 assign_to: root_id,
                 payload: FileRequest {
-                    abspath: nixops4_nix
+                    abspath: path
                         .to_str()
                         .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "file path is not valid UTF-8: {}",
-                                nixops4_nix.display()
-                            )
+                            anyhow::anyhow!("file path is not valid UTF-8: {}", path.display())
                         })?
                         .to_string(),
                 },
@@ -211,7 +220,7 @@ fn and_cleanup<T>(primary: Result<T>, cleanup: Result<()>) -> Result<T> {
 /// Like `with_eval`, but suitable for shell completion:
 /// - Creates a fresh `InterruptState`
 /// - Uses quiet eval options (suppresses evaluator output)
-/// - Parses global options (like `--override-input`) from the command line
+/// - Parses global options (like `--override-input`, ...) from the command line
 ///
 /// Set `_NIXOPS4_DEBUG_COMPLETIONS=1` to use `with_eval` instead for debugging.
 pub async fn with_eval_dead_quiet<F, Fut, R>(f: F) -> Result<R>

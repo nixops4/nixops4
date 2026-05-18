@@ -53,6 +53,16 @@ pub struct Options {
 
     #[command(flatten)]
     pub flake: FlakeOptions,
+
+    /// Use a Nix file instead of flake discovery. The file must evaluate to
+    /// a nixops4 component, e.g. via nixops4.lib.mkRoot.
+    #[arg(
+        long,
+        global = true,
+        value_name = "PATH",
+        conflicts_with = "override_input"
+    )]
+    pub file: Option<String>,
 }
 
 /// Wrapper to parse global Options from a partial command line.
