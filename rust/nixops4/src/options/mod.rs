@@ -5,12 +5,28 @@ use lenient_parse::parse_longest_prefix;
 
 /// Options specific to flake-based evaluation.
 /// Irrelevant when using nixops4.nix or --file.
+// When adding flags with aliases (e.g. `#[arg(long, short = 'I')]`),
+// update `active_flags` to include all alias forms in the returned names.
 #[derive(Parser, Debug, Clone)]
 pub struct FlakeOptions {
     /// Temporarily use a different flake input
     // will be post-processed to pair them up
     #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
     pub override_input: Vec<String>,
+}
+
+impl FlakeOptions {
+    /// Returns the flag names that were passed on the command line.
+    pub fn active_flags(&self) -> Vec<&str> {
+        // Closed destructuring: fails when FlakeOptions is extended,
+        // so make sure all flags are returned below.
+        let FlakeOptions { override_input } = self;
+        let mut flags = Vec::new();
+        if !override_input.is_empty() {
+            flags.push("--override-input");
+        }
+        flags
+    }
 }
 
 #[derive(Parser, Debug, Clone)]
