@@ -10,7 +10,7 @@ mod provider;
 mod state;
 mod work;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use clap_complete::env::CompleteEnv;
@@ -49,7 +49,7 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
                 Members::List { path } => {
                     let mut logging = set_up_logging(interrupt_state, &args)?;
                     let members =
-                        members_list(interrupt_state, &args.options, path.as_deref()).await?;
+                        members_list(interrupt_state, &args.options, path.clone()).await?;
                     logging.tear_down()?;
                     for m in members {
                         println!("{}", m);
@@ -112,42 +112,42 @@ fn set_up_logging(
 async fn members_list(
     interrupt_state: &InterruptState,
     options: &Options,
-    path: Option<&str>,
+    target_path: ComponentPath,
 ) -> Result<Vec<String>> {
-    let target_path: ComponentPath = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
+    application::with_eval(
+        interrupt_state,
+        options,
+        |_work_context, tasks| async move {
+            let composite_id = work::resolve_composite_path(&tasks, target_path.clone())
+                .await
+                .context(format!(
+                    "Failed to resolve path '{}' for members list",
+                    target_path
+                ))?;
 
-    // TODO: Support nested paths by traversing to the composite
-    if !target_path.is_root() {
-        bail!(
-            "Listing members at nested paths is not yet implemented. Use root path (no argument)."
-        );
-    }
+            // Use ListMembers goal without mutation capability (preview mode)
+            let result = tasks
+                .run(Goal::ListMembers(composite_id, target_path.clone(), None))
+                .await;
 
-    application::with_eval(interrupt_state, options, |work_context, tasks| async move {
-        let root_id = work_context.root_composite_id;
-
-        // Use ListMembers goal without mutation capability (preview mode)
-        let result = tasks
-            .run(Goal::ListMembers(root_id, target_path.clone(), None))
-            .await;
-
-        // Extract member names from the result
-        match result.as_ref() {
-            Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
-            Ok(Outcome::MembersListed(Err(dep))) => {
-                bail!(
-                    "Cannot list members at '{}': blocked by structural dependency (depends on {}.{})",
-                    target_path,
-                    dep.depends_on.resource,
-                    dep.depends_on.name,
-                )
+            // Extract member names from the result
+            match result.as_ref() {
+                Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
+                Ok(Outcome::MembersListed(Err(dep))) => {
+                    bail!(
+                        "Cannot list members at '{}': blocked by structural dependency (depends on {}.{})",
+                        target_path,
+                        dep.depends_on.resource,
+                        dep.depends_on.name,
+                    )
+                }
+                Ok(other) => {
+                    bail!("Unexpected outcome from ListMembers: {:?}", other)
+                }
+                Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
             }
-            Ok(other) => {
-                bail!("Unexpected outcome from ListMembers: {:?}", other)
-            }
-            Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
-        }
-    })
+        },
+    )
     .await
 }
 
@@ -164,11 +164,27 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Members {
-    /// List members at a component path (default: root)
+    /// List members at a component path (default: root).
+    ///
+    /// This is a read-only command that does not create or modify resources.
+    /// If the member set depends on a resource output (a structural dependency),
+    /// the command fails instead of showing incomplete results.
     List {
-        /// Component path (dot-separated, e.g., "production.database")
-        #[arg(add = ArgValueCompleter::new(complete::component_path_completer_composite))]
-        path: Option<String>,
+        /// Component path (dot-separated, e.g., "production.database").
+        /// Must resolve to a composite (deployment), not a resource.
+        // `default_value = ""` because `default_value_t = ComponentPath::root()`
+        // round-trips through Display+FromStr, and `Display` of root is `(root)`,
+        // which then parses back to a single-segment path `["(root)"]`. Empty
+        // string is the right on-the-wire form and FromStr("") returns root.
+        // `hide_default_value = true` because rendering the empty default as
+        // `[default: ]` in --help reads oddly; the enum docstring already says
+        // "(default: root)".
+        #[arg(
+            default_value = "",
+            hide_default_value = true,
+            add = ArgValueCompleter::new(complete::component_path_completer_composite),
+        )]
+        path: ComponentPath,
     },
 }
 

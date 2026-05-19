@@ -98,6 +98,63 @@ runCommand "itest-nixops4-with-local"
 
       nix eval .#nixops4._type --show-trace
 
+      h1 NESTED MEMBERS LIST
+
+      h2 "Root (no arg): default is root, not a segment named '(root)'"
+      # Regression test: previously the clap default for `path` was
+      # `default_value_t = ComponentPath::root()`, which round-tripped through
+      # Display+FromStr and turned into a single-segment path `["(root)"]`,
+      # causing eval to look up a nonexistent `(root)` attribute.
+      nixops4 members list --show-trace > actual.txt
+      # The set of root members is large; assert at least one known one and
+      # that no line equals the literal '(root)'.
+      grep -qxF myDeployment actual.txt
+      ! grep -qxF '(root)' actual.txt
+      rm -f actual.txt
+
+      h2 "Single-level nesting: nestedDeployment.frontend"
+      nixops4 members list nestedDeployment.frontend --show-trace > actual.txt
+      printf '%s\n' assets staticVersion webConfig webVersion | sort > expected.txt
+      sort actual.txt > actual_sorted.txt
+      diff expected.txt actual_sorted.txt
+
+      h2 "Deeper nesting: nestedDeployment.frontend.assets"
+      nixops4 members list nestedDeployment.frontend.assets --show-trace > actual.txt
+      printf '%s\n' assetConfig assetVersion | sort > expected.txt
+      sort actual.txt > actual_sorted.txt
+      diff expected.txt actual_sorted.txt
+
+      h2 "Error case: nonexistent nested path"
+      (
+        set +e
+        nixops4 members list nestedDeployment.nonExistentPath --show-trace 2> err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "Failed to resolve path 'nestedDeployment.nonExistentPath'" err.log
+        grep "attribute.*nonExistentPath.*not found" err.log
+      )
+
+      mv err.log $out/logs/members-list-nonexistent.stderr
+
+      h2 "Error case: path resolves to resource not composite"
+      (
+        set +e
+        nixops4 members list statefulDeployment.state --show-trace 2> err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "Failed to resolve path 'statefulDeployment.state'" err.log
+        grep -F "Expected composite at statefulDeployment.state, but found resource" err.log
+      )
+
+      mv err.log $out/logs/members-list-resource-not-composite.stderr
+      rm -f actual.txt actual_sorted.txt expected.txt
+
       h1 BASIC STATELESS DEPLOYMENT
 
       nixops4 apply -v myDeployment --show-trace
