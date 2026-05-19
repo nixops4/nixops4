@@ -1089,6 +1089,42 @@ impl WorkContext {
         Ok((provider_info, inputs_thunk))
     }
 
+    /// Send resource outputs to the evaluator and return the final `ExtantResource`.
+    async fn publish_resource_outputs(
+        &self,
+        resource_path: &ComponentPath,
+        inputs: serde_json::Map<String, serde_json::Value>,
+        outputs: serde_json::Map<String, serde_json::Value>,
+        resource_type: String,
+    ) -> Result<Outcome> {
+        if self.options.verbose {
+            eprintln!("Resource outputs: {:?}", outputs);
+        }
+
+        // Send the outputs eagerly, to avoid roundtrips and costly
+        // re-evaluation when some output is "missing" but not really
+        for (output_name, output_value) in outputs.iter() {
+            let output_prop = NamedProperty {
+                resource: resource_path.clone(),
+                name: output_name.clone(),
+            };
+            self.eval_sender
+                .send(&EvalRequest::PutResourceOutput(
+                    output_prop,
+                    output_value.clone(),
+                ))
+                .await?;
+        }
+
+        let resource = nixops4_resource::schema::v0::ExtantResource {
+            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
+            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
+            type_: nixops4_resource::schema::v0::ResourceType(resource_type),
+        };
+
+        Ok(Outcome::ResourceOutputs(resource))
+    }
+
     async fn perform_apply_resource(
         &self,
         context: TaskContext<Self>,
@@ -1240,37 +1276,13 @@ impl WorkContext {
 
         drop(span);
 
-        if self.options.verbose {
-            eprintln!("Resource outputs: {:?}", outputs);
-        }
-
-        // Send the outputs eagerly, to avoid roundtrips and costly
-        // re-evaluation when some output is "missing" but not really
-        for (output_name, output_value) in outputs.iter() {
-            let output_prop = NamedProperty {
-                resource: resource_path.clone(),
-                name: output_name.clone(),
-            };
-            self.eval_sender
-                .send(&EvalRequest::PutResourceOutput(
-                    output_prop,
-                    output_value.clone(),
-                ))
-                .await?;
-        }
-
         // Close the provider properly
         // We might want to reuse them in the future, but for now we launch one
         // per resource, except when it's a state provider (elsewhere).
         provider.close_wait().await?;
 
-        let resource = nixops4_resource::schema::v0::ExtantResource {
-            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
-            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
-            type_: nixops4_resource::schema::v0::ResourceType(provider_info.resource_type),
-        };
-
-        Ok(Outcome::ResourceOutputs(resource))
+        self.publish_resource_outputs(&resource_path, inputs, outputs, provider_info.resource_type)
+            .await
     }
 }
 
