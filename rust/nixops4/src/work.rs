@@ -16,11 +16,7 @@ use nixops4_core::eval_api::{
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Display,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 use tracing::{info_span, Instrument as _};
@@ -989,13 +985,19 @@ impl WorkContext {
         }
     }
 
-    async fn perform_apply_resource(
+    /// Spawn tasks to resolve provider info and input values for a resource.
+    /// Returns provider info (forced) and a thunk for the input map (not yet
+    /// forced), so callers can spawn further work before forcing the inputs.
+    async fn resolve_resource_inputs(
         &self,
-        context: TaskContext<Self>,
+        context: &TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_path: ComponentPath,
+        resource_path: &ComponentPath,
         mutation_cap: MutationCapability,
-    ) -> Result<Outcome> {
+    ) -> Result<(
+        ResourceProviderInfo,
+        Thunk<std::result::Result<serde_json::Map<String, serde_json::Value>, Arc<anyhow::Error>>>,
+    )> {
         let provider_info_thunk = context
             .spawn(Goal::GetResourceProviderInfo(
                 id,
@@ -1022,7 +1024,7 @@ impl WorkContext {
             }
         };
 
-        let mut inputs_thunks = HashMap::new();
+        let mut inputs_thunks = BTreeMap::new();
         for input_name in inputs_list {
             let input_id = context
                 .spawn(Goal::GetResourceInputValue(
@@ -1045,6 +1047,37 @@ impl WorkContext {
                 ),
             }
         };
+
+        let inputs_thunk = Thunk::new(async move {
+            let mut inputs = serde_json::Map::new();
+            for (input_name, thunk) in inputs_thunks {
+                match clone_result(thunk.force().await.as_ref()) {
+                    Ok(Outcome::ResourceInputValue(v)) => {
+                        inputs.insert(input_name, v);
+                    }
+                    Ok(outcome) => panic!(
+                        "Unexpected outcome from GetResourceInputValue: {:?}",
+                        outcome
+                    ),
+                    Err(e) => return Err(Arc::new(e)),
+                }
+            }
+            Ok(inputs)
+        });
+
+        Ok((provider_info, inputs_thunk))
+    }
+
+    async fn perform_apply_resource(
+        &self,
+        context: TaskContext<Self>,
+        id: Id<ResourceType>,
+        resource_path: ComponentPath,
+        mutation_cap: MutationCapability,
+    ) -> Result<Outcome> {
+        let (provider_info, inputs_thunk) = self
+            .resolve_resource_inputs(&context, id, &resource_path, mutation_cap)
+            .await?;
 
         let state_provider = match &provider_info.state {
             Some(state_resource_path) => {
@@ -1088,22 +1121,7 @@ impl WorkContext {
             None => None,
         };
 
-        let inputs = {
-            let mut inputs = serde_json::Map::new();
-            for (input_name, input_thunk) in inputs_thunks {
-                let outcome = clone_result(input_thunk.force().await.as_ref())?;
-                match outcome {
-                    Outcome::ResourceInputValue(i) => {
-                        inputs.insert(input_name, i);
-                    }
-                    _ => panic!(
-                        "Unexpected outcome from GetResourceInputValue: {:?}",
-                        outcome
-                    ),
-                }
-            }
-            inputs
-        };
+        let inputs = clone_result(inputs_thunk.force().await)?;
 
         let span = info_span!(
             "creating resource",
