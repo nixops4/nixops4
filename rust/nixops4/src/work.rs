@@ -100,13 +100,18 @@ pub enum Goal {
     LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
     /// Get resource provider info for a loaded resource.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, MutationCapability),
+    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// List resource inputs.
     /// Note: path is only used for logging; id is the source of truth.
-    ListResourceInputs(Id<ResourceType>, ComponentPath, MutationCapability),
+    ListResourceInputs(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// Get a specific resource input value.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
+    GetResourceInputValue(
+        Id<ResourceType>,
+        ComponentPath,
+        String,
+        Option<MutationCapability>,
+    ),
     /// Get a resource output value (goes to ApplyResource).
     /// Note: path is only used for logging; id is the source of truth.
     GetResourceOutputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
@@ -115,7 +120,7 @@ pub enum Goal {
     ApplyResource(Id<ResourceType>, ComponentPath, MutationCapability),
     /// Run a state provider resource.
     /// Note: path is only used for logging; id is the source of truth.
-    RunState(Id<ResourceType>, ComponentPath, MutationCapability),
+    RunState(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -442,15 +447,25 @@ impl WorkContext {
         &self,
         context: &TaskContext<Self>,
         dep: &NamedProperty,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<()> {
+        // TODO: pass the command name (e.g. "state dump") into the error
+        // so users know which invocation triggered read-only mode.
+        let cap = mutation_cap.with_context(|| {
+            format!(
+                "the current command uses the deployment in read-only mode, \
+                 but this depends on output {}.{}, which requires applying \
+                 that resource first",
+                dep.resource, dep.name
+            )
+        })?;
         let dep_id = self.get_resource_id(context, &dep.resource).await?;
         let r = context
             .require(Goal::GetResourceOutputValue(
                 dep_id,
                 dep.resource.clone(),
                 dep.name.clone(),
-                mutation_cap,
+                cap,
             ))
             .await
             .with_context(|| format!("resolving dependency {}.{}", dep.resource, dep.name))?;
@@ -674,7 +689,7 @@ impl WorkContext {
                     return Ok(Outcome::MembersListed(Ok(names)));
                 }
                 StepResult::Needs(dep) => match mutation_cap {
-                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
                         return Ok(Outcome::MembersListed(Err(
                             PreviewItem::StructuralDependency {
@@ -778,7 +793,7 @@ impl WorkContext {
                     return Ok(Outcome::MemberLoaded(Ok(handle)));
                 }
                 StepResult::Needs(dep) => match mutation_cap {
-                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
                         return Ok(Outcome::MemberLoaded(Err(
                             PreviewItem::StructuralDependency {
@@ -828,19 +843,20 @@ impl WorkContext {
 
     /// Get resource provider info, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: errors on unresolved dependency instead of resolving it.
     async fn perform_get_resource_provider_info(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_get_resource_provider_info(id).await? {
                 StepResult::Done(info) => return Ok(Outcome::ResourceProviderInfo(info)),
                 StepResult::Needs(dep) => {
                     self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
+                        .await?;
                 }
             }
         }
@@ -882,12 +898,13 @@ impl WorkContext {
 
     /// List resource inputs, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: errors on unresolved dependency instead of resolving it.
     async fn perform_list_resource_inputs(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_list_resource_inputs(id).await? {
@@ -896,7 +913,7 @@ impl WorkContext {
                 }
                 StepResult::Needs(dep) => {
                     self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
+                        .await?;
                 }
             }
         }
@@ -908,7 +925,7 @@ impl WorkContext {
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
         input_name: String,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -938,7 +955,7 @@ impl WorkContext {
                             }
                             StepResult::Needs(dep) => {
                                 self.resolve_dependency(&context, &dep, mutation_cap)
-                                    .await?
+                                    .await?;
                             }
                         },
                         _ => bail!(
@@ -993,7 +1010,7 @@ impl WorkContext {
         context: &TaskContext<Self>,
         id: Id<ResourceType>,
         resource_path: &ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<(
         ResourceProviderInfo,
         Thunk<std::result::Result<serde_json::Map<String, serde_json::Value>, Arc<anyhow::Error>>>,
@@ -1076,7 +1093,7 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         let (provider_info, inputs_thunk) = self
-            .resolve_resource_inputs(&context, id, &resource_path, mutation_cap)
+            .resolve_resource_inputs(&context, id, &resource_path, Some(mutation_cap))
             .await?;
 
         let state_provider = match &provider_info.state {
@@ -1096,7 +1113,7 @@ impl WorkContext {
                     .spawn(Goal::RunState(
                         state_resource_id,
                         state_resource_path.clone(),
-                        mutation_cap,
+                        Some(mutation_cap),
                     ))
                     .await
                     .with_context(|| {
@@ -1354,34 +1371,63 @@ impl TaskWork for WorkContext {
 
             Goal::RunState(id, path, cap) => {
                 (async {
-                    // Apply the resource
-                    let r = context
-                        .require(Goal::ApplyResource(id, path.clone(), cap))
-                        .await
-                        .with_context(|| format!("Failed to apply resource {}", path))?;
-                    let resource = {
-                        let outcome = clone_result(r.as_ref())?;
-                        match outcome {
-                            Outcome::ResourceOutputs(i) => i,
-                            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
-                        }
-                    };
+                    let (resource, provider_info) = match cap {
+                        Some(cap) => {
+                            // Mutating path: apply the resource first
+                            let r = context
+                                .require(Goal::ApplyResource(id, path.clone(), cap))
+                                .await
+                                .with_context(|| format!("Failed to apply resource {}", path))?;
+                            let resource = {
+                                let outcome = clone_result(r.as_ref())?;
+                                match outcome {
+                                    Outcome::ResourceOutputs(i) => i,
+                                    _ => panic!(
+                                        "Unexpected outcome from ApplyResource: {:?}",
+                                        outcome
+                                    ),
+                                }
+                            };
 
-                    // Get the provider info
-                    let provider_info_thunk = context
-                        .spawn(Goal::GetResourceProviderInfo(id, path.clone(), cap))
-                        .await
-                        .with_context(|| {
-                            format!("Failed to get provider info for resource {}", path)
-                        })?;
-                    let provider_info = {
-                        let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
-                        match outcome {
-                            Outcome::ResourceProviderInfo(i) => i,
-                            _ => panic!(
-                                "Unexpected outcome from GetResourceProviderInfo: {:?}",
-                                outcome
-                            ),
+                            // Get the provider info
+                            let provider_info_thunk = context
+                                .spawn(Goal::GetResourceProviderInfo(id, path.clone(), Some(cap)))
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to get provider info for resource {}", path)
+                                })?;
+                            let provider_info = {
+                                let outcome =
+                                    clone_result(provider_info_thunk.force().await.as_ref())?;
+                                match outcome {
+                                    Outcome::ResourceProviderInfo(i) => i,
+                                    _ => panic!(
+                                        "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                                        outcome
+                                    ),
+                                }
+                            };
+
+                            (resource, provider_info)
+                        }
+                        None => {
+                            // Read-only path: resolve inputs without applying
+                            let (provider_info, inputs_thunk) = self
+                                .resolve_resource_inputs(&context, id, &path, None)
+                                .await?;
+                            let inputs = clone_result(inputs_thunk.force().await)?;
+
+                            let resource = nixops4_resource::schema::v0::ExtantResource {
+                                input_properties: nixops4_resource::schema::v0::InputProperties(
+                                    inputs,
+                                ),
+                                output_properties: None,
+                                type_: nixops4_resource::schema::v0::ResourceType(
+                                    provider_info.resource_type.clone(),
+                                ),
+                            };
+
+                            (resource, provider_info)
                         }
                     };
 
