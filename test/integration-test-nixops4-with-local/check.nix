@@ -679,6 +679,87 @@ runCommand "itest-nixops4-with-local"
       rm -f structural-cycle.stdout
     )
 
+    h1 STATE DUMP
+    (
+      set -x
+      echo "=== Testing state dump command ==="
+
+      # First apply statefulDeployment so state exists
+      nixops4 apply -v statefulDeployment --show-trace
+
+      h2 "Happy path: dump state of state-providing resource"
+      nixops4 state dump statefulDeployment.state --show-trace > state-dump.json
+      # Verify it's valid JSON with expected structure
+      jq -e '._type == "nixopsState"' state-dump.json
+      # Verify concrete resource value: initial_version memo should have value 1
+      # Resources are nested under deployments.statefulDeployment because the
+      # resource paths are stored relative to the root composite.
+      jq -e '.deployments.statefulDeployment.resources.initial_version.input_properties.initialize_with == 1' state-dump.json
+
+      h2 "Error: nonexistent path"
+      (
+        set +e
+        nixops4 state dump nonExistent.path --show-trace 2> state-dump-err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "nonExistent" state-dump-err.log
+      )
+
+      h2 "CLI help accuracy: argument mentions state-providing resource"
+      nixops4 state dump --help > state-dump-help.txt
+      grep -F "state-providing resource" state-dump-help.txt
+
+      h2 "Error: structural dependency blocks state dump"
+      (
+        set +e
+        nixops4 state dump structuralResourcesAttr.child.conditionalResource --show-trace 2> state-dump-structural-err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "blocked by structural dependency" state-dump-structural-err.log
+      )
+
+      mv state-dump-structural-err.log $out/logs/state-dump-structural-dependency.stderr
+
+      h2 "Error: path resolves to composite, not resource"
+      (
+        set +e
+        nixops4 state dump statefulDeployment --show-trace 2> state-dump-composite-err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "is a composite (deployment), not an individual resource" state-dump-composite-err.log
+        grep -F "state-providing resource" state-dump-composite-err.log
+      )
+
+      mv state-dump-composite-err.log $out/logs/state-dump-composite-not-resource.stderr
+
+      h2 "Error: non-state resource"
+      (
+        set +e
+        nixops4 state dump statefulDeployment.initial_version --show-trace 2> state-dump-non-state-err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+        grep -F "could not be read as a state provider" state-dump-non-state-err.log
+      )
+
+      # Clean up
+      mv state-dump-err.log $out/logs/state-dump-nonexistent.stderr
+      mv state-dump-non-state-err.log $out/logs/state-dump-non-state-resource.stderr
+      rm -f state-dump.json state-dump-help.txt nixops4-state.json
+      rm -f initial-version.md current-version.md
+    )
+
     h1 SUCCESS
     touch $out
   ''

@@ -15,9 +15,9 @@ use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use clap_complete::env::CompleteEnv;
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
-use nixops4_core::eval_api::ComponentPath;
+use nixops4_core::eval_api::{ComponentHandle, ComponentPath};
 use options::Options;
-use work::{Goal, Outcome};
+use work::{clone_anyhow_from_arc, Goal, Outcome};
 
 fn main() {
     // Handle shell completion if requested via environment.
@@ -54,6 +54,17 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
                     for m in members {
                         println!("{}", m);
                     }
+                }
+            };
+            Ok(())
+        }
+        Commands::State(sub) => {
+            match sub {
+                State::Dump { path } => {
+                    let mut logging = set_up_logging(interrupt_state, &args)?;
+                    let json = dump_state(interrupt_state, &args.options, path).await?;
+                    logging.tear_down()?;
+                    println!("{}", json);
                 }
             };
             Ok(())
@@ -152,6 +163,87 @@ async fn members_list(
     .await
 }
 
+/// Dump the state of a state-providing resource as JSON.
+///
+/// Reads the state without applying any resources. Data may be stale.
+async fn dump_state(
+    interrupt_state: &InterruptState,
+    options: &Options,
+    path: &str,
+) -> Result<String> {
+    let resource_path: ComponentPath = path.parse().unwrap();
+
+    application::with_eval(
+        interrupt_state,
+        options,
+        |_work_context, tasks| async move {
+            // Split path into parent composite + resource name
+            let (parent_path, name) = resource_path
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("Cannot dump state for root path"))?;
+
+            // Resolve parent composite
+            let parent_id = work::resolve_composite_path(&tasks, parent_path)
+                .await
+                .context(format!("Failed to dump state stored in {}", resource_path))?;
+
+            // Load the member and verify it's a resource
+            let load_result = tasks
+                .run(Goal::LoadMember(parent_id, name.to_string(), None))
+                .await;
+            let resource_id = match load_result.as_ref() {
+                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Resource(id)))) => *id,
+                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Composite(_)))) => {
+                    bail!(
+                        "'{}' is a composite (deployment), not an individual resource. \
+                         Specify a state-providing resource, e.g., '{}.state'.",
+                        resource_path,
+                        resource_path
+                    )
+                }
+                Ok(Outcome::MemberLoaded(Err(dep))) => {
+                    // TODO: resolve by reading the depended-on resource's outputs from its state-providing resource, which works when that's a different state-providing resource
+                    bail!(
+                        "Cannot load '{}': blocked by structural dependency: {}",
+                        resource_path,
+                        dep
+                    )
+                }
+                Ok(other) => bail!("Unexpected outcome from LoadMember: {:?}", other),
+                Err(e) => {
+                    return Err(clone_anyhow_from_arc(e))
+                        .context(format!("Failed to dump state stored in {}", resource_path))
+                }
+            };
+
+            let run_result = tasks
+                .run(Goal::RunState(
+                    resource_id,
+                    resource_path.clone(),
+                    None, /* read-only: resolves inputs without applying */
+                ))
+                .await;
+            let state_handle = match run_result.as_ref() {
+                Ok(Outcome::RunState(handle)) => handle.clone(),
+                Ok(other) => bail!("Unexpected outcome from RunState: {:?}", other),
+                Err(e) => {
+                    return Err(clone_anyhow_from_arc(e)).context(format!(
+                        "'{}' could not be read as a state provider",
+                        resource_path
+                    ))
+                }
+            };
+
+            // Read current state and serialize to JSON
+            let state = state_handle.current.lock().await;
+            let json = serde_json::to_string_pretty(&*state)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize state: {}", e))?;
+            Ok(json)
+        },
+    )
+    .await
+}
+
 /// NixOps: manage resources declaratively
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -179,6 +271,19 @@ enum Members {
 }
 
 #[derive(Subcommand, Debug)]
+enum State {
+    /// Dump the current state of a state-providing resource as JSON.
+    ///
+    /// This is a read-only command that does not create or modify resources.
+    /// If the resource path cannot be resolved without applying other resources
+    /// (e.g., it depends on another resource's output), the command fails.
+    Dump {
+        /// Path to a state-providing resource (dot-separated, e.g., "myDeployment.state")
+        path: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Apply changes so that the resources are in the desired state.
     ///
@@ -190,6 +295,10 @@ enum Commands {
     /// Commands that operate on component members
     #[command(subcommand)]
     Members(Members),
+
+    /// Commands that operate on deployment state
+    #[command(subcommand)]
+    State(State),
 
     /// Generate markdown documentation for nixops4-resource-runner
     #[command(hide = true)]
