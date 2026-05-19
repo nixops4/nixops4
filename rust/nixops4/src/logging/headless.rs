@@ -10,7 +10,17 @@ use tracing_subscriber::{
 
 pub(crate) struct HeadlessLogger {}
 
-pub(crate) type Logger = Layered<LevelFilter2<FmtLayer<Registry>>, Registry>;
+pub(crate) type Logger = Layered<
+    LevelFilter2<
+        FmtLayer<
+            Registry,
+            tracing_subscriber::fmt::format::DefaultFields,
+            tracing_subscriber::fmt::format::Format,
+            fn() -> std::io::Stderr,
+        >,
+    >,
+    Registry,
+>;
 
 impl HeadlessLogger {
     pub(crate) fn make_subscriber(&mut self, options: &super::Options) -> Result<Logger> {
@@ -30,6 +40,7 @@ impl HeadlessLogger {
         };
 
         let fmt_layer = FmtLayer::new()
+            .with_writer(std::io::stderr as fn() -> std::io::Stderr)
             .with_span_events(span_events)
             .with_ansi(options.color);
         let filter_layer = LevelFilter2::new(filter.into(), fmt_layer);
