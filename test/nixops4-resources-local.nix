@@ -90,6 +90,64 @@ runCommand "check-nixops4-resources-local"
 
     (set -x; jq -e '. == { "value": "hello world" }' memo_update.json)
 
+    # Test "exec" resource - update re-executes with new args
+
+    nixops4-resource-runner update \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --inputs-json '{"executable": "hello", "args": ["--greeting", "updated greeting"], "once": false}' \
+      --previous-inputs-json '{"executable": "hello", "args": ["--greeting", "old greeting"], "once": false}' \
+      --previous-outputs-json '{"stdout": "old greeting\n"}' \
+      > exec_update.json
+    cat exec_update.json
+
+    (set -x; jq -e '. == { "stdout": "updated greeting\n" }' exec_update.json)
+
+    # Test "exec" resource - once=true create (stateful, executes normally)
+
+    nixops4-resource-runner create \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --stateful \
+      --input-str executable 'hello' \
+      --input-json args '["--greeting", "once greeting"]' \
+      --input-json once 'true' \
+      > exec_once_create.json
+    cat exec_once_create.json
+
+    (set -x; jq -e '. == { "stdout": "once greeting\n" }' exec_once_create.json)
+
+    # Test "exec" resource - once=true update (preserves original output)
+
+    nixops4-resource-runner update \
+      --provider-exe nixops4-resources-local \
+      --type exec \
+      --inputs-json '{"executable": "hello", "args": ["--greeting", "new args"], "once": true}' \
+      --previous-inputs-json '{"executable": "hello", "args": ["--greeting", "once greeting"], "once": true}' \
+      --previous-outputs-json '{"stdout": "once greeting\n"}' \
+      > exec_once_update.json
+    cat exec_once_update.json
+
+    (set -x; jq -e '. == { "stdout": "once greeting\n" }' exec_once_update.json)
+
+    # Test "exec" resource - once=true WITHOUT stateful must fail
+
+    (
+      set +e
+      nixops4-resource-runner create \
+        --provider-exe nixops4-resources-local \
+        --type exec \
+        --input-str executable 'hello' \
+        --input-json args '[]' \
+        --input-json once 'true' \
+        > exec_once_stateless_out.json 2> exec_once_stateless_err.log
+      [[ $? == 1 ]]
+    )
+    # stdout should be empty (no JSON output on error)
+    [[ ! -s exec_once_stateless_out.json ]]
+    # stderr should contain the specific error
+    grep -F "exec resource with once=true requires state (use isStateful)" exec_once_stateless_err.log
+
     # Test that stateless resources bail on update
 
     (

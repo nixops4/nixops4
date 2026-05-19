@@ -27,10 +27,12 @@ struct ExecInProperties {
     executable: String,
     args: Vec<String>,
     stdin: Option<String>,
+    #[serde(default)]
+    once: bool,
     // TODO parseJSON: bool  (for convenience and presentation purposes)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct ExecOutProperties {
     stdout: String,
 }
@@ -63,48 +65,15 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                 std::fs::write(&p.name, &p.contents)?;
                 Ok(FileOutProperties {})
             }),
-            "exec" => do_create(request, |p: ExecInProperties| {
-                let mut command = std::process::Command::new(&p.executable);
-                command.args(&p.args);
-
-                let in_stdio = if p.stdin.is_some() {
-                    std::process::Stdio::piped()
-                } else {
-                    std::process::Stdio::null()
-                };
-
-                let mut child = command
-                    .stdin(in_stdio)
-                    .stdout(std::process::Stdio::piped())
-                    .spawn()
-                    .with_context(|| {
-                        format!(
-                            "Could not spawn resource provider process: {}",
-                            p.executable
-                        )
-                    })?;
-
-                if let Some(stdinstr) = p.stdin {
-                    child
-                        .stdin
-                        .as_mut()
-                        .unwrap()
-                        .write_all(stdinstr.as_bytes())?;
-                }
-
-                // Read stdout
-                let output = child.wait_with_output()?;
-                let stdout = String::from_utf8(output.stdout)?;
-
-                if output.status.success() {
-                    Ok(ExecOutProperties { stdout })
-                } else {
-                    bail!(
-                        "Local resource process failed with exit code: {}",
-                        output.status
-                    )
-                }
-            }),
+            "exec" => {
+                let is_stateful = request.is_stateful;
+                do_create(request, |p: ExecInProperties| {
+                    if p.once && !is_stateful {
+                        bail!("exec resource with once=true requires state (use isStateful)");
+                    }
+                    run_exec(p)
+                })
+            }
             "memo" => {
                 if !request.is_stateful {
                     bail!("memo resources require state (isStateful must be true)");
@@ -157,9 +126,21 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
             "file" => {
                 bail!("Internal error: update called on stateless file resource");
             }
-            "exec" => {
-                bail!("Internal error: update called on stateless exec resource");
-            }
+            "exec" => do_update(&request, |p: ExecInProperties| {
+                if p.once {
+                    let previous_output_properties = request.resource.output_properties.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("The update operation on an exec resource with once=true requires previous output properties (received None)")
+                    })?;
+                    let previous: ExecOutProperties =
+                        serde_json::from_value(Value::Object(previous_output_properties.0.clone()))
+                            .with_context(|| {
+                                "Could not deserialize output properties for exec resource"
+                            })?;
+                    Ok(previous)
+                } else {
+                    run_exec(p)
+                }
+            }),
             "state_file" => {
                 bail!("Internal error: update called on stateless state_file resource");
             }
@@ -255,6 +236,49 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                 t
             ),
         }
+    }
+}
+
+fn run_exec(p: ExecInProperties) -> Result<ExecOutProperties> {
+    let mut command = std::process::Command::new(&p.executable);
+    command.args(&p.args);
+
+    let in_stdio = if p.stdin.is_some() {
+        std::process::Stdio::piped()
+    } else {
+        std::process::Stdio::null()
+    };
+
+    let mut child = command
+        .stdin(in_stdio)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "Could not spawn resource provider process: {}",
+                p.executable
+            )
+        })?;
+
+    if let Some(stdinstr) = p.stdin {
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(stdinstr.as_bytes())?;
+    }
+
+    // Read stdout
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+
+    if output.status.success() {
+        Ok(ExecOutProperties { stdout })
+    } else {
+        bail!(
+            "Local resource process failed with exit code: {}",
+            output.status
+        )
     }
 }
 
