@@ -10,7 +10,7 @@ mod provider;
 mod state;
 mod work;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use clap::{ColorChoice, CommandFactory as _, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use clap_complete::env::CompleteEnv;
@@ -116,37 +116,39 @@ async fn members_list(
 ) -> Result<Vec<String>> {
     let target_path: ComponentPath = path.map_or(ComponentPath::root(), |s| s.parse().unwrap());
 
-    // TODO: Support nested paths by traversing to the composite
-    if !target_path.is_root() {
-        bail!(
-            "Listing members at nested paths is not yet implemented. Use root path (no argument)."
-        );
-    }
+    application::with_eval(
+        interrupt_state,
+        options,
+        |_work_context, tasks| async move {
+            let composite_id = work::resolve_composite_path(&tasks, target_path.clone())
+                .await
+                .context(format!(
+                    "Failed to resolve path '{}' for members list",
+                    target_path
+                ))?;
 
-    application::with_eval(interrupt_state, options, |work_context, tasks| async move {
-        let root_id = work_context.root_composite_id;
+            // Use ListMembers goal without mutation capability (preview mode)
+            let result = tasks
+                .run(Goal::ListMembers(composite_id, target_path.clone(), None))
+                .await;
 
-        // Use ListMembers goal without mutation capability (preview mode)
-        let result = tasks
-            .run(Goal::ListMembers(root_id, target_path.clone(), None))
-            .await;
-
-        // Extract member names from the result
-        match result.as_ref() {
-            Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
-            Ok(Outcome::MembersListed(Err(preview_item))) => {
-                bail!(
-                    "Cannot list members at '{}': blocked by structural dependency: {}",
-                    target_path,
-                    preview_item
-                )
+            // Extract member names from the result
+            match result.as_ref() {
+                Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
+                Ok(Outcome::MembersListed(Err(preview_item))) => {
+                    bail!(
+                        "Cannot list members at '{}': blocked by structural dependency: {}",
+                        target_path,
+                        preview_item
+                    )
+                }
+                Ok(other) => {
+                    bail!("Unexpected outcome from ListMembers: {:?}", other)
+                }
+                Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
             }
-            Ok(other) => {
-                bail!("Unexpected outcome from ListMembers: {:?}", other)
-            }
-            Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
-        }
-    })
+        },
+    )
     .await
 }
 
@@ -163,9 +165,14 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Members {
-    /// List members at a component path (default: root)
+    /// List members at a component path (default: root).
+    ///
+    /// This is a read-only command that does not create or modify resources.
+    /// If the member set depends on a resource output (a structural dependency),
+    /// the command fails instead of showing incomplete results.
     List {
-        /// Component path (dot-separated, e.g., "production.database")
+        /// Component path (dot-separated, e.g., "production.database").
+        /// Must resolve to a composite (deployment), not a resource.
         #[arg(add = ArgValueCompleter::new(complete::component_path_completer_composite))]
         path: Option<String>,
     },
