@@ -59,11 +59,11 @@ runCommand "check-nixops4-resources-local"
         --type exec \
         --input-str executable 'die' \
         --input-json args '["oh no, this and that failed"]' \
-        > out.json
+        > out.json 2> exec_exit_err.log
       [[ $? == 1 ]]
     )
-    cat out.json
-    [[ "" == "$(cat out.json)" ]]
+    [[ ! -s out.json ]]
+    grep -F "oh no, this and that failed" exec_exit_err.log
 
     # Test "memo" resource - create with state persistence
 
@@ -100,11 +100,11 @@ runCommand "check-nixops4-resources-local"
         --inputs-json '{"name": "/tmp/test", "contents": "new"}' \
         --previous-inputs-json '{"name": "/tmp/test", "contents": "old"}' \
         --previous-outputs-json '{}' \
-        > file_update_err.json 2>&1
+        > file_update_out.json 2> file_update_err.log
       [[ $? == 1 ]]
     )
-    cat file_update_err.json
-    grep -F "Internal error: update called on stateless file resource" file_update_err.json
+    [[ ! -s file_update_out.json ]]
+    grep -F "Internal error: update called on stateless file resource" file_update_err.log
 
     # Test that memo resource bails when created statelessly
 
@@ -114,11 +114,11 @@ runCommand "check-nixops4-resources-local"
         --provider-exe nixops4-resources-local \
         --type memo \
         --input-json initialize_with '"test value"' \
-        2>&1 | tee memo_stateless_err.json
+        > memo_stateless_out.json 2> memo_stateless_err.log
       [[ $? == 1 ]]
     )
-    cat memo_stateless_err.json
-    grep -F "memo resources require state (isStateful must be true)" memo_stateless_err.json
+    [[ ! -s memo_stateless_out.json ]]
+    grep -F "memo resources require state (isStateful must be true)" memo_stateless_err.log
 
     # Test "state_file" resource - create new state file
 
@@ -282,9 +282,11 @@ runCommand "check-nixops4-resources-local"
         --provider-exe nixops4-resources-local \
         --type state_file \
         --input-str name "invalid-state.json" \
-        2>&1 | tee state_invalid_err.json
+        > state_invalid_out.json 2> state_invalid_err.log
       [[ $? == 1 ]]
     )
+    [[ ! -s state_invalid_out.json ]]
+    grep -F "State file invalid" state_invalid_err.log
 
     echo "All state persistence tests passed!"
 
