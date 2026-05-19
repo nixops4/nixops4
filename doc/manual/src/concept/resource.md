@@ -26,6 +26,19 @@ When a resource type has `requireState = false`:
 - The resource does not need a state handler
 - The resource is stateless and can be idempotently recreated from its inputs
 
+### Skipping Unchanged Resources
+
+When NixOps applies a stateful resource whose inputs haven't changed since the last apply, it considers the resource up to date and does not perform the update operation.
+This keeps deployments fast by only invoking providers when inputs actually change.
+
+This relies on two assumptions:
+
+1. **No out-of-band changes**: the resource has not been modified outside of NixOps.
+   Drift detection and reconciliation [will be](https://github.com/nixops4/nixops4/issues/161) NixOps responsibilities, but they are not part of the normal `apply` flow, because that would unnecessarily slow down deployments.
+   If your deployment needs drift detection, it should run continuously rather than on update, so that problems are detected promptly.
+2. **No significant side effects**: the update operation does not perform essential work beyond bringing the resource to its desired state.
+   Concerns such as lease renewal are outside the scope of resource providers and should be handled by services or scheduled tasks instead.
+
 ## Resource Dependencies
 
 Resources can depend on each other in two different ways:

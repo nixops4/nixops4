@@ -252,6 +252,34 @@ runCommand "itest-nixops4-with-local"
       rm nixops4-state.json.backup
     )
 
+    h2 "Test skip when inputs unchanged"
+    (
+      set -x
+      # Re-apply with unchanged inputs; the skip optimization should fire
+      nixops4 apply statefulDeployment --show-trace 2> skip-stderr.log
+      grep -qF "inputs unchanged" skip-stderr.log || {
+        echo "FAIL: expected 'inputs unchanged' in stderr"
+        cat skip-stderr.log
+        exit 1
+      }
+      mv skip-stderr.log $out/logs/skip-update.stderr
+    )
+
+    h2 "Test update when inputs changed"
+    (
+      set -x
+      # Change currentVersion back to 1 (it was set to 2 earlier)
+      sed -i 's/currentVersion = 2;/currentVersion = 1;/' flake.nix
+      # Re-apply with -v to capture debug output
+      nixops4 apply -v statefulDeployment --show-trace 2> update-stderr.log
+      grep -qF "inputs changed" update-stderr.log || {
+        echo "FAIL: expected 'inputs changed' in stderr"
+        cat update-stderr.log
+        exit 1
+      }
+      mv update-stderr.log $out/logs/update-inputs-changed.stderr
+    )
+
     (
       set -x
       # Clean up
