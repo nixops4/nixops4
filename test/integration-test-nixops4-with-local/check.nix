@@ -57,6 +57,7 @@ runCommand "itest-nixops4-with-local"
     }
 
     h1 SETTING UP
+    mkdir -p $out/logs
 
     export HOME=$(mktemp -d $TMPDIR/home.XXXXXX)
     # configure a relocated store
@@ -119,6 +120,7 @@ runCommand "itest-nixops4-with-local"
 
       grep -F 'oh no, this and that failed' err.log
       grep -F 'Failed to create stateless resource failingDeployment.hello' err.log
+      mv err.log $out/logs/failing-deployment.stderr
     )
 
     h1 STATEFUL DEPLOYMENT
@@ -238,7 +240,8 @@ runCommand "itest-nixops4-with-local"
       rm -f listing-section.log
 
       # Clean up
-      rm -f unreferenced-nesting-state.json unreferenced-output.log
+      mv unreferenced-output.log $out/logs/unreferenced-nesting.stderr
+      rm -f unreferenced-nesting-state.json
     )
 
     h1 STRUCTURAL DEPENDENCY: CONDITIONAL COMPOSITES
@@ -261,7 +264,8 @@ runCommand "itest-nixops4-with-local"
       grep -E 'childResource.*child-value' structural-deployments.log
 
       # Clean up
-      rm -f structural-deployments-state.json structural-deployments.log
+      mv structural-deployments.log $out/logs/structural-deployments-attr.stderr
+      rm -f structural-deployments-state.json
     )
 
     h1 STRUCTURAL DEPENDENCY: CONDITIONAL RESOURCES IN COMPOSITE
@@ -283,7 +287,8 @@ runCommand "itest-nixops4-with-local"
       grep -E 'conditionalResource.*conditional-value' structural-resources.log
 
       # Clean up
-      rm -f structural-resources-state.json structural-resources.log
+      mv structural-resources.log $out/logs/structural-resources-attr.stderr
+      rm -f structural-resources-state.json
     )
 
     h1 DYNAMIC MEMBER KIND
@@ -307,7 +312,8 @@ runCommand "itest-nixops4-with-local"
       grep -E 'dynamicMember.*I am a resource' dynamic-kind.log
 
       # Clean up
-      rm -f dynamic-kind-state.json dynamic-kind.log
+      mv dynamic-kind.log $out/logs/dynamic-kind.stderr
+      rm -f dynamic-kind-state.json
     )
 
     h1 NESTED DEPLOYMENTS
@@ -415,7 +421,9 @@ runCommand "itest-nixops4-with-local"
       }
 
       # Clean up
-      rm -f nested-parent-state.json nested-output.log nested-output2.log
+      mv nested-output.log $out/logs/nested-deployment.stderr
+      mv nested-output2.log $out/logs/nested-deployment-update.stderr
+      rm -f nested-parent-state.json
     )
 
     h1 ERROR HANDLING: STATE POINTS TO COMPOSITE
@@ -443,7 +451,7 @@ runCommand "itest-nixops4-with-local"
       }
 
       # Clean up
-      rm -f state-composite-err.log
+      mv state-composite-err.log $out/logs/state-points-to-composite.stderr
     )
 
     h1 ERROR HANDLING: STATE POINTS TO NONEXISTENT MEMBER
@@ -471,7 +479,7 @@ runCommand "itest-nixops4-with-local"
       }
 
       # Clean up
-      rm -f state-nonexistent-err.log
+      mv state-nonexistent-err.log $out/logs/state-points-to-nonexistent.stderr
     )
 
     h1 ERROR HANDLING: STATE IN NONEXISTENT COMPOSITE
@@ -499,7 +507,7 @@ runCommand "itest-nixops4-with-local"
       }
 
       # Clean up
-      rm -f state-bad-path-err.log
+      mv state-bad-path-err.log $out/logs/state-in-nonexistent-composite.stderr
     )
 
     h1 ERROR HANDLING: CIRCULAR DEPENDENCY
@@ -553,7 +561,7 @@ runCommand "itest-nixops4-with-local"
       fi
 
       # Clean up
-      rm -f circular-err.log
+      mv circular-err.log $out/logs/circular-dependency.stderr
     )
 
     h1 ERROR HANDLING: STRUCTURAL DEPENDENCY CYCLE
@@ -584,7 +592,7 @@ runCommand "itest-nixops4-with-local"
       }
 
       # Clean up
-      rm -f structural-cycle-err.log
+      mv structural-cycle-err.log $out/logs/structural-cycle.stderr
     )
 
     h1 SUCCESS
