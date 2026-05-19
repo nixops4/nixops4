@@ -1176,6 +1176,45 @@ impl WorkContext {
 
         let inputs = clone_result(inputs_thunk.force().await)?;
 
+        // Read past resource once and cache it for both the skip check and the
+        // later create-vs-update decision, avoiding a second state lock.
+        //
+        // Skip optimization: see "Skipping Unchanged Resources" in
+        // doc/manual/src/concept/resource.md for the assumptions.
+        let mut saved_past_resource: Option<crate::state::ResourceState> = None;
+        if let Some(ref state_handle) = state {
+            saved_past_resource = state_handle
+                .current
+                .lock()
+                .await
+                .deployment
+                .get_resource(&resource_path)
+                .cloned();
+            if let Some(ref past_resource) = saved_past_resource {
+                if past_resource.type_ != provider_info.resource_type {
+                    bail!(
+                        "Resource type change is not supported: {} != {}",
+                        past_resource.type_,
+                        provider_info.resource_type
+                    );
+                }
+                if inputs == past_resource.input_properties {
+                    tracing::info!(
+                        "Skipping update for resource {}: inputs unchanged",
+                        resource_path
+                    );
+                    return self
+                        .publish_resource_outputs(
+                            &resource_path,
+                            inputs,
+                            past_resource.output_properties.clone(),
+                            provider_info.resource_type,
+                        )
+                        .await;
+                }
+            }
+        }
+
         let span = info_span!(
             "creating resource",
             name = resource_path.to_string().as_str()
@@ -1205,22 +1244,10 @@ impl WorkContext {
                     format!("Failed to create stateless resource {}", resource_path)
                 })?,
             Some(ref state_handle) => {
-                let past_resource_opt = state_handle
-                    .current
-                    .lock()
-                    .await
-                    .deployment
-                    .get_resource(&resource_path)
-                    .cloned();
-                match past_resource_opt {
+                match saved_past_resource.take() {
                     Some(past_resource) => {
-                        if past_resource.type_ != provider_info.resource_type {
-                            bail!(
-                                "Resource type change is not supported: {} != {}",
-                                past_resource.type_,
-                                provider_info.resource_type
-                            );
-                        }
+                        // Type check already done above; inputs differ if we reach here
+                        tracing::debug!("Updating resource {}: inputs changed", resource_path);
                         let outputs = provider
                             .update(
                                 provider_info.resource_type.as_str(),
