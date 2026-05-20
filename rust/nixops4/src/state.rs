@@ -13,13 +13,13 @@ use tokio::sync::Mutex;
 use crate::provider;
 
 /// The root of a state file.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct State {
     #[serde(flatten)]
     pub deployment: DeploymentState,
 
     #[serde(deserialize_with = "type_is_nixops_state")]
-    _type: String,
+    pub _type: String,
 }
 
 fn type_is_nixops_state<'de, D>(deserializer: D) -> Result<String, D::Error>
