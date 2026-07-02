@@ -5,16 +5,15 @@
   nodes.deployer =
     { pkgs, ... }:
     {
-      # Uncomment if needed
-      # environment.systemPackages = [
-      #   pkgs.git
-      # ];
+      users.users.alice = {
+        isNormalUser = true;
+      };
     };
 
   testScript = ''
-    deployer.succeed("nixops4 --version");
+    deployer.succeed("su - alice -c 'nixops4 --version'");
 
-    deployer.succeed("${config.node.pkgs.writeScript "example" ''
+    deployer.succeed("su - alice -c ${config.node.pkgs.writeScript "example" ''
       #!${config.node.pkgs.runtimeShell}
       set -euxo pipefail
       mkdir example
@@ -39,8 +38,8 @@
       grep member-one members
       grep member-two members
       [[ $(wc -l <members) == 2 ]]
-      rm members
-      rm flake.nix
+      rm -f members
+      rm -f flake.nix
     ''}");
   '';
 }
