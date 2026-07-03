@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 mod state;
-use state::{StateEvent, StateEventMeta, StateEventStream, StateHandle};
+use state::{StateEvent, StateEventMeta, StateEventStream, StateHandle, WaitMonitor};
 
 struct LocalResourceProvider {}
 
@@ -202,12 +202,19 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     &request.resource.type_,
                 )?;
 
-                let file_contents = std::fs::read_to_string(inputs.name.as_str())?;
-                let stream = StateEventStream::open_from_reader(io::BufReader::new(
-                    file_contents.as_bytes(),
-                ))?;
+                let file = OpenOptions::new().read(true).open(inputs.name.as_str())?;
+                let locking = fd_lock::RwLock::new(file);
+                let read_guard = {
+                    let mon = WaitMonitor::new("Waiting for state file read lock".to_owned());
+                    let g = locking.read()?;
+                    mon.done();
+                    g
+                };
+
+                let stream = StateEventStream::open_from_reader(io::BufReader::new(&*read_guard))?;
                 let mut state = serde_json::json!({});
                 state::apply_state_events(&mut state, stream)?;
+                drop(read_guard);
                 Ok(v0::StateResourceReadResponse {
                     state: serde_json::from_value(state)?,
                 })
