@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8a1db40a.js";
+            window.path_to_searchindex_js = "../searchindex-88f6b3ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-9e39c76f.js"></script>
@@ -185,6 +185,8 @@
 <li><a href="#nixops4-apply"><code>nixops4 apply</code>↴</a></li>
 <li><a href="#nixops4-members"><code>nixops4 members</code>↴</a></li>
 <li><a href="#nixops4-members-list"><code>nixops4 members list</code>↴</a></li>
+<li><a href="#nixops4-state"><code>nixops4 state</code>↴</a></li>
+<li><a href="#nixops4-state-dump"><code>nixops4 state dump</code>↴</a></li>
 </ul>
 <h2 id="nixops4"><a class="header" href="#nixops4"><code>nixops4</code></a></h2>
 <p>The <code>nixops4</code> command-line tool</p>
@@ -193,6 +195,7 @@
 <ul>
 <li><code>apply</code> — Apply changes so that the resources are in the desired state</li>
 <li><code>members</code> — Commands that operate on component members</li>
+<li><code>state</code> — Commands that operate on deployment state</li>
 </ul>
 <h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
 <ul>
@@ -237,11 +240,31 @@
 <li><code>list</code> — List members at a component path (default: root)</li>
 </ul>
 <h2 id="nixops4-members-list"><a class="header" href="#nixops4-members-list"><code>nixops4 members list</code></a></h2>
-<p>List members at a component path (default: root)</p>
+<p>List members at a component path (default: root).</p>
+<p>This is a read-only command that does not create or modify resources. If the member set depends on a resource output (a structural dependency), the command fails instead of showing incomplete results.</p>
 <p><strong>Usage:</strong> <code>nixops4 members list [PATH]</code></p>
 <h6 id="arguments-1"><a class="header" href="#arguments-1"><strong>Arguments:</strong></a></h6>
 <ul>
-<li><code>&lt;PATH&gt;</code> — Component path (dot-separated, e.g., “production.database”)</li>
+<li>
+<p><code>&lt;PATH&gt;</code> — Component path (dot-separated, e.g., “production.database”). Must resolve to a composite (deployment), not a resource</p>
+<p>Default value: ``</p>
+</li>
+</ul>
+<h2 id="nixops4-state"><a class="header" href="#nixops4-state"><code>nixops4 state</code></a></h2>
+<p>Commands that operate on deployment state</p>
+<p><strong>Usage:</strong> <code>nixops4 state &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands-2"><a class="header" href="#subcommands-2"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>dump</code> — Dump the current state stored in a state-providing resource as JSON</li>
+</ul>
+<h2 id="nixops4-state-dump"><a class="header" href="#nixops4-state-dump"><code>nixops4 state dump</code></a></h2>
+<p>Dump the current state stored in a state-providing resource as JSON.</p>
+<p>This is a read-only command that does not create or modify resources. If the resource path cannot be resolved without applying other resources (e.g., it depends on another resource’s output), the command fails.</p>
+<p>Plumbing: the output is the raw state contents, which may contain unencrypted secrets. Do not paste it into bug reports or send it over untrusted channels without redacting first.</p>
+<p><strong>Usage:</strong> <code>nixops4 state dump &lt;PATH&gt;</code></p>
+<h6 id="arguments-2"><a class="header" href="#arguments-2"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PATH&gt;</code> — Path to a state-providing resource (dot-separated, e.g., “myDeployment.state”)</li>
 </ul>
 
                     </main>

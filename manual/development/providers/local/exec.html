@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8a1db40a.js";
+            window.path_to_searchindex_js = "../../searchindex-88f6b3ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-9e39c76f.js"></script>
@@ -197,6 +197,19 @@ list of (string or (string or absolute path or signed integer) convertible to it
 <p>The command to execute. Can be a string path or a function that returns a path.</p>
 <p><em>Type:</em>
 string or (function that evaluates to a(n) string) convertible to it</p>
+<p><em>Declared by:</em></p>
+<ul>
+<li><a href="https://github.com/nixops4/nixops4/tree/main/nix/providers/local.nix">nixops4/nix/providers/local.nix</a></li>
+</ul>
+<h2 id="inputs.once"><a class="header" href="#inputs.once">inputs.once</a></h2>
+<p>When true, the command executes only on create; updates preserve the original output.
+This is similar to the <a href="memo.html"><code>memo</code></a> resource type.
+Requires the <a href="../../modules/index.html#opt-state"><code>state</code></a> to be set.</p>
+<p><em>Type:</em>
+boolean</p>
+<p><em>Default:</em></p>
+<pre><code class="language-nix">false
+</code></pre>
 <p><em>Declared by:</em></p>
 <ul>
 <li><a href="https://github.com/nixops4/nixops4/tree/main/nix/providers/local.nix">nixops4/nix/providers/local.nix</a></li>

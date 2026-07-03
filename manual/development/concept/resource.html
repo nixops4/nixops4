@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8a1db40a.js";
+            window.path_to_searchindex_js = "../searchindex-88f6b3ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-9e39c76f.js"></script>
@@ -200,6 +200,17 @@ An input may depend on zero or more outputs, but the references between resource
 <li>The resource does not need a state handler</li>
 <li>The resource is stateless and can be idempotently recreated from its inputs</li>
 </ul>
+<h3 id="skipping-unchanged-resources"><a class="header" href="#skipping-unchanged-resources">Skipping Unchanged Resources</a></h3>
+<p>When NixOps applies a stateful resource whose inputs haven’t changed since the last apply, it considers the resource up to date and does not perform the update operation.
+This keeps deployments fast by only invoking providers when inputs actually change.</p>
+<p>This relies on two assumptions:</p>
+<ol>
+<li><strong>No out-of-band changes</strong>: the resource has not been modified outside of NixOps.
+Drift detection and reconciliation <a href="https://github.com/nixops4/nixops4/issues/161">will be</a> NixOps responsibilities, but they are not part of the normal <code>apply</code> flow, because that would unnecessarily slow down deployments.
+If your deployment needs drift detection, it should run continuously rather than on update, so that problems are detected promptly.</li>
+<li><strong>No significant side effects</strong>: the update operation does not perform essential work beyond bringing the resource to its desired state.
+Concerns such as lease renewal are outside the scope of resource providers and should be handled by services or scheduled tasks instead.</li>
+</ol>
 <h2 id="resource-dependencies"><a class="header" href="#resource-dependencies">Resource Dependencies</a></h2>
 <p>Resources can depend on each other in two different ways:</p>
 <h3 id="output--input-dependencies"><a class="header" href="#output--input-dependencies">Output → Input Dependencies</a></h3>
