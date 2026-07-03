@@ -38,38 +38,45 @@ pub enum PreviewItem {
     /// A resource that will be applied (full path from root)
     Resource(ComponentPath),
     /// A structural dependency that must be resolved before the full structure is known.
-    StructuralDependency {
-        /// The composite path where the unknown structure exists (if known)
-        path: Option<ComponentPath>,
-        /// The resource output this structure depends on
-        depends_on: NamedProperty,
-    },
+    StructuralDependency(StructuralDependency),
+}
+
+/// A dependency that occurs not merely between inputs and outputs of resources,
+/// but in the structure of the resource graph itself.
+///
+/// See https://nixops.dev/manual/development/concept/resource.html#structural-dependencies
+#[derive(Clone, Debug)]
+pub struct StructuralDependency {
+    /// The composite path where the unknown structure exists (if known).
+    pub path: Option<ComponentPath>,
+    /// The resource output this structure depends on.
+    pub depends_on: NamedProperty,
 }
 
 impl Display for PreviewItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PreviewItem::Resource(path) => write!(f, "{}", path),
-            PreviewItem::StructuralDependency { path, depends_on } => match path {
+            PreviewItem::StructuralDependency(dep) => match &dep.path {
                 Some(p) if p.is_root() => {
                     write!(
                         f,
                         "*  (structure depends on {}.{})",
-                        depends_on.resource, depends_on.name
+                        dep.depends_on.resource, dep.depends_on.name
                     )
                 }
                 Some(p) => {
                     write!(
                         f,
                         "{}.*  (depends on {}.{})",
-                        p, depends_on.resource, depends_on.name
+                        p, dep.depends_on.resource, dep.depends_on.name
                     )
                 }
                 None => {
                     write!(
                         f,
                         "*  (depends on {}.{})",
-                        depends_on.resource, depends_on.name
+                        dep.depends_on.resource, dep.depends_on.name
                     )
                 }
             },
@@ -195,11 +202,11 @@ pub enum Outcome {
     /// Preview result containing all known resources and structural dependencies
     Preview(Vec<PreviewItem>),
     /// Member names listed, or blocked by structural dependency (for preview)
-    MembersListed(Result<Vec<String>, PreviewItem>),
+    MembersListed(Result<Vec<String>, StructuralDependency>),
     /// An ID assigned to a member (from AssignMemberId)
     MemberIdAssigned(Id<AnyType>),
     /// A single member loaded, or blocked by structural dependency (for preview)
-    MemberLoaded(Result<ComponentHandle, PreviewItem>),
+    MemberLoaded(Result<ComponentHandle, StructuralDependency>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
@@ -254,7 +261,7 @@ impl WorkContext {
         composite_id: Id<CompositeType>,
         composite_path: &ComponentPath,
         mutation_cap: Option<MutationCapability>,
-    ) -> Result<Result<Vec<String>, PreviewItem>> {
+    ) -> Result<Result<Vec<String>, StructuralDependency>> {
         let r = context
             .require(Goal::ListMembers(
                 composite_id,
@@ -295,9 +302,10 @@ impl WorkContext {
             Outcome::MemberLoaded(Ok(handle)) => Ok(handle),
             Outcome::MemberLoaded(Err(dep)) => {
                 bail!(
-                    "Structural dependency while loading member '{}': {}",
+                    "Structural dependency while loading member '{}' (depends on {}.{})",
                     name,
-                    dep
+                    dep.depends_on.resource,
+                    dep.depends_on.name,
                 )
             }
             outcome => bail!("Unexpected outcome from LoadMember, {:?}", outcome),
@@ -318,7 +326,7 @@ impl WorkContext {
                 BTreeMap<String, Id<ResourceType>>,
                 BTreeMap<String, Id<CompositeType>>,
             ),
-            PreviewItem,
+            StructuralDependency,
         >,
     > {
         // Spawn all LoadMember goals in parallel
@@ -369,7 +377,7 @@ impl WorkContext {
                 BTreeMap<ComponentPath, Id<ResourceType>>,
                 BTreeMap<String, Id<CompositeType>>,
             ),
-            PreviewItem,
+            StructuralDependency,
         >,
     > {
         let names = match self
@@ -540,7 +548,7 @@ impl WorkContext {
         {
             Ok(partitioned) => partitioned,
             Err(structural_dep) => {
-                items.push(structural_dep);
+                items.push(PreviewItem::StructuralDependency(structural_dep));
                 // Can't continue if we don't know the structure
                 return Ok(Outcome::Preview(items));
             }
@@ -691,12 +699,10 @@ impl WorkContext {
                 StepResult::Needs(dep) => match mutation_cap {
                     Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
-                        return Ok(Outcome::MembersListed(Err(
-                            PreviewItem::StructuralDependency {
-                                path: Some(composite_path),
-                                depends_on: dep,
-                            },
-                        )));
+                        return Ok(Outcome::MembersListed(Err(StructuralDependency {
+                            path: Some(composite_path),
+                            depends_on: dep,
+                        })));
                     }
                 },
             }
@@ -795,12 +801,10 @@ impl WorkContext {
                 StepResult::Needs(dep) => match mutation_cap {
                     Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
-                        return Ok(Outcome::MemberLoaded(Err(
-                            PreviewItem::StructuralDependency {
-                                path: None,
-                                depends_on: dep,
-                            },
-                        )));
+                        return Ok(Outcome::MemberLoaded(Err(StructuralDependency {
+                            path: None,
+                            depends_on: dep,
+                        })));
                     }
                 },
             }

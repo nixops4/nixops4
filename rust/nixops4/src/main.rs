@@ -134,11 +134,12 @@ async fn members_list(
         // Extract member names from the result
         match result.as_ref() {
             Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
-            Ok(Outcome::MembersListed(Err(preview_item))) => {
+            Ok(Outcome::MembersListed(Err(dep))) => {
                 bail!(
-                    "Cannot list members at '{}': blocked by structural dependency: {}",
+                    "Cannot list members at '{}': blocked by structural dependency (depends on {}.{})",
                     target_path,
-                    preview_item
+                    dep.depends_on.resource,
+                    dep.depends_on.name,
                 )
             }
             Ok(other) => {
