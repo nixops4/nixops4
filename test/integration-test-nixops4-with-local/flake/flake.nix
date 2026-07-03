@@ -121,6 +121,46 @@
                 };
               };
 
+            # For `state dump` read-only tests: the state provider's
+            # `name` input depends on another (uncreated) resource's output,
+            # so read-only dependency resolution has nothing in state to fall
+            # back to and must fail with a suitable error.
+            members.stateDumpDepStateless =
+              { members, ... }:
+              {
+                members.upstream = {
+                  type = providers.local.exec;
+                  inputs.executable = "hello";
+                  inputs.args = [
+                    "--greeting"
+                    "state-name-from-stateless"
+                  ];
+                };
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = members.upstream.outputs.stdout;
+                };
+              };
+
+            # As above, but the state provider depends on a stateful resource.
+            members.stateDumpDepStateful =
+              { members, ... }:
+              {
+                members.upstreamState = {
+                  type = providers.local.state_file;
+                  inputs.name = "upstream-state.json";
+                };
+                members.upstream = {
+                  type = providers.local.memo;
+                  state = members.upstreamState;
+                  inputs.initialize_with = "state-name-from-stateful.json";
+                };
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = members.upstream.outputs.value;
+                };
+              };
+
             # This is a comprehensive nested deployment test
             # It demonstrates resources with cross-deployment dependencies
             # and complex state management across multiple deployment levels

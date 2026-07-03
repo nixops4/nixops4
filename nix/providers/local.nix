@@ -83,6 +83,15 @@ in
               Optional input to provide on stdin.
             '';
           };
+          once = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              When true, the command executes only on create; updates preserve the original output.
+              This is similar to the [`memo`](memo.md) resource type.
+              Requires the [`state`](../../modules/index.md#opt-state) to be set.
+            '';
+          };
         };
       };
       outputs = {

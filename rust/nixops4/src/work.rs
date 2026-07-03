@@ -16,11 +16,7 @@ use nixops4_core::eval_api::{
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Display,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 use tracing::{info_span, Instrument as _};
@@ -42,38 +38,45 @@ pub enum PreviewItem {
     /// A resource that will be applied (full path from root)
     Resource(ComponentPath),
     /// A structural dependency that must be resolved before the full structure is known.
-    StructuralDependency {
-        /// The composite path where the unknown structure exists (if known)
-        path: Option<ComponentPath>,
-        /// The resource output this structure depends on
-        depends_on: NamedProperty,
-    },
+    StructuralDependency(StructuralDependency),
+}
+
+/// A dependency that occurs not merely between inputs and outputs of resources,
+/// but in the structure of the resource graph itself.
+///
+/// See https://nixops.dev/manual/development/concept/resource.html#structural-dependencies
+#[derive(Clone, Debug)]
+pub struct StructuralDependency {
+    /// The composite path where the unknown structure exists (if known).
+    pub path: Option<ComponentPath>,
+    /// The resource output this structure depends on.
+    pub depends_on: NamedProperty,
 }
 
 impl Display for PreviewItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PreviewItem::Resource(path) => write!(f, "{}", path),
-            PreviewItem::StructuralDependency { path, depends_on } => match path {
+            PreviewItem::StructuralDependency(dep) => match &dep.path {
                 Some(p) if p.is_root() => {
                     write!(
                         f,
                         "*  (structure depends on {}.{})",
-                        depends_on.resource, depends_on.name
+                        dep.depends_on.resource, dep.depends_on.name
                     )
                 }
                 Some(p) => {
                     write!(
                         f,
                         "{}.*  (depends on {}.{})",
-                        p, depends_on.resource, depends_on.name
+                        p, dep.depends_on.resource, dep.depends_on.name
                     )
                 }
                 None => {
                     write!(
                         f,
                         "*  (depends on {}.{})",
-                        depends_on.resource, depends_on.name
+                        dep.depends_on.resource, dep.depends_on.name
                     )
                 }
             },
@@ -104,13 +107,18 @@ pub enum Goal {
     LoadMember(Id<CompositeType>, String, Option<MutationCapability>),
     /// Get resource provider info for a loaded resource.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, MutationCapability),
+    GetResourceProviderInfo(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// List resource inputs.
     /// Note: path is only used for logging; id is the source of truth.
-    ListResourceInputs(Id<ResourceType>, ComponentPath, MutationCapability),
+    ListResourceInputs(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
     /// Get a specific resource input value.
     /// Note: path is only used for logging; id is the source of truth.
-    GetResourceInputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
+    GetResourceInputValue(
+        Id<ResourceType>,
+        ComponentPath,
+        String,
+        Option<MutationCapability>,
+    ),
     /// Get a resource output value (goes to ApplyResource).
     /// Note: path is only used for logging; id is the source of truth.
     GetResourceOutputValue(Id<ResourceType>, ComponentPath, String, MutationCapability),
@@ -119,7 +127,7 @@ pub enum Goal {
     ApplyResource(Id<ResourceType>, ComponentPath, MutationCapability),
     /// Run a state provider resource.
     /// Note: path is only used for logging; id is the source of truth.
-    RunState(Id<ResourceType>, ComponentPath, MutationCapability),
+    RunState(Id<ResourceType>, ComponentPath, Option<MutationCapability>),
 }
 impl Display for Goal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -194,11 +202,11 @@ pub enum Outcome {
     /// Preview result containing all known resources and structural dependencies
     Preview(Vec<PreviewItem>),
     /// Member names listed, or blocked by structural dependency (for preview)
-    MembersListed(Result<Vec<String>, PreviewItem>),
+    MembersListed(Result<Vec<String>, StructuralDependency>),
     /// An ID assigned to a member (from AssignMemberId)
     MemberIdAssigned(Id<AnyType>),
     /// A single member loaded, or blocked by structural dependency (for preview)
-    MemberLoaded(Result<ComponentHandle, PreviewItem>),
+    MemberLoaded(Result<ComponentHandle, StructuralDependency>),
     ResourceProviderInfo(eval_api::ResourceProviderInfo),
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
@@ -253,7 +261,7 @@ impl WorkContext {
         composite_id: Id<CompositeType>,
         composite_path: &ComponentPath,
         mutation_cap: Option<MutationCapability>,
-    ) -> Result<Result<Vec<String>, PreviewItem>> {
+    ) -> Result<Result<Vec<String>, StructuralDependency>> {
         let r = context
             .require(Goal::ListMembers(
                 composite_id,
@@ -294,9 +302,10 @@ impl WorkContext {
             Outcome::MemberLoaded(Ok(handle)) => Ok(handle),
             Outcome::MemberLoaded(Err(dep)) => {
                 bail!(
-                    "Structural dependency while loading member '{}': {}",
+                    "Structural dependency while loading member '{}' (depends on {}.{})",
                     name,
-                    dep
+                    dep.depends_on.resource,
+                    dep.depends_on.name,
                 )
             }
             outcome => bail!("Unexpected outcome from LoadMember, {:?}", outcome),
@@ -317,7 +326,7 @@ impl WorkContext {
                 BTreeMap<String, Id<ResourceType>>,
                 BTreeMap<String, Id<CompositeType>>,
             ),
-            PreviewItem,
+            StructuralDependency,
         >,
     > {
         // Spawn all LoadMember goals in parallel
@@ -368,7 +377,7 @@ impl WorkContext {
                 BTreeMap<ComponentPath, Id<ResourceType>>,
                 BTreeMap<String, Id<CompositeType>>,
             ),
-            PreviewItem,
+            StructuralDependency,
         >,
     > {
         let names = match self
@@ -446,15 +455,25 @@ impl WorkContext {
         &self,
         context: &TaskContext<Self>,
         dep: &NamedProperty,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<()> {
+        // TODO: pass the command name (e.g. "state dump") into the error
+        // so users know which invocation triggered read-only mode.
+        let cap = mutation_cap.with_context(|| {
+            format!(
+                "the current command uses the deployment in read-only mode, \
+                 but this depends on output {}.{}, which requires applying \
+                 that resource first",
+                dep.resource, dep.name
+            )
+        })?;
         let dep_id = self.get_resource_id(context, &dep.resource).await?;
         let r = context
             .require(Goal::GetResourceOutputValue(
                 dep_id,
                 dep.resource.clone(),
                 dep.name.clone(),
-                mutation_cap,
+                cap,
             ))
             .await
             .with_context(|| format!("resolving dependency {}.{}", dep.resource, dep.name))?;
@@ -529,7 +548,7 @@ impl WorkContext {
         {
             Ok(partitioned) => partitioned,
             Err(structural_dep) => {
-                items.push(structural_dep);
+                items.push(PreviewItem::StructuralDependency(structural_dep));
                 // Can't continue if we don't know the structure
                 return Ok(Outcome::Preview(items));
             }
@@ -678,14 +697,12 @@ impl WorkContext {
                     return Ok(Outcome::MembersListed(Ok(names)));
                 }
                 StepResult::Needs(dep) => match mutation_cap {
-                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
-                        return Ok(Outcome::MembersListed(Err(
-                            PreviewItem::StructuralDependency {
-                                path: Some(composite_path),
-                                depends_on: dep,
-                            },
-                        )));
+                        return Ok(Outcome::MembersListed(Err(StructuralDependency {
+                            path: Some(composite_path),
+                            depends_on: dep,
+                        })));
                     }
                 },
             }
@@ -782,14 +799,12 @@ impl WorkContext {
                     return Ok(Outcome::MemberLoaded(Ok(handle)));
                 }
                 StepResult::Needs(dep) => match mutation_cap {
-                    Some(cap) => self.resolve_dependency(&context, &dep, cap).await?,
+                    Some(cap) => self.resolve_dependency(&context, &dep, Some(cap)).await?,
                     None => {
-                        return Ok(Outcome::MemberLoaded(Err(
-                            PreviewItem::StructuralDependency {
-                                path: None,
-                                depends_on: dep,
-                            },
-                        )));
+                        return Ok(Outcome::MemberLoaded(Err(StructuralDependency {
+                            path: None,
+                            depends_on: dep,
+                        })));
                     }
                 },
             }
@@ -832,19 +847,20 @@ impl WorkContext {
 
     /// Get resource provider info, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: errors on unresolved dependency instead of resolving it.
     async fn perform_get_resource_provider_info(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_get_resource_provider_info(id).await? {
                 StepResult::Done(info) => return Ok(Outcome::ResourceProviderInfo(info)),
                 StepResult::Needs(dep) => {
                     self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
+                        .await?;
                 }
             }
         }
@@ -886,12 +902,13 @@ impl WorkContext {
 
     /// List resource inputs, retrying on dependency.
     /// See [`StepResult::Needs`] for caching/retry semantics.
+    /// With mutation_cap None: errors on unresolved dependency instead of resolving it.
     async fn perform_list_resource_inputs(
         &self,
         context: TaskContext<Self>,
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         loop {
             match self.eval_list_resource_inputs(id).await? {
@@ -900,7 +917,7 @@ impl WorkContext {
                 }
                 StepResult::Needs(dep) => {
                     self.resolve_dependency(&context, &dep, mutation_cap)
-                        .await?
+                        .await?;
                 }
             }
         }
@@ -912,7 +929,7 @@ impl WorkContext {
         id: Id<ResourceType>,
         _resource_path: ComponentPath,
         input_name: String,
-        mutation_cap: MutationCapability,
+        mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         let msg_id = self.eval_sender.next_id();
         let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
@@ -942,7 +959,7 @@ impl WorkContext {
                             }
                             StepResult::Needs(dep) => {
                                 self.resolve_dependency(&context, &dep, mutation_cap)
-                                    .await?
+                                    .await?;
                             }
                         },
                         _ => bail!(
@@ -989,13 +1006,19 @@ impl WorkContext {
         }
     }
 
-    async fn perform_apply_resource(
+    /// Spawn tasks to resolve provider info and input values for a resource.
+    /// Returns provider info (forced) and a thunk for the input map (not yet
+    /// forced), so callers can spawn further work before forcing the inputs.
+    async fn resolve_resource_inputs(
         &self,
-        context: TaskContext<Self>,
+        context: &TaskContext<Self>,
         id: Id<ResourceType>,
-        resource_path: ComponentPath,
-        mutation_cap: MutationCapability,
-    ) -> Result<Outcome> {
+        resource_path: &ComponentPath,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<(
+        ResourceProviderInfo,
+        Thunk<std::result::Result<serde_json::Map<String, serde_json::Value>, Arc<anyhow::Error>>>,
+    )> {
         let provider_info_thunk = context
             .spawn(Goal::GetResourceProviderInfo(
                 id,
@@ -1022,7 +1045,7 @@ impl WorkContext {
             }
         };
 
-        let mut inputs_thunks = HashMap::new();
+        let mut inputs_thunks = BTreeMap::new();
         for input_name in inputs_list {
             let input_id = context
                 .spawn(Goal::GetResourceInputValue(
@@ -1046,6 +1069,73 @@ impl WorkContext {
             }
         };
 
+        let inputs_thunk = Thunk::new(async move {
+            let mut inputs = serde_json::Map::new();
+            for (input_name, thunk) in inputs_thunks {
+                match clone_result(thunk.force().await.as_ref()) {
+                    Ok(Outcome::ResourceInputValue(v)) => {
+                        inputs.insert(input_name, v);
+                    }
+                    Ok(outcome) => panic!(
+                        "Unexpected outcome from GetResourceInputValue: {:?}",
+                        outcome
+                    ),
+                    Err(e) => return Err(Arc::new(e)),
+                }
+            }
+            Ok(inputs)
+        });
+
+        Ok((provider_info, inputs_thunk))
+    }
+
+    /// Send resource outputs to the evaluator and return the final `ExtantResource`.
+    async fn publish_resource_outputs(
+        &self,
+        resource_path: &ComponentPath,
+        inputs: serde_json::Map<String, serde_json::Value>,
+        outputs: serde_json::Map<String, serde_json::Value>,
+        resource_type: String,
+    ) -> Result<Outcome> {
+        if self.options.verbose {
+            eprintln!("Resource outputs: {:?}", outputs);
+        }
+
+        // Send the outputs eagerly, to avoid roundtrips and costly
+        // re-evaluation when some output is "missing" but not really
+        for (output_name, output_value) in outputs.iter() {
+            let output_prop = NamedProperty {
+                resource: resource_path.clone(),
+                name: output_name.clone(),
+            };
+            self.eval_sender
+                .send(&EvalRequest::PutResourceOutput(
+                    output_prop,
+                    output_value.clone(),
+                ))
+                .await?;
+        }
+
+        let resource = nixops4_resource::schema::v0::ExtantResource {
+            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
+            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
+            type_: nixops4_resource::schema::v0::ResourceType(resource_type),
+        };
+
+        Ok(Outcome::ResourceOutputs(resource))
+    }
+
+    async fn perform_apply_resource(
+        &self,
+        context: TaskContext<Self>,
+        id: Id<ResourceType>,
+        resource_path: ComponentPath,
+        mutation_cap: MutationCapability,
+    ) -> Result<Outcome> {
+        let (provider_info, inputs_thunk) = self
+            .resolve_resource_inputs(&context, id, &resource_path, Some(mutation_cap))
+            .await?;
+
         let state_provider = match &provider_info.state {
             Some(state_resource_path) => {
                 // Get the state resource ID
@@ -1063,7 +1153,7 @@ impl WorkContext {
                     .spawn(Goal::RunState(
                         state_resource_id,
                         state_resource_path.clone(),
-                        mutation_cap,
+                        Some(mutation_cap),
                     ))
                     .await
                     .with_context(|| {
@@ -1088,22 +1178,46 @@ impl WorkContext {
             None => None,
         };
 
-        let inputs = {
-            let mut inputs = serde_json::Map::new();
-            for (input_name, input_thunk) in inputs_thunks {
-                let outcome = clone_result(input_thunk.force().await.as_ref())?;
-                match outcome {
-                    Outcome::ResourceInputValue(i) => {
-                        inputs.insert(input_name, i);
-                    }
-                    _ => panic!(
-                        "Unexpected outcome from GetResourceInputValue: {:?}",
-                        outcome
-                    ),
+        let inputs = clone_result(inputs_thunk.force().await)?;
+
+        // Read past resource once and cache it for both the skip check and the
+        // later create-vs-update decision, avoiding a second state lock.
+        //
+        // Skip optimization: see "Skipping Unchanged Resources" in
+        // doc/manual/src/concept/resource.md for the assumptions.
+        let mut saved_past_resource: Option<crate::state::ResourceState> = None;
+        if let Some(ref state_handle) = state {
+            saved_past_resource = state_handle
+                .current
+                .lock()
+                .await
+                .deployment
+                .get_resource(&resource_path)
+                .cloned();
+            if let Some(ref past_resource) = saved_past_resource {
+                if past_resource.type_ != provider_info.resource_type {
+                    bail!(
+                        "Resource type change is not supported: {} != {}",
+                        past_resource.type_,
+                        provider_info.resource_type
+                    );
+                }
+                if inputs == past_resource.input_properties {
+                    tracing::info!(
+                        "Skipping update for resource {}: inputs unchanged",
+                        resource_path
+                    );
+                    return self
+                        .publish_resource_outputs(
+                            &resource_path,
+                            inputs,
+                            past_resource.output_properties.clone(),
+                            provider_info.resource_type,
+                        )
+                        .await;
                 }
             }
-            inputs
-        };
+        }
 
         let span = info_span!(
             "creating resource",
@@ -1134,22 +1248,10 @@ impl WorkContext {
                     format!("Failed to create stateless resource {}", resource_path)
                 })?,
             Some(ref state_handle) => {
-                let past_resource_opt = state_handle
-                    .current
-                    .lock()
-                    .await
-                    .deployment
-                    .get_resource(&resource_path)
-                    .cloned();
-                match past_resource_opt {
+                match saved_past_resource.take() {
                     Some(past_resource) => {
-                        if past_resource.type_ != provider_info.resource_type {
-                            bail!(
-                                "Resource type change is not supported: {} != {}",
-                                past_resource.type_,
-                                provider_info.resource_type
-                            );
-                        }
+                        // Type check already done above; inputs differ if we reach here
+                        tracing::debug!("Updating resource {}: inputs changed", resource_path);
                         let outputs = provider
                             .update(
                                 provider_info.resource_type.as_str(),
@@ -1201,37 +1303,13 @@ impl WorkContext {
 
         drop(span);
 
-        if self.options.verbose {
-            eprintln!("Resource outputs: {:?}", outputs);
-        }
-
-        // Send the outputs eagerly, to avoid roundtrips and costly
-        // re-evaluation when some output is "missing" but not really
-        for (output_name, output_value) in outputs.iter() {
-            let output_prop = NamedProperty {
-                resource: resource_path.clone(),
-                name: output_name.clone(),
-            };
-            self.eval_sender
-                .send(&EvalRequest::PutResourceOutput(
-                    output_prop,
-                    output_value.clone(),
-                ))
-                .await?;
-        }
-
         // Close the provider properly
         // We might want to reuse them in the future, but for now we launch one
         // per resource, except when it's a state provider (elsewhere).
         provider.close_wait().await?;
 
-        let resource = nixops4_resource::schema::v0::ExtantResource {
-            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
-            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
-            type_: nixops4_resource::schema::v0::ResourceType(provider_info.resource_type),
-        };
-
-        Ok(Outcome::ResourceOutputs(resource))
+        self.publish_resource_outputs(&resource_path, inputs, outputs, provider_info.resource_type)
+            .await
     }
 }
 
@@ -1336,34 +1414,63 @@ impl TaskWork for WorkContext {
 
             Goal::RunState(id, path, cap) => {
                 (async {
-                    // Apply the resource
-                    let r = context
-                        .require(Goal::ApplyResource(id, path.clone(), cap))
-                        .await
-                        .with_context(|| format!("Failed to apply resource {}", path))?;
-                    let resource = {
-                        let outcome = clone_result(r.as_ref())?;
-                        match outcome {
-                            Outcome::ResourceOutputs(i) => i,
-                            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
-                        }
-                    };
+                    let (resource, provider_info) = match cap {
+                        Some(cap) => {
+                            // Mutating path: apply the resource first
+                            let r = context
+                                .require(Goal::ApplyResource(id, path.clone(), cap))
+                                .await
+                                .with_context(|| format!("Failed to apply resource {}", path))?;
+                            let resource = {
+                                let outcome = clone_result(r.as_ref())?;
+                                match outcome {
+                                    Outcome::ResourceOutputs(i) => i,
+                                    _ => panic!(
+                                        "Unexpected outcome from ApplyResource: {:?}",
+                                        outcome
+                                    ),
+                                }
+                            };
 
-                    // Get the provider info
-                    let provider_info_thunk = context
-                        .spawn(Goal::GetResourceProviderInfo(id, path.clone(), cap))
-                        .await
-                        .with_context(|| {
-                            format!("Failed to get provider info for resource {}", path)
-                        })?;
-                    let provider_info = {
-                        let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
-                        match outcome {
-                            Outcome::ResourceProviderInfo(i) => i,
-                            _ => panic!(
-                                "Unexpected outcome from GetResourceProviderInfo: {:?}",
-                                outcome
-                            ),
+                            // Get the provider info
+                            let provider_info_thunk = context
+                                .spawn(Goal::GetResourceProviderInfo(id, path.clone(), Some(cap)))
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to get provider info for resource {}", path)
+                                })?;
+                            let provider_info = {
+                                let outcome =
+                                    clone_result(provider_info_thunk.force().await.as_ref())?;
+                                match outcome {
+                                    Outcome::ResourceProviderInfo(i) => i,
+                                    _ => panic!(
+                                        "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                                        outcome
+                                    ),
+                                }
+                            };
+
+                            (resource, provider_info)
+                        }
+                        None => {
+                            // Read-only path: resolve inputs without applying
+                            let (provider_info, inputs_thunk) = self
+                                .resolve_resource_inputs(&context, id, &path, None)
+                                .await?;
+                            let inputs = clone_result(inputs_thunk.force().await)?;
+
+                            let resource = nixops4_resource::schema::v0::ExtantResource {
+                                input_properties: nixops4_resource::schema::v0::InputProperties(
+                                    inputs,
+                                ),
+                                output_properties: None,
+                                type_: nixops4_resource::schema::v0::ResourceType(
+                                    provider_info.resource_type.clone(),
+                                ),
+                            };
+
+                            (resource, provider_info)
                         }
                     };
 
