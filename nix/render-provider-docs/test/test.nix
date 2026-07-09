@@ -2,7 +2,7 @@
 {
   renderProviderDocs,
   lib,
-  testers,
+  runCommand,
 }:
 let
   # Test provider module with various resource types
@@ -84,10 +84,21 @@ let
   expectedDir = ./expected;
 
 in
-# TODO after https://github.com/NixOS/nixpkgs/pull/436528 add message to explain and carefully hint at ./adopt-all-changes.sh
-#      - require thorough review of the diff
-testers.testEqualContents {
-  assertion = "Rendered provider docs match expected golden output";
-  expected = expectedDir;
-  actual = renderedDocs;
-}
+runCommand "render-provider-docs-golden"
+  {
+    expected = expectedDir;
+    actual = renderedDocs;
+  }
+  ''
+    if ! diff -U3 -r -- "$actual" "$expected"; then
+      echo
+      echo 'Rendered provider docs do not match the expected golden output.'
+      echo "+: expected,   at $expected"
+      echo "-: unexpected, at $actual"
+      echo
+      echo 'If these changes look acceptable, run'
+      echo '  nix/render-provider-docs/test/adopt-all-changes.sh'
+      exit 1
+    fi
+    touch "$out"
+  ''
