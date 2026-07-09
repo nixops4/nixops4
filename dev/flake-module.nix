@@ -43,7 +43,6 @@
 
       pre-commit.settings.hooks.nixfmt.enable = true;
       pre-commit.settings.hooks.rustfmt.enable = true;
-      pre-commit.settings.settings.rust.cargoManifestPath = "./rust/Cargo.toml";
 
       # Check that we're using ///-style doc comments in Rust code.
       #

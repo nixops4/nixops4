@@ -14,7 +14,7 @@
     {
       # https://flake.parts/options/nix-cargo-integration
       nci.projects.nixops4-project = {
-        path = ./.;
+        path = ./..;
         depsDrvConfig = {
           imports = [ nciBuildConfig ];
         };

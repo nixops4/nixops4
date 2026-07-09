@@ -11,7 +11,7 @@
 # CRATE_NAME: Name of the crate and the executable
 define cargo_or_provided_exe
 ifeq ($(shell test -e ../../rust/$(2)/src && echo yes),yes)
-$(1)_EXE = ../../rust/target/debug/$(2)
+$(1)_EXE = ../../target/debug/$(2)
 $(1)_CMD = $$($(1)_EXE)
 
 $$($(1)_EXE): ../../rust/$(2)/Cargo.toml $(shell find ../../rust/$(2)/src -type f)

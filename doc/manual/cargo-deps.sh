@@ -3,7 +3,7 @@ set -euo pipefail
 
 cargoTomlFiles=()
 for cargoToml in $(find ../../ -name Cargo.toml | sort); do
-  if [[ "$cargoToml" == */rust/Cargo.toml ]]; then
+  if [[ "$cargoToml" == ../../Cargo.toml ]]; then
     # crate list aka "virtual manifest"; not a package
     continue
   fi

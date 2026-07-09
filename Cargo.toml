@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "rust/nixops4-core",
+    "rust/nixops4-eval",
+    "rust/nixops4-resource",
+    "rust/nixops4-resource-runner",
+    "rust/nixops4-resources-local",
+    "rust/nixops4",
+]

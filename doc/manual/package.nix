@@ -26,7 +26,11 @@ stdenv.mkDerivation (finalAttrs: {
       ../../rust/nixops4-resource/examples
       ../../rust/nixops4-resource/resource-schema-v0.json
       ../../rust/nixops4-resource/state-schema-v0.json
+
+      # cargo-deps.sh
+      ../../Cargo.toml
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
+
       ./book.toml
       ./cargo-deps.sh
       ./custom.css
