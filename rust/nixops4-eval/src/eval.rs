@@ -198,7 +198,7 @@ impl<R: Respond> EvaluationDriver<R> {
         match self.values.get(&id.num()) {
             Some(Ok(value)) => Ok(value),
             Some(Err(error)) => Err(anyhow::anyhow!("{}", error)),
-            None => Err(anyhow::anyhow!("id not found: {}", id.num().to_string())),
+            None => Err(anyhow::anyhow!("id not found: {}", id.num())),
         }
     }
 
