@@ -2,6 +2,7 @@
   - [Resource](./concept/resource.md)
 - [User Reference]()
   - [`nixops4` Command](./cli/nixops4.md)
+  - [Root Expression](./root-expression.md)
   - [Library](./lib/index.md)
   - [Module Options](./modules/index.md)
   - [Bundled Providers]()

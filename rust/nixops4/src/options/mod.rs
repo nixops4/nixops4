@@ -54,8 +54,8 @@ pub struct Options {
     #[command(flatten)]
     pub flake: FlakeOptions,
 
-    /// Use a Nix file instead of flake discovery. The file must evaluate to
-    /// a nixops4 component, e.g. via nixops4.lib.mkRoot.
+    /// Use a Nix file instead of flake or nixops4.nix discovery. The file must
+    /// evaluate to a nixops4 component, e.g. via nixops4.lib.mkRoot.
     #[arg(
         long,
         global = true,
