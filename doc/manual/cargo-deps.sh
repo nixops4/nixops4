@@ -42,6 +42,6 @@ echo
 
 jq -r '
   select(.name | startswith("nix-") | not)
-  | "# `\(.name)`\n\n\(.description)\n\n"
+  | "### `\(.name)`\n\n\(.description)\n\n"
 ' <<<"$manifests"
 

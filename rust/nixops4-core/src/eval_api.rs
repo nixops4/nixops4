@@ -191,8 +191,12 @@ impl std::str::FromStr for ComponentPath {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EvalRequest {
     LoadFlake(AssignRequest<FlakeRequest>),
-    /// Load the root component from a flake (returns a composite component)
+    /// Load the root component from a previously loaded flake.
+    /// The result should be a `nixops4Component`.
     LoadRoot(AssignRequest<RootRequest>),
+    /// Import a Nix file and load it as the root component.
+    /// The file should evaluate to a `nixops4Component`.
+    LoadFile(AssignRequest<FileRequest>),
     /// List members in a composite component (unified: replaces ListResources + ListNestedDeployments)
     ListMembers(QueryRequest<Id<CompositeType>, StepResult<Vec<String>>>),
     /// Assign an ID to a member component and start loading it.
@@ -312,6 +316,15 @@ pub struct RootRequest {
     pub flake: Id<FlakeType>,
 }
 impl RequestIdType for RootRequest {
+    type IdType = CompositeType;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRequest {
+    /// Absolute path to the Nix file to import.
+    pub abspath: String,
+}
+impl RequestIdType for FileRequest {
     type IdType = CompositeType;
 }
 

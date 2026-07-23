@@ -3,6 +3,32 @@ pub mod lenient_parse;
 use clap::{ColorChoice, Parser};
 use lenient_parse::parse_longest_prefix;
 
+/// Options specific to flake-based evaluation.
+/// Irrelevant when using nixops4.nix or --file.
+// When adding flags with aliases (e.g. `#[arg(long, short = 'I')]`),
+// update `active_flags` to include all alias forms in the returned names.
+#[derive(Parser, Debug, Clone)]
+pub struct FlakeOptions {
+    /// Temporarily use a different flake input
+    // will be post-processed to pair them up
+    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
+    pub override_input: Vec<String>,
+}
+
+impl FlakeOptions {
+    /// Returns the flag names that were passed on the command line.
+    pub fn active_flags(&self) -> Vec<&str> {
+        // Closed destructuring: fails when FlakeOptions is extended,
+        // so make sure all flags are returned below.
+        let FlakeOptions { override_input } = self;
+        let mut flags = Vec::new();
+        if !override_input.is_empty() {
+            flags.push("--override-input");
+        }
+        flags
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct Options {
     #[arg(short, long, global = true, default_value = "false")]
@@ -25,10 +51,18 @@ pub struct Options {
     #[arg(long, global = true, default_value_t = false)]
     pub show_trace: bool,
 
-    /// Temporarily use a different flake input
-    // will be post-processed to pair them up
-    #[arg(long, num_args = 2, value_names = &["INPUT_ATTR_PATH", "FLAKE_REF"], global = true)]
-    pub override_input: Vec<String>,
+    #[command(flatten)]
+    pub flake: FlakeOptions,
+
+    /// Use a Nix file instead of flake or nixops4.nix discovery. The file must
+    /// evaluate to a nixops4 component, e.g. via nixops4.lib.mkRoot.
+    #[arg(
+        long,
+        global = true,
+        value_name = "PATH",
+        conflicts_with = "override_input"
+    )]
+    pub file: Option<String>,
 }
 
 /// Wrapper to parse global Options from a partial command line.

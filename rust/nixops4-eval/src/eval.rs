@@ -271,6 +271,18 @@ impl<R: Respond> EvaluationDriver<R> {
                 })
                 .await
             }
+            EvalRequest::LoadFile(req) => {
+                let known_outputs = Rc::clone(&self.known_outputs);
+                self.handle_assign_request(req, |this, req| {
+                    let import_fn = this
+                        .eval_state
+                        .eval_from_string("builtins.import", "<nixops4 file>")?;
+                    let path_val = this.eval_state.new_value_str(&req.abspath)?;
+                    let imported = this.eval_state.call(import_fn, path_val)?;
+                    evaluate_root_component(&mut this.eval_state, &imported, known_outputs)
+                })
+                .await
+            }
             // List member names in a composite (kind determined later via GetComponentKind).
             // See StepResult::Needs for retry semantics.
             EvalRequest::ListMembers(req) => {
@@ -343,15 +355,14 @@ impl<R: Respond> EvaluationDriver<R> {
     }
 }
 
-fn perform_load_root<R: Respond>(
-    driver: &mut EvaluationDriver<R>,
-    req: &nixops4_core::eval_api::RootRequest,
+/// Validate that a value is a nixops4Component and evaluate the fixpoint.
+fn evaluate_root_component(
+    es: &mut EvalState,
+    root: &Value,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
 ) -> Result<Value, anyhow::Error> {
-    let root = driver.get_flake_root_value(req.flake)?;
-    let es = &mut driver.eval_state;
     {
-        let tag = es.require_attrs_select(&root, "_type")?;
+        let tag = es.require_attrs_select(root, "_type")?;
         let str = es.require_string(&tag)?;
         if str != "nixops4Component" {
             bail!("expected _type to be 'nixops4Component', got: {}", str);
@@ -400,7 +411,7 @@ fn perform_load_root<R: Respond>(
                         in
                           fixpoint
                     "#;
-    let root_function = es.require_attrs_select(&root, "rootFunction")?;
+    let root_function = es.require_attrs_select(root, "rootFunction")?;
     let prim_load_member_output = PrimOp::new(
         es,
         PrimOpMeta {
@@ -453,7 +464,6 @@ fn perform_load_root<R: Respond>(
         }),
     )?;
     let load_member_output = es.new_value_primop(prim_load_member_output)?;
-    // let extra_args = es.new_value_attrs(HashMap::new())?;
     let resource_provider_system = nix_bindings_util::settings::get("system")?;
     let resource_provider_system_value = es.new_value_str(resource_provider_system.as_str())?;
     let extra_args = es.new_value_attrs([(
@@ -466,6 +476,15 @@ fn perform_load_root<R: Respond>(
         es.call_multi(&v, &[load_member_output, root_function, extra_args])
     }?;
     Ok(fixpoint)
+}
+
+fn perform_load_root<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    req: &nixops4_core::eval_api::RootRequest,
+    known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
+) -> Result<Value, anyhow::Error> {
+    let root = driver.get_flake_root_value(req.flake)?;
+    evaluate_root_component(&mut driver.eval_state, &root, known_outputs)
 }
 
 fn perform_get_resource<R: Respond>(

@@ -80,6 +80,17 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
         Commands::GenerateMarkdown => {
             let opts = clap_markdown::MarkdownOptions::new().show_footer(false);
             let markdown: String = clap_markdown::help_markdown_custom::<Args>(&opts);
+            // Help text is plain so that `--help` stays readable in a terminal;
+            // linkify cross-references only in the rendered manual.
+            let markdown = markdown
+                .replace(
+                    "nixops4.lib.mkRoot",
+                    "[`nixops4.lib.mkRoot`](../lib/index.md#mkRoot)",
+                )
+                .replace(
+                    "flake or nixops4.nix discovery",
+                    "[flake or `nixops4.nix` discovery](../root-expression.md#where-nixops4-looks)",
+                );
             println!("{}", markdown);
             Ok(())
         }

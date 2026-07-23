@@ -4,7 +4,9 @@ use crate::interrupt::InterruptState;
 use crate::options::{parse_options_for_completion, Options};
 use crate::work::WorkContext;
 use anyhow::{Context, Result};
-use nixops4_core::eval_api::{AssignRequest, EvalRequest, EvalResponse, FlakeRequest, RootRequest};
+use nixops4_core::eval_api::{
+    AssignRequest, EvalRequest, EvalResponse, FileRequest, FlakeRequest, RootRequest,
+};
 use pubsub_rs::Pubsub;
 use std::future::Future;
 use std::process::exit;
@@ -44,6 +46,7 @@ pub fn to_eval_options(options: &Options) -> eval_client::Options {
         verbose: options.verbose,
         show_trace: options.show_trace,
         flake_input_overrides: options
+            .flake
             .override_input
             .chunks(2)
             .map(|pair| {
@@ -91,26 +94,74 @@ where
     let flake_input_overrides = eval_options.flake_input_overrides.clone();
 
     EvalSender::with(&eval_options, |s, mut r| async move {
-        let flake_id = s.next_id();
-        let cwd = std::env::current_dir()
-            .context("getting current directory")?
-            .to_string_lossy()
+        let cwd_path = std::env::current_dir().context("getting current directory")?;
+        let cwd = cwd_path
+            .to_str()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "current directory is not valid UTF-8: {}",
+                    cwd_path.display()
+                )
+            })?
             .to_string();
-        s.send(&EvalRequest::LoadFlake(AssignRequest {
-            assign_to: flake_id,
-            payload: FlakeRequest {
-                abspath: cwd,
-                input_overrides: flake_input_overrides,
-            },
-        }))
-        .await?;
 
-        let root_id = s.next_id();
-        s.send(&EvalRequest::LoadRoot(AssignRequest {
-            assign_to: root_id,
-            payload: RootRequest { flake: flake_id },
-        }))
-        .await?;
+        // --file takes priority, then nixops4.nix discovery, then flake.
+        // clap's conflicts_with rejects --file + --override-input at parse time.
+        let file_path = if let Some(file) = &options.file {
+            Some(std::path::Path::new(&cwd).join(file))
+        } else {
+            let nixops4_nix = std::path::Path::new(&cwd).join("nixops4.nix");
+            if nixops4_nix.exists() {
+                if options.verbose {
+                    eprintln!("using nixops4.nix as entry point");
+                }
+                let flake_flags = options.flake.active_flags();
+                if !flake_flags.is_empty() {
+                    anyhow::bail!(
+                        "nixops4.nix found in current directory; {} not applicable in file mode",
+                        flake_flags.join(", ")
+                    );
+                }
+                Some(nixops4_nix)
+            } else {
+                None
+            }
+        };
+
+        let root_id = if let Some(path) = file_path {
+            let root_id = s.next_id();
+            s.send(&EvalRequest::LoadFile(AssignRequest {
+                assign_to: root_id,
+                payload: FileRequest {
+                    abspath: path
+                        .to_str()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("file path is not valid UTF-8: {}", path.display())
+                        })?
+                        .to_string(),
+                },
+            }))
+            .await?;
+            root_id
+        } else {
+            let flake_id = s.next_id();
+            s.send(&EvalRequest::LoadFlake(AssignRequest {
+                assign_to: flake_id,
+                payload: FlakeRequest {
+                    abspath: cwd,
+                    input_overrides: flake_input_overrides,
+                },
+            }))
+            .await?;
+
+            let root_id = s.next_id();
+            s.send(&EvalRequest::LoadRoot(AssignRequest {
+                assign_to: root_id,
+                payload: RootRequest { flake: flake_id },
+            }))
+            .await?;
+            root_id
+        };
 
         let work_context = WorkContext {
             root_composite_id: root_id,
@@ -169,7 +220,7 @@ fn and_cleanup<T>(primary: Result<T>, cleanup: Result<()>) -> Result<T> {
 /// Like `with_eval`, but suitable for shell completion:
 /// - Creates a fresh `InterruptState`
 /// - Uses quiet eval options (suppresses evaluator output)
-/// - Parses global options (like `--override-input`) from the command line
+/// - Parses global options (like `--override-input`, ...) from the command line
 ///
 /// Set `_NIXOPS4_DEBUG_COMPLETIONS=1` to use `with_eval` instead for debugging.
 pub async fn with_eval_dead_quiet<F, Fut, R>(f: F) -> Result<R>
