@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-88f6b3ba.js";
+            window.path_to_searchindex_js = "searchindex-3ff024c7.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-9e39c76f.js"></script>
+        <script src="toc-3a37c0b9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,6 +186,42 @@
 <li>go beyond just NixOS deployments</li>
 </ul>
 <p>This document describes how to use NixOps4, including how to write custom resources for it. Refer to the other projects’ documentation to learn how to use NixOps4 with them.</p>
+<h2 id="why-nixops4"><a class="header" href="#why-nixops4">Why NixOps4?</a></h2>
+<h3 id="for-terraform--opentofu-users"><a class="header" href="#for-terraform--opentofu-users">For Terraform / OpenTofu users</a></h3>
+<!-- pulumi, CDK -->
+<p><strong>A native Nix-integrated replacement</strong></p>
+<p>NixOps4 fills a role similar to Terraform’s, but slightly broader, thanks to its Nix integration.
+Benefits:</p>
+<ol>
+<li>No more awkward bridging between the Nix and Terraform worlds</li>
+<li>Familiar operating model with a few differences</li>
+</ol>
+<p>Differences:</p>
+<ol>
+<li>State file is first class and can be configured on a per-resource basis</li>
+<li>More flexible module system</li>
+<li>Simpler data model</li>
+<li>Usage philosophy: one model of the world instead of IaC islands</li>
+<li>In progress: Terraform resource provider compatibility</li>
+</ol>
+<h3 id="for-nixops-12-users"><a class="header" href="#for-nixops-12-users">For NixOps 1/2 users</a></h3>
+<p><strong>More capable, and sustainable this time</strong></p>
+<p>NixOps 1 was a deployment tool; NixOps 2 added a plugin system.
+These versions went unmaintained primarily due to tech debt.</p>
+<p>NixOps4 is designed as a platform.
+<code>nixops4</code> itself is only responsible for the integration and lifecycle of “resources”: representations of real-world objects with CRUD operations.</p>
+<p>All the details of those resources are implemented in resource providers: interface-bound programs that anyone can build and maintain in any language.</p>
+<p>This will give NixOps4 a rich ecosystem of things that can be managed with it, without centralizing the maintenance burden.</p>
+<h3 id="for-nixos-rebuild--colmena--deploy-rs---users"><a class="header" href="#for-nixos-rebuild--colmena--deploy-rs---users">For nixos-rebuild / Colmena / deploy-rs / … users</a></h3>
+<p><strong>Extend the reach of your config management</strong></p>
+<p>NixOS is the best configuration manager for atomic, whole-host Linux deployments.</p>
+<p>NixOps4 extends the familiar NixOS module system to the stateful world outside.
+Manage multiple hosts, cloud infrastructure, and application-level configuration such as database setup.
+Or build your own open-source cloud on your own hardware, in the same expression that also declares its workloads.</p>
+<!--
+  Do we pitch to Ansible / Puppet / Chef / Salt users?
+  Kubernetes?
+  -->
 
                     </main>
 
