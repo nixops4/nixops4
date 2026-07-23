@@ -22,4 +22,3 @@
     - [State File Schema](./schema/state-v0.md)
 - [Architecture]()
   - [Components](./architecture/nixops-components.md)
-- [Index](./index/index.md)
