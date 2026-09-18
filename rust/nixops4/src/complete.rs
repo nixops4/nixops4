@@ -1,7 +1,7 @@
 //! Dynamic shell completion for component paths.
 
 use crate::application;
-use crate::work::{resolve_composite_path, Goal, Outcome};
+use crate::work::{list_members, load_member, resolve_composite_path};
 use clap_complete::engine::CompletionCandidate;
 use nixops4_core::eval_api::{ComponentHandle, ComponentPath};
 use std::ffi::OsStr;
@@ -82,13 +82,15 @@ async fn list_filtered_members(
     path: &nixops4_core::eval_api::ComponentPath,
     prefix: &str,
 ) -> anyhow::Result<Vec<String>> {
-    let result = tasks
-        .run(Goal::ListMembers(composite_id, path.clone(), None))
-        .await;
-
-    let names = match result.as_ref() {
-        Ok(Outcome::MembersListed(Ok(names))) => names.clone(),
-        _ => return Ok(vec![]),
+    // Lenient on purpose: a path whose members cannot be listed — because
+    // evaluation failed, or because a structural dependency blocks it —
+    // completes to no members, so that the caller can still offer the parent
+    // path. Failing here would lose that.
+    let Ok(members) = list_members(tasks, composite_id, path.clone(), None).await else {
+        return Ok(vec![]);
+    };
+    let Ok(Ok(names)) = members.await else {
+        return Ok(vec![]);
     };
 
     Ok(names
@@ -107,7 +109,9 @@ async fn complete_with_mode(
     let parent_component_path: ComponentPath = parent_path_str.map_or(ComponentPath::root(), |s| {
         s.parse().unwrap_or_else(|_| ComponentPath::root())
     });
-    let composite_id = resolve_composite_path(tasks, parent_component_path.clone()).await?;
+    let composite_id = resolve_composite_path(tasks, parent_component_path.clone())
+        .await?
+        .await?;
 
     let parent_str = (!parent_component_path.is_root()).then(|| parent_component_path.to_string());
     let parent_path = parent_str.as_deref();
@@ -129,13 +133,13 @@ async fn complete_with_mode(
         }
         1 => {
             let name = &filtered[0];
-            let load_result = tasks
-                .run(Goal::LoadMember(composite_id, name.clone(), None))
-                .await;
+            let member = load_member(tasks, composite_id, name.clone(), None)
+                .await?
+                .await?;
             let full_path = format_path(parent_path, name);
 
-            match load_result.as_ref() {
-                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Composite(_)))) => {
+            match member {
+                Ok(ComponentHandle::Composite(_)) => {
                     match mode {
                         CompletionMode::ResourceOnly => {
                             // Need resource, so must drill down - do so immediately
@@ -151,7 +155,7 @@ async fn complete_with_mode(
                         }
                     }
                 }
-                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Resource(_)))) => {
+                Ok(ComponentHandle::Resource(_)) => {
                     match mode {
                         CompletionMode::AllValid | CompletionMode::ResourceOnly => {
                             // Single resource - suggest as final completion
@@ -167,7 +171,8 @@ async fn complete_with_mode(
                         }
                     }
                 }
-                _ => Ok(vec![]),
+                // Blocked by a structural dependency, so the kind is unknown
+                Err(_) => Ok(vec![]),
             }
         }
         _multiple => {

@@ -276,21 +276,10 @@ impl WorkContext {
         composite_path: &ComponentPath,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Result<Vec<String>, StructuralDependency>> {
-        let r = context
-            .require(Goal::ListMembers(
-                composite_id,
-                composite_path.clone(),
-                mutation_cap,
-            ))
-            .await;
-        let outcome = match r {
-            Err(e) => bail!("Error while listing members: {}", e),
-            Ok(v) => clone_result(v.as_ref()),
-        }?;
-        match outcome {
-            Outcome::MembersListed(result) => Ok(result),
-            outcome => bail!("Unexpected outcome from ListMembers, {:?}", outcome),
-        }
+        list_members(context, composite_id, composite_path.clone(), mutation_cap)
+            .await
+            .with_context(|| format!("Error while listing members of {}", composite_path))?
+            .await
     }
 
     /// Load a single member via LoadMember goal.
@@ -301,28 +290,18 @@ impl WorkContext {
         name: &str,
         mutation_cap: Option<MutationCapability>,
     ) -> Result<ComponentHandle> {
-        let r = context
-            .require(Goal::LoadMember(
-                composite_id,
-                name.to_string(),
-                mutation_cap,
-            ))
-            .await;
-        let outcome = match r {
-            Err(e) => bail!("Error while loading member '{}': {}", name, e),
-            Ok(v) => clone_result(v.as_ref()),
-        }?;
-        match outcome {
-            Outcome::MemberLoaded(Ok(handle)) => Ok(handle),
-            Outcome::MemberLoaded(Err(dep)) => {
-                bail!(
-                    "Structural dependency while loading member '{}' (depends on {}.{})",
-                    name,
-                    dep.depends_on.resource,
-                    dep.depends_on.name,
-                )
-            }
-            outcome => bail!("Unexpected outcome from LoadMember, {:?}", outcome),
+        match load_member(context, composite_id, name.to_string(), mutation_cap)
+            .await
+            .with_context(|| format!("Error while loading member '{}'", name))?
+            .await?
+        {
+            Ok(handle) => Ok(handle),
+            Err(dep) => bail!(
+                "Structural dependency while loading member '{}' (depends on {}.{})",
+                name,
+                dep.depends_on.resource,
+                dep.depends_on.name,
+            ),
         }
     }
 
@@ -343,26 +322,21 @@ impl WorkContext {
             StructuralDependency,
         >,
     > {
-        // Spawn all LoadMember goals in parallel
-        let mut thunks = BTreeMap::new();
+        // Ask for all of them before awaiting any, so that they load in parallel
+        let mut loading = BTreeMap::new();
         for name in names {
-            let thunk = context
-                .spawn(Goal::LoadMember(composite_id, name.clone(), mutation_cap))
-                .await?;
-            thunks.insert(name, thunk);
+            let member = load_member(context, composite_id, name.clone(), mutation_cap).await?;
+            loading.insert(name, member);
         }
 
         // Await all and partition by kind, keeping typed IDs
         let mut resources = BTreeMap::new();
         let mut composites = BTreeMap::new();
-        for (name, outcome) in Thunk::force_into_map(thunks).await {
-            let handle = match clone_result(&outcome)? {
-                Outcome::MemberLoaded(Ok(h)) => h,
-                Outcome::MemberLoaded(Err(dep)) => {
-                    // Structural dependency - return it
-                    return Ok(Err(dep));
-                }
-                outcome => bail!("Unexpected outcome from LoadMember: {:?}", outcome),
+        for (name, member) in loading {
+            let handle = match member.await? {
+                Ok(handle) => handle,
+                // Structural dependency - return it
+                Err(dep) => return Ok(Err(dep)),
             };
             match handle {
                 ComponentHandle::Resource(id) => {
@@ -492,24 +466,21 @@ impl WorkContext {
                 )
             })?;
 
-        let thunk = context
-            .spawn(Goal::RunState(
-                state_resource_id,
-                state_resource_path.clone(),
-                mutation_cap,
-            ))
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to start state provider '{}' for resource {}",
-                    state_resource_path, resource_path
-                )
-            })?;
+        let state = run_state(
+            context,
+            state_resource_id,
+            state_resource_path.clone(),
+            mutation_cap,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to start state provider '{}' for resource {}",
+                state_resource_path, resource_path
+            )
+        })?;
 
-        let handle = match clone_result(thunk.force().await.as_ref())? {
-            Outcome::RunState(handle) => handle,
-            other => panic!("Unexpected outcome from RunState: {:?}", other),
-        };
+        let handle = state.await?;
 
         Ok(match handle.recorded(resource_path).await {
             Some(recorded) => Tracking::Recorded { handle, recorded },
@@ -630,20 +601,12 @@ impl WorkContext {
         let mut nested_thunks = Vec::new();
         for (name, nested_id) in &nested_composites {
             let nested_path = composite_path.child(name.clone());
-            let thunk = context
-                .spawn(Goal::Preview(*nested_id, nested_path))
-                .await?;
-            nested_thunks.push(thunk);
+            nested_thunks.push(preview(&context, *nested_id, nested_path).await?);
         }
 
         // Collect results from nested composites
-        for thunk in nested_thunks {
-            match clone_result(thunk.force().await.as_ref())? {
-                Outcome::Preview(nested_items) => {
-                    items.extend(nested_items);
-                }
-                outcome => panic!("Unexpected outcome from Preview: {:?}", outcome),
-            }
+        for nested in nested_thunks {
+            items.extend(nested.await?);
         }
 
         Ok(Outcome::Preview(items))
@@ -658,13 +621,9 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // First, preview to get all known resources and structural dependencies
-        let preview_thunk = context
-            .require(Goal::Preview(composite_id, composite_path.clone()))
+        let preview_items = preview(&context, composite_id, composite_path.clone())
+            .await?
             .await?;
-        let preview_items = match clone_result(&preview_thunk)? {
-            Outcome::Preview(items) => items,
-            outcome => panic!("Unexpected outcome from Preview: {:?}", outcome),
-        };
 
         // Print preview items grouped together
         if preview_items.is_empty() {
@@ -688,41 +647,25 @@ impl WorkContext {
         let mut nested_thunks = Vec::new();
         for (name, nested_id) in &nested_composites {
             let nested_path = composite_path.child(name.clone());
-            let thunk = context
-                .spawn(Goal::Apply(*nested_id, nested_path, mutation_cap))
-                .await?;
-            nested_thunks.push(thunk);
+            nested_thunks.push(apply(&context, *nested_id, nested_path, mutation_cap).await?);
         }
 
         // Apply resources (IDs already available from partitioning)
-        let mut resource_thunk_map = BTreeMap::new();
+        let mut applying = BTreeMap::new();
         for (resource_path, id) in &resources {
-            let r = context
-                .spawn(Goal::ApplyResource(
-                    *id,
-                    resource_path.clone(),
-                    mutation_cap,
-                ))
-                .await?;
-            resource_thunk_map.insert(*id, r);
+            let resource =
+                apply_resource(&context, *id, resource_path.clone(), mutation_cap).await?;
+            applying.insert(*id, resource);
         }
 
         let mut resource_map = BTreeMap::new();
-        for (id, outcome) in Thunk::force_into_map(resource_thunk_map).await {
-            match clone_result(&outcome)? {
-                Outcome::ResourceOutputs(i) => {
-                    resource_map.insert(id, i);
-                }
-                _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
-            }
+        for (id, resource) in applying {
+            resource_map.insert(id, resource.await?);
         }
 
         // Wait for nested composites to complete
-        for thunk in nested_thunks {
-            match clone_result(thunk.force().await.as_ref())? {
-                Outcome::Done() => {}
-                outcome => panic!("Unexpected outcome from Apply: {:?}", outcome),
-            }
+        for nested in nested_thunks {
+            nested.await?;
         }
 
         // TODO: this application logic doesn't belong here
@@ -851,13 +794,9 @@ impl WorkContext {
         mutation_cap: Option<MutationCapability>,
     ) -> Result<Outcome> {
         // Get stable ID from AssignMemberId (also kicks off eval)
-        let r = context
-            .require(Goal::AssignMemberId(parent_id, name.clone()))
+        let id = assign_member_id(&context, parent_id, name.clone())
+            .await?
             .await?;
-        let id = match clone_result(&r)? {
-            Outcome::MemberIdAssigned(id) => id,
-            _ => bail!("Unexpected outcome from AssignMemberId"),
-        };
 
         loop {
             let step = self.eval_get_component_kind(id).await?;
@@ -1054,27 +993,26 @@ impl WorkContext {
         mutation_cap: MutationCapability,
     ) -> Result<Outcome> {
         // Apply the resource
-        let r = context
-            .require(Goal::ApplyResource(id, resource_path.clone(), mutation_cap))
+        let extant_resource = apply_resource(&context, id, resource_path.clone(), mutation_cap)
+            .await?
             .await?;
-        let outcome = clone_result(&r)?;
-        match outcome {
-            Outcome::ResourceOutputs(extant_resource) => {
-                if let Some(output_properties) = &extant_resource.output_properties {
-                    if output_properties.contains_key(&property) {
-                        Ok(Outcome::ResourceOutputValue)
-                    } else {
-                        bail!(
-                            "Resource {} does not have output {}",
-                            resource_path,
-                            property
-                        )
-                    }
+        // ExtantResource is the provider protocol type for a resource both before
+        // and after apply, so output_properties stays an Option here even
+        // though, having just applied, it can only be None if the provider
+        // itself sent no outputs.
+        match &extant_resource.output_properties {
+            Some(output_properties) => {
+                if output_properties.contains_key(&property) {
+                    Ok(Outcome::ResourceOutputValue)
                 } else {
-                    bail!("Resource {} has no output properties", resource_path)
+                    bail!(
+                        "Resource {} does not have output {}",
+                        resource_path,
+                        property
+                    )
                 }
             }
-            _ => panic!("Unexpected outcome from ApplyResource: {:?}", outcome),
+            None => bail!("Resource {} has no output properties", resource_path),
         }
     }
 
@@ -1408,20 +1346,10 @@ impl TaskWork for WorkContext {
                     let (resource, provider_info) = match cap {
                         Some(cap) => {
                             // Mutating path: apply the resource first
-                            let r = context
-                                .require(Goal::ApplyResource(id, path.clone(), cap))
+                            let resource = apply_resource(&context, id, path.clone(), cap)
                                 .await
-                                .with_context(|| format!("Failed to apply resource {}", path))?;
-                            let resource = {
-                                let outcome = clone_result(r.as_ref())?;
-                                match outcome {
-                                    Outcome::ResourceOutputs(i) => i,
-                                    _ => panic!(
-                                        "Unexpected outcome from ApplyResource: {:?}",
-                                        outcome
-                                    ),
-                                }
-                            };
+                                .with_context(|| format!("Failed to apply resource {}", path))?
+                                .await?;
 
                             let provider_info =
                                 get_resource_provider_info(&context, id, path.clone(), Some(cap))
@@ -1501,91 +1429,287 @@ pub(crate) fn clone_anyhow_from_arc(e: &Arc<anyhow::Error>) -> anyhow::Error {
     err
 }
 
-/// Ask the evaluator for a resource's provider info.
+/// Where an eval request can be sent from.
 ///
-/// The request is dispatched before this returns, and the returned future
-/// waits for the answer, so a caller with more requests to make can dispatch
-/// those first and await this one when it needs the value.
+/// Inside a task the request is recorded as a dependency, so that cycles are
+/// detected, whereas outside the graph there is no task to attribute it to.
+/// This means `TaskContext` is always the preferred dispatcher.
+///
+/// In either case, `dispatch` starts the request before it returns.
+/// It does not wait for the returned thunk to be forced, enabling concurrency.
+#[allow(async_fn_in_trait)]
+pub(crate) trait Dispatch {
+    async fn dispatch(&self, goal: Goal) -> Result<Thunk<<WorkContext as TaskWork>::Output>>;
+}
+
+impl Dispatch for TaskContext<WorkContext> {
+    async fn dispatch(&self, goal: Goal) -> Result<Thunk<<WorkContext as TaskWork>::Output>> {
+        self.spawn(goal).await
+    }
+}
+
+impl Dispatch for crate::control::task_tracker::TaskTracker<WorkContext> {
+    async fn dispatch(&self, goal: Goal) -> Result<Thunk<<WorkContext as TaskWork>::Output>> {
+        let thunk = self.create(goal).await;
+        let driving = thunk.clone();
+        tokio::spawn(async move {
+            driving.force().await;
+        });
+        Ok(thunk)
+    }
+}
+
+/// Send a request to the evaluator and hand back a future of its answer.
+///
+/// Since this method is itself async, using the goal's return value requires
+/// two awaits:
+/// 1. dispatch the goal
+/// 2. await the outcome
+///
+/// The split allows more work to be done or dispatched before awaiting outcomes,
+/// enabling concurrency.
+///
+// Functions of this shape also nicely hide the outcome variant matching invariant
+// that needs runtime checking. A wrong outcome variant means this module is wrong
+// about itself, so it panics rather than burdening callers with a case they cannot
+// act on.
+async fn request<T: 'static>(
+    dispatch: &impl Dispatch,
+    goal: Goal,
+    named: &'static str,
+    extract: fn(&Outcome) -> Option<T>,
+) -> Result<impl Future<Output = Result<T>> + 'static> {
+    let thunk = dispatch.dispatch(goal).await?;
+    Ok(async move {
+        match thunk.force().await.as_ref() {
+            Ok(outcome) => match extract(outcome) {
+                Some(value) => Ok(value),
+                None => panic!("Unexpected outcome from {}: {:?}", named, outcome),
+            },
+            Err(e) => Err(clone_anyhow_from_arc(e)),
+        }
+    })
+}
+
+/// Ask the evaluator to preview a composite.
+async fn preview(
+    dispatch: &impl Dispatch,
+    id: Id<CompositeType>,
+    path: ComponentPath,
+) -> Result<impl Future<Output = Result<Vec<PreviewItem>>> + 'static> {
+    request(
+        dispatch,
+        Goal::Preview(id, path),
+        "Preview",
+        |outcome| match outcome {
+            Outcome::Preview(items) => Some(items.clone()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Apply a composite. Returned future: wait for completion.
+async fn apply(
+    dispatch: &impl Dispatch,
+    id: Id<CompositeType>,
+    path: ComponentPath,
+    mutation_cap: MutationCapability,
+) -> Result<impl Future<Output = Result<()>> + 'static> {
+    request(
+        dispatch,
+        Goal::Apply(id, path, mutation_cap),
+        "Apply",
+        |outcome| match outcome {
+            Outcome::Done() => Some(()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Ask the evaluator which members a composite has.
+///
+/// The set of members can itself depend on a resource output, so this has the
+/// same two answers as [`load_member`]: with a `mutation_cap` the resource is
+/// applied until the names are known, and without one the structural
+/// dependency returned in `Err` says which output stands in the way.
+pub(crate) async fn list_members(
+    dispatch: &impl Dispatch,
+    id: Id<CompositeType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<
+    impl Future<Output = Result<std::result::Result<Vec<String>, StructuralDependency>>> + 'static,
+> {
+    request(
+        dispatch,
+        Goal::ListMembers(id, path, mutation_cap),
+        "ListMembers",
+        |outcome| match outcome {
+            Outcome::MembersListed(names) => Some(names.clone()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Ask the evaluator to assign an ID to a member of a composite.
+async fn assign_member_id(
+    dispatch: &impl Dispatch,
+    id: Id<CompositeType>,
+    name: String,
+) -> Result<impl Future<Output = Result<Id<AnyType>>> + 'static> {
+    request(
+        dispatch,
+        Goal::AssignMemberId(id, name),
+        "AssignMemberId",
+        |outcome| match outcome {
+            Outcome::MemberIdAssigned(id) => Some(*id),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Ask the evaluator to load a member of a composite.
+///
+/// Which members exist can itself depend on a resource output. Given a
+/// `mutation_cap`, that resource is applied until the member is known, so the
+/// answer is always `Ok`. Without one, that resource stays unapplied, so the
+/// answer is the `Err` structural dependency, which each caller reports in its
+/// own terms.
+pub(crate) async fn load_member(
+    dispatch: &impl Dispatch,
+    id: Id<CompositeType>,
+    name: String,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<
+    impl Future<Output = Result<std::result::Result<ComponentHandle, StructuralDependency>>> + 'static,
+> {
+    request(
+        dispatch,
+        Goal::LoadMember(id, name, mutation_cap),
+        "LoadMember",
+        |outcome| match outcome {
+            Outcome::MemberLoaded(handle) => Some(handle.clone()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Ask the evaluator for a resource's provider info.
 async fn get_resource_provider_info(
-    context: &TaskContext<WorkContext>,
+    dispatch: &impl Dispatch,
     id: Id<ResourceType>,
     path: ComponentPath,
     mutation_cap: Option<MutationCapability>,
 ) -> Result<impl Future<Output = Result<ResourceProviderInfo>> + 'static> {
-    let thunk = context
-        .spawn(Goal::GetResourceProviderInfo(id, path, mutation_cap))
-        .await?;
-    Ok(async move {
-        match thunk.force().await.as_ref() {
-            Ok(Outcome::ResourceProviderInfo(info)) => Ok(info.clone()),
-            // The goal determines the outcome variant; a mismatch is a bug here.
-            Ok(other) => panic!(
-                "Unexpected outcome from GetResourceProviderInfo: {:?}",
-                other
-            ),
-            Err(e) => Err(clone_anyhow_from_arc(e)),
-        }
-    })
+    request(
+        dispatch,
+        Goal::GetResourceProviderInfo(id, path, mutation_cap),
+        "GetResourceProviderInfo",
+        |outcome| match outcome {
+            Outcome::ResourceProviderInfo(info) => Some(info.clone()),
+            _ => None,
+        },
+    )
+    .await
 }
 
-/// Ask the evaluator which inputs a resource has. See
-/// [`get_resource_provider_info`] for what awaiting the result does.
+/// Ask the evaluator which inputs a resource has.
 async fn list_resource_inputs(
-    context: &TaskContext<WorkContext>,
+    dispatch: &impl Dispatch,
     id: Id<ResourceType>,
     path: ComponentPath,
     mutation_cap: Option<MutationCapability>,
 ) -> Result<impl Future<Output = Result<Vec<String>>> + 'static> {
-    let thunk = context
-        .spawn(Goal::ListResourceInputs(id, path, mutation_cap))
-        .await?;
-    Ok(async move {
-        match thunk.force().await.as_ref() {
-            Ok(Outcome::ResourceInputsListed(names)) => Ok(names.clone()),
-            // The goal determines the outcome variant; a mismatch is a bug here.
-            Ok(other) => panic!("Unexpected outcome from ListResourceInputs: {:?}", other),
-            Err(e) => Err(clone_anyhow_from_arc(e)),
-        }
-    })
+    request(
+        dispatch,
+        Goal::ListResourceInputs(id, path, mutation_cap),
+        "ListResourceInputs",
+        |outcome| match outcome {
+            Outcome::ResourceInputsListed(names) => Some(names.clone()),
+            _ => None,
+        },
+    )
+    .await
 }
 
-/// Ask the evaluator for the value of one resource input. See
-/// [`get_resource_provider_info`] for what awaiting the result does.
+/// Ask the evaluator for the value of one resource input.
 async fn get_resource_input_value(
-    context: &TaskContext<WorkContext>,
+    dispatch: &impl Dispatch,
     id: Id<ResourceType>,
     path: ComponentPath,
     input_name: String,
     mutation_cap: Option<MutationCapability>,
 ) -> Result<impl Future<Output = Result<Value>> + 'static> {
-    let thunk = context
-        .spawn(Goal::GetResourceInputValue(
-            id,
-            path,
-            input_name,
-            mutation_cap,
-        ))
-        .await?;
-    Ok(async move {
-        match thunk.force().await.as_ref() {
-            Ok(Outcome::ResourceInputValue(value)) => Ok(value.clone()),
-            // The goal determines the outcome variant; a mismatch is a bug here.
-            Ok(other) => panic!("Unexpected outcome from GetResourceInputValue: {:?}", other),
-            Err(e) => Err(clone_anyhow_from_arc(e)),
-        }
-    })
+    request(
+        dispatch,
+        Goal::GetResourceInputValue(id, path, input_name, mutation_cap),
+        "GetResourceInputValue",
+        |outcome| match outcome {
+            Outcome::ResourceInputValue(value) => Some(value.clone()),
+            _ => None,
+        },
+    )
+    .await
 }
 
-/// Resolve a component path to a composite ID.
-pub(crate) async fn resolve_composite_path(
-    tasks: &crate::control::task_tracker::TaskTracker<WorkContext>,
+/// Apply a resource, and ask for it as the provider left it.
+async fn apply_resource(
+    dispatch: &impl Dispatch,
+    id: Id<ResourceType>,
     path: ComponentPath,
-) -> Result<Id<CompositeType>> {
-    match tasks.run(Goal::ResolveCompositePath(path)).await.as_ref() {
-        Ok(Outcome::CompositeResolved(id)) => Ok(*id),
-        Ok(other) => bail!("Unexpected outcome from ResolveCompositePath: {:?}", other),
-        Err(e) => Err(clone_anyhow_from_arc(e)),
-    }
+    mutation_cap: MutationCapability,
+) -> Result<impl Future<Output = Result<nixops4_resource::schema::v0::ExtantResource>> + 'static> {
+    request(
+        dispatch,
+        Goal::ApplyResource(id, path, mutation_cap),
+        "ApplyResource",
+        |outcome| match outcome {
+            Outcome::ResourceOutputs(resource) => Some(resource.clone()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Run a state resource, so that the state it holds can be read and written.
+pub(crate) async fn run_state(
+    dispatch: &impl Dispatch,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<impl Future<Output = Result<Arc<crate::state::StateHandle>>> + 'static> {
+    request(
+        dispatch,
+        Goal::RunState(id, path, mutation_cap),
+        "RunState",
+        |outcome| match outcome {
+            Outcome::RunState(handle) => Some(handle.clone()),
+            _ => None,
+        },
+    )
+    .await
+}
+
+/// Ask the evaluator to resolve a component path to a composite ID.
+pub(crate) async fn resolve_composite_path(
+    dispatch: &impl Dispatch,
+    path: ComponentPath,
+) -> Result<impl Future<Output = Result<Id<CompositeType>>> + 'static> {
+    request(
+        dispatch,
+        Goal::ResolveCompositePath(path),
+        "ResolveCompositePath",
+        |outcome| match outcome {
+            Outcome::CompositeResolved(id) => Some(*id),
+            _ => None,
+        },
+    )
+    .await
 }
 
 fn indented_json(v: &Value) -> String {

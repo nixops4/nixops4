@@ -1,5 +1,5 @@
 //! Module for deferred computations, [`Thunk`].
-use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
 /// An impure thunk. Runs a future only once and remembers its result.
@@ -23,20 +23,6 @@ impl<T> Thunk<T> {
     /// Subsequent calls return the cached value.
     pub async fn force(&self) -> &T {
         self.thunk_state.force().await
-    }
-
-    /// Consumes a `BTreeMap` of `Thunk`s, returning a `BTreeMap` of the results.
-    ///
-    /// The `Thunk` value is cloned, as the original `Thunk` may still be shared.
-    pub async fn force_into_map<Key: Ord>(map: BTreeMap<Key, Thunk<T>>) -> BTreeMap<Key, T>
-    where
-        T: Clone,
-    {
-        let mut result_map: BTreeMap<Key, T> = BTreeMap::new();
-        for (id, thunk) in map {
-            result_map.insert(id, thunk.force().await.clone());
-        }
-        result_map
     }
 }
 impl<T> Clone for Thunk<T> {

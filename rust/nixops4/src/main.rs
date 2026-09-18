@@ -17,7 +17,6 @@ use clap_complete::env::CompleteEnv;
 use interrupt::{set_up_process_interrupt_handler, InterruptState};
 use nixops4_core::eval_api::{ComponentHandle, ComponentPath};
 use options::Options;
-use work::{clone_anyhow_from_arc, Goal, Outcome};
 
 fn main() {
     // Handle shell completion if requested via environment.
@@ -141,32 +140,31 @@ async fn members_list(
         options,
         |_work_context, tasks| async move {
             let composite_id = work::resolve_composite_path(&tasks, target_path.clone())
+                .await?
                 .await
                 .context(format!(
                     "Failed to resolve path '{}' for members list",
                     target_path
                 ))?;
 
-            // Use ListMembers goal without mutation capability (preview mode)
-            let result = tasks
-                .run(Goal::ListMembers(composite_id, target_path.clone(), None))
-                .await;
+            // Listing without a mutation capability, so a structural
+            // dependency is reported rather than resolved (preview mode).
+            let members = work::list_members(&tasks, composite_id, target_path.clone(), None)
+                .await?
+                .await
+                .with_context(|| format!("Failed to list members at '{}'", target_path))?;
 
-            // Extract member names from the result
-            match result.as_ref() {
-                Ok(Outcome::MembersListed(Ok(names))) => Ok(names.clone()),
-                Ok(Outcome::MembersListed(Err(dep))) => {
-                    bail!(
-                        "Cannot list members at '{}': blocked by structural dependency (depends on {}.{})",
-                        target_path,
-                        dep.depends_on.resource,
-                        dep.depends_on.name,
-                    )
-                }
-                Ok(other) => {
-                    bail!("Unexpected outcome from ListMembers: {:?}", other)
-                }
-                Err(e) => bail!("Failed to list members at '{}': {}", target_path, e),
+            match members {
+                Ok(names) => Ok(names),
+                // Accurate as target_path: by this point target_path itself
+                // resolved, and it's target_path's own member set (not some
+                // shallower ancestor) that the listing depends on.
+                Err(dep) => bail!(
+                    "Cannot list members at '{}': blocked by structural dependency (depends on {}.{})",
+                    target_path,
+                    dep.depends_on.resource,
+                    dep.depends_on.name,
+                ),
             }
         },
     )
@@ -195,16 +193,18 @@ async fn dump_state(
 
             // Resolve parent composite
             let parent_id = work::resolve_composite_path(&tasks, parent_path)
+                .await?
                 .await
                 .context(format!("Failed to dump state stored in {}", resource_path))?;
 
             // Load the member and verify it's a resource
-            let load_result = tasks
-                .run(Goal::LoadMember(parent_id, name.to_string(), None))
-                .await;
-            let resource_id = match load_result.as_ref() {
-                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Resource(id)))) => *id,
-                Ok(Outcome::MemberLoaded(Ok(ComponentHandle::Composite(_)))) => {
+            let member = work::load_member(&tasks, parent_id, name.to_string(), None)
+                .await?
+                .await
+                .with_context(|| format!("Failed to dump state stored in {}", resource_path))?;
+            let resource_id = match member {
+                Ok(ComponentHandle::Resource(id)) => id,
+                Ok(ComponentHandle::Composite(_)) => {
                     bail!(
                         "'{}' is a composite (deployment), not an individual resource. \
                          Specify a state-providing resource, e.g., '{}.state'.",
@@ -212,9 +212,13 @@ async fn dump_state(
                         resource_path
                     )
                 }
-                Ok(Outcome::MemberLoaded(Err(dep))) => {
+                Err(dep) => {
                     // TODO: resolve dependencies in read-only mode via state
                     //       (https://github.com/nixops4/nixops4/issues/164)
+                    //
+                    // Accurate as resource_path: parent_path already resolved
+                    // above, so it's resource_path's own kind (resource vs.
+                    // composite) that's blocked, not some shallower ancestor.
                     bail!(
                         "Cannot load '{}': blocked by structural dependency (depends on {}.{})",
                         resource_path,
@@ -222,30 +226,19 @@ async fn dump_state(
                         dep.depends_on.name,
                     )
                 }
-                Ok(other) => bail!("Unexpected outcome from LoadMember: {:?}", other),
-                Err(e) => {
-                    return Err(clone_anyhow_from_arc(e))
-                        .context(format!("Failed to dump state stored in {}", resource_path))
-                }
             };
 
-            let run_result = tasks
-                .run(Goal::RunState(
-                    resource_id,
-                    resource_path.clone(),
-                    None, /* read-only: resolves inputs without applying */
-                ))
-                .await;
-            let state_handle = match run_result.as_ref() {
-                Ok(Outcome::RunState(handle)) => handle.clone(),
-                Ok(other) => bail!("Unexpected outcome from RunState: {:?}", other),
-                Err(e) => {
-                    return Err(clone_anyhow_from_arc(e)).context(format!(
-                        "'{}' could not be read as a state provider",
-                        resource_path
-                    ))
-                }
-            };
+            let state_handle = work::run_state(
+                &tasks,
+                resource_id,
+                resource_path.clone(),
+                None, /* read-only: resolves inputs without applying */
+            )
+            .await?
+            .await
+            .with_context(|| {
+                format!("'{}' could not be read as a state provider", resource_path)
+            })?;
 
             // Read current state and serialize to JSON
             let state = state_handle.current.lock().await;

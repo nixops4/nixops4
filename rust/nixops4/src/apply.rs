@@ -56,7 +56,7 @@ pub(crate) async fn apply(
             .map(|path| {
                 let tasks = tasks.clone();
                 tokio::spawn(async move {
-                    let target_id = resolve_composite_path(&tasks, path.clone()).await?;
+                    let target_id = resolve_composite_path(&tasks, path.clone()).await?.await?;
 
                     // Apply with matching id/path
                     match tasks
