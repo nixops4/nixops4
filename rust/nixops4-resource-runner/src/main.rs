@@ -8,6 +8,9 @@ use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 ///
 /// This is a separate executable because this functionality is not needed
 /// during normal nixops4 operation, and it would pollute the shell autocompletion.
+///
+/// The purpose of this program is to expose the entire resource provider interface
+/// as a command line interface for testing purposes.
 fn main() -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
