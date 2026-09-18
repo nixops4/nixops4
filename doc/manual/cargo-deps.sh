@@ -16,23 +16,31 @@ manifests="$(
   done
 )"
 
+# Crates with `publish = false` are internal, e.g. test fixtures.
+# Including them in the diagram would be a distraction.
+# `publish` is `[]` for those, and `null` or a list of registries otherwise.
+unpublished="$(jq -s -c '[.[] | select(.publish == []) | .name]' <<<"$manifests")"
+
 echo '```mermaid'
 echo 'graph TD;'
 
-jq -r '
+jq -r --argjson unpublished "$unpublished" '
     .name as $name
     | select (.name | startswith("nix-") | not)
+    | select ($unpublished | index($name) | not)
     | .dependencies
     | .[]
     | select(.path)
     | select(.name | startswith("nix-") | not)
+    | select(.name as $dep | $unpublished | index($dep) | not)
     | "  \($name) --> \(.name)"
   ' <<<"$manifests"
 
 
-jq -r '
+jq -r --argjson unpublished "$unpublished" '
     .name as $name
     | select (.name | startswith("nix-") | not)
+    | select ($unpublished | index($name) | not)
     | "  click \(.name) \"#\(.name)\" \"\(.name)\""
   ' <<<"$manifests"
 
@@ -40,8 +48,8 @@ echo '```'
 echo
 
 
-jq -r '
+jq -r --argjson unpublished "$unpublished" '
   select(.name | startswith("nix-") | not)
+  | select(.name as $name | $unpublished | index($name) | not)
   | "### `\(.name)`\n\n\(.description)\n\n"
 ' <<<"$manifests"
-
