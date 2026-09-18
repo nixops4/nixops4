@@ -91,13 +91,13 @@ The protocol supports the following operations:
 See [`CreateResourceRequest`](../schema/resource-v0.md#11-property-createresourcerequest) and [`CreateResourceResponse`](../schema/resource-v0.md#21-property-createresourceresponse) in the schema documentation.
 
 **Update**: Modifies an existing stateful resource. The request includes:
-- `resource`: The current resource state (type, input properties, and output properties)
+- `resource`: The current resource state (type, input properties, output properties, and private state)
 - `inputProperties`: New configuration values
 
 See [`UpdateResourceRequest`](../schema/resource-v0.md#12-property-updateresourcerequest) and [`UpdateResourceResponse`](../schema/resource-v0.md#22-property-updateresourceresponse) in the schema documentation.
 
 **Destroy**: Removes whatever the resource represents. The request includes:
-- `resource`: The resource as it was last recorded (type, input properties, and output properties)
+- `resource`: The resource as it was last recorded (type, input properties, output properties, and private state)
 
 What "as it was last recorded" amounts to depends on whether the resource is tracked, which also decides what an update can do; see [Changing a Declaration](../concept/resource.md#changing-a-declaration).
 
@@ -109,12 +109,20 @@ The `state_file` resource of the `local` provider does this: it refuses while th
 
 See [`DestroyResourceRequest`](../schema/resource-v0.md#15-property-destroyresourcerequest) and [`DestroyResourceResponse`](../schema/resource-v0.md#25-property-destroyresourceresponse) in the schema documentation.
 
+### Private State
+
+Create and update responses may carry a `privateState` value, which NixOps stores and hands back in the `resource` of every later request for that resource: update, destroy, and the state operations when the resource is itself a state resource.
+It is opaque to NixOps: see [Provider-Private State](../concept/resource.md#provider-private-state) for what it is for.
+
+Absent and `null` are equivalent, so a provider that keeps no private state can simply omit the field.
+A provider that needs private state declares `requireState = true`, and must raise an error when a create request has `isStateful` set to false.
+
 ### State Operations
 
 Resources that provide state storage implement additional operations:
 
 **State Read**: Retrieves the complete state managed by a state resource. The request includes:
-- `resource`: The state resource (type, input properties, and output properties)
+- `resource`: The state resource (type, input properties, output properties, and private state)
 
 The response contains the full state as a JSON object representing all managed resources.
 

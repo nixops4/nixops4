@@ -21,9 +21,17 @@ fn schema_to_rust(schema_file: &str, out_dir: &str, out_file: &str) {
             .with_derive("PartialEq".to_string())
             .with_derive("Eq".to_string())
             .with_derive("Clone".to_string())
+            // Registering a crate honours `x-rust-type` in the schema for it,
+            // so that the generated code refers to the real type instead of a
+            // structurally equivalent one generated from the schema.
             .with_crate(
                 "json_patch",
                 typify::CrateVers::parse("4.0.0").unwrap(),
+                None,
+            )
+            .with_crate(
+                "serde_json",
+                typify::CrateVers::parse("1.0.0").unwrap(),
                 None,
             )
             .with_map_type("std::collections::BTreeMap".to_string()),

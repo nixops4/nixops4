@@ -32,8 +32,8 @@ runCommand "check-nixops4-resources-local"
       > out.json
     cat out.json
 
-    # check that out.json is the empty object
-    (set -x; jq -e '. == { }' out.json)
+    # check that no output properties were returned
+    (set -x; jq -e '. == { "outputProperties": { } }' out.json)
 
     echo -n hi > expected
     (set -x; diff expected test.txt)
@@ -48,7 +48,7 @@ runCommand "check-nixops4-resources-local"
       > out.json
     cat out.json
 
-    (set -x; jq -e '. == { "stdout": "hi there\n" }' out.json)
+    (set -x; jq -e '. == { "outputProperties": { "stdout": "hi there\n" } }' out.json)
 
     # Exit code
 
@@ -75,7 +75,7 @@ runCommand "check-nixops4-resources-local"
       > memo_create.json
     cat memo_create.json
 
-    (set -x; jq -e '. == { "value": "hello world" }' memo_create.json)
+    (set -x; jq -e '. == { "outputProperties": { "value": "hello world" } }' memo_create.json)
 
     # Test "memo" resource - update (should preserve original value)
 
@@ -88,7 +88,7 @@ runCommand "check-nixops4-resources-local"
       > memo_update.json
     cat memo_update.json
 
-    (set -x; jq -e '. == { "value": "hello world" }' memo_update.json)
+    (set -x; jq -e '. == { "outputProperties": { "value": "hello world" } }' memo_update.json)
 
     # Test "exec" resource - update re-executes with new args
 
@@ -101,7 +101,7 @@ runCommand "check-nixops4-resources-local"
       > exec_update.json
     cat exec_update.json
 
-    (set -x; jq -e '. == { "stdout": "updated greeting\n" }' exec_update.json)
+    (set -x; jq -e '. == { "outputProperties": { "stdout": "updated greeting\n" } }' exec_update.json)
 
     # Test "exec" resource - once=true create (stateful, executes normally)
 
@@ -115,7 +115,7 @@ runCommand "check-nixops4-resources-local"
       > exec_once_create.json
     cat exec_once_create.json
 
-    (set -x; jq -e '. == { "stdout": "once greeting\n" }' exec_once_create.json)
+    (set -x; jq -e '. == { "outputProperties": { "stdout": "once greeting\n" } }' exec_once_create.json)
 
     # Test "exec" resource - once=true update (preserves original output)
 
@@ -128,7 +128,7 @@ runCommand "check-nixops4-resources-local"
       > exec_once_update.json
     cat exec_once_update.json
 
-    (set -x; jq -e '. == { "stdout": "once greeting\n" }' exec_once_update.json)
+    (set -x; jq -e '. == { "outputProperties": { "stdout": "once greeting\n" } }' exec_once_update.json)
 
     # Test "exec" resource - once=true WITHOUT stateful must fail
 
@@ -187,7 +187,7 @@ runCommand "check-nixops4-resources-local"
       > state_create.json
     cat state_create.json
 
-    (set -x; jq -e '. == { }' state_create.json)
+    (set -x; jq -e '. == { "outputProperties": { } }' state_create.json)
 
     # Verify the state file was created with initial state
 
@@ -315,7 +315,7 @@ runCommand "check-nixops4-resources-local"
       > state_create_existing.json
     cat state_create_existing.json
 
-    (set -x; jq -e '. == { }' state_create_existing.json)
+    (set -x; jq -e '. == { "outputProperties": { } }' state_create_existing.json)
 
     # Verify the existing file was not modified
     (set -x; diff test-state.json test-state-backup.json)

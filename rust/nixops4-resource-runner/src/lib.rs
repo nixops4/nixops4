@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use nixops4_resource::schema::v0;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::ExitStatus;
 use tokio::{
@@ -11,6 +12,21 @@ use tracing::warn;
 pub struct ResourceProviderConfig {
     pub provider_executable: String,
     pub provider_args: Vec<String>,
+}
+
+/// Outputs and provider-owned private state returned by operations that
+/// produce a resource state, such as Create or Update, probably Read
+/// when implemented.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceOutcome {
+    pub output_properties: serde_json::Map<String, Value>,
+    /// Provider-owned opaque JSON. `None` when the provider did not give
+    /// us private state, which on an Update also covers clearing what it
+    /// had written before. NixOps4 stores it verbatim and hands it back
+    /// operation, e.g. Update or Destroy.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub private_state: Option<Value>,
 }
 
 pub struct ResourceProviderClient {
@@ -99,7 +115,7 @@ impl ResourceProviderClient {
         type_: &str,
         inputs: &serde_json::Map<String, Value>,
         is_stateful: bool,
-    ) -> Result<serde_json::Map<String, Value>> {
+    ) -> Result<ResourceOutcome> {
         let req = v0::CreateResourceRequest {
             input_properties: v0::InputProperties(inputs.clone()),
             type_: v0::ResourceType(type_.to_string()),
@@ -112,7 +128,10 @@ impl ResourceProviderClient {
 
         let response = self.read_response().await?;
         match response {
-            v0::Response::CreateResourceResponse(r) => Ok(r.output_properties.0),
+            v0::Response::CreateResourceResponse(r) => Ok(ResourceOutcome {
+                output_properties: r.output_properties.0,
+                private_state: r.private_state.map(|p| p.0),
+            }),
             _ => anyhow::bail!(
                 "Expected CreateResourceResponse from provider but got: {:?}",
                 response
@@ -126,12 +145,14 @@ impl ResourceProviderClient {
         inputs: &serde_json::Map<String, Value>,
         previous_inputs: &serde_json::Map<String, Value>,
         previous_outputs: &serde_json::Map<String, Value>,
-    ) -> Result<serde_json::Map<String, Value>> {
+        previous_private_state: Option<Value>,
+    ) -> Result<ResourceOutcome> {
         let req = v0::UpdateResourceRequest {
             resource: v0::ExtantResource {
                 type_: v0::ResourceType(type_.to_string()),
                 input_properties: v0::InputProperties(previous_inputs.clone()),
                 output_properties: Some(v0::OutputProperties(previous_outputs.clone())),
+                private_state: previous_private_state.map(v0::PrivateState),
             },
             input_properties: v0::InputProperties(inputs.clone()),
         };
@@ -142,7 +163,10 @@ impl ResourceProviderClient {
 
         let response = self.read_response().await?;
         match response {
-            v0::Response::UpdateResourceResponse(r) => Ok(r.output_properties.0),
+            v0::Response::UpdateResourceResponse(r) => Ok(ResourceOutcome {
+                output_properties: r.output_properties.0,
+                private_state: r.private_state.map(|p| p.0),
+            }),
             _ => anyhow::bail!(
                 "Expected UpdateResourceResponse from provider but got: {:?}",
                 response

@@ -90,7 +90,10 @@ runCommand "itest-nixops4-with-local"
 
       cp ${
         (formats.json { }).generate "binaries.json" {
-          inherit (inputs.self.packages.${stdenv.hostPlatform.system}) nixops4-resources-local-release;
+          inherit (inputs.self.packages.${stdenv.hostPlatform.system})
+            nixops4-resources-local-release
+            nixops4-resources-fixture-release
+            ;
         }
       } binaries.json
 
@@ -718,11 +721,76 @@ runCommand "itest-nixops4-with-local"
       rm -f structural-cycle.stdout
     )
 
+    h1 PRIVATE STATE PERSISTENCE
+    (
+      set -x
+      echo "=== Testing privateState round-trip across apply cycles ==="
+
+      # First apply: create the echo resource, which stashes
+      # "PRIVATE_STATE_TOKEN" as its opaque private state via the
+      # resource protocol's `privateState` slot.
+      nixops4 apply -v privateStateDeployment --show-trace
+
+      test -f private-state.json
+
+      # State file must record the private-state blob under the
+      # resource entry — not just the input properties. A weaker
+      # `grep PRIVATE_STATE_TOKEN` would match `input_properties`
+      # too and mask a regression that drops the private state.
+      # The state file is a stream of JSON Patch entries; scan every
+      # patch op's value for the private_state field.
+      jq -es '
+        [.[] | .patch[]? | .value? | .. | objects | select(.private_state == "PRIVATE_STATE_TOKEN")]
+          | length > 0
+      ' private-state.json | grep -q true || {
+        echo "FAIL: no private_state=PRIVATE_STATE_TOKEN entry in state file"
+        cat private-state.json
+        exit 1
+      }
+
+      # Change inputs so nixops4 issues an Update: rotate to a new
+      # value AND demand the fixture provider assert the prior state
+      # equals the token from the previous cycle. A regression that
+      # dropped the private state anywhere along the chain surfaces
+      # as a provider error ("expected prior private state ..., got
+      # None") — bubbled up as a non-zero exit here.
+      sed -i \
+        -e 's|inputs.new_private_state = "PRIVATE_STATE_TOKEN";|inputs.new_private_state = "PRIVATE_STATE_TOKEN_V2"; inputs.expected_prior = "PRIVATE_STATE_TOKEN";|' \
+        flake.nix
+
+      # Preserve stderr on the terminal (so failure detail is visible
+      # in the build log) while also teeing it to a file.
+      nixops4 apply -v privateStateDeployment --show-trace 2> >(tee private-state-update.stderr >&2)
+
+      # After update: the state log must record a replace-op that
+      # sets the echo resource's `private_state` to the rotated
+      # token. This proves nixops4 persisted the update's private
+      # state (not just its input_properties). The apply succeeding
+      # already proved the fixture saw the correct prior; this pins
+      # down the write side too.
+      jq -es '
+        [.[] | .patch[]?
+               | select(.op == "replace"
+                        and (.path | endswith("/private_state"))
+                        and .value == "PRIVATE_STATE_TOKEN_V2")]
+          | length > 0
+      ' private-state.json | grep -q true || {
+        echo "FAIL: no replace-op setting private_state=PRIVATE_STATE_TOKEN_V2 after update"
+        cat private-state.json
+        exit 1
+      }
+
+      mv private-state-update.stderr $out/logs/private-state-update.stderr
+      rm -f private-state.json
+    )
+
     h1 NESTED STATE RESOURCES
     (
       set -x
       echo "=== Testing a state resource that is itself tracked ==="
 
+      # The apply has no assertion of its own: the provider checks on every
+      # state_read and state_event that it was handed its own private state.
       nixops4 apply -v nestedStateDeployment --show-trace
 
       test -f nested-state-outer.json
@@ -738,17 +806,42 @@ runCommand "itest-nixops4-with-local"
         exit 1
       }
 
+      # outerState must also record the private state that innerState wrote
+      # for itself. Patch-op scanning rather than grep, so that a hit in
+      # input_properties cannot stand in for the private_state field.
+      jq -es '
+        [.[] | .patch[]? | .value? | .. | objects | select(.private_state == "STATE_PRIVATE_V1")]
+          | length > 0
+      ' nested-state-outer.json | grep -q true || {
+        echo "FAIL: innerState's private_state not persisted in outerState"
+        cat nested-state-outer.json
+        exit 1
+      }
+
       # The memo declared innerState as its state, so its record is in innerState.
       jq -e '.deployments.nestedStateDeployment.resources.thing.input_properties.initialize_with == "thing-v1"' \
         nested-state-inner.json
 
       h2 "Re-apply with unchanged inputs"
+      # Unchanged inputs take the skip path, which has to carry the private
+      # state that was read back from outerState.
       nixops4 apply -v nestedStateDeployment --show-trace
 
       h2 "Read-only: state dump reads the nested state resource"
+      # `state dump` reaches innerState through RunState's read-only branch,
+      # which has to retrieve innerState's own private state from outerState
+      # rather than passing none.
       nixops4 state dump nestedStateDeployment.innerState --show-trace > nested-state-dump.json
       jq -e '.deployments.nestedStateDeployment.resources.thing.input_properties.initialize_with == "thing-v1"' \
         nested-state-dump.json
+
+      h2 "Destroy a resource that innerState tracks"
+      # Destroy opens innerState on a path of its own, so it too has to hand
+      # innerState the private state it last wrote.
+      nixops4 destroy nestedStateDeployment.disposable --show-trace
+
+      jq -e '.deployments.nestedStateDeployment.resources | has("disposable") | not' \
+        nested-state-inner.json
 
       mv nested-state-dump.json $out/logs/nested-state-dump.json
       rm -f nested-state-outer.json nested-state-inner.json
@@ -857,6 +950,38 @@ runCommand "itest-nixops4-with-local"
 
       rm -f destroy-state.json destroy-dump.json destroy-refused.log destroy-again.log
       rm -f destroy-renamed-tracked-after.json destroy-renamed-stateless-before.txt
+    )
+
+    h1 "READING A STATE RESOURCE THAT WAS NEVER APPLIED"
+    (
+      set -x
+      # innerState is tracked by outerState, which holds no record of it until
+      # it has been applied. Its declaration omits the outputs and the private
+      # state it wrote, so reading from that would be a guess, and this stops
+      # instead.
+
+      # The file has to exist and be readable for the read to get as far as
+      # looking for the record, so use a separate deployment to write it first.
+      nixops4 apply -v unappliedStateSetup --show-trace
+      test -f unapplied-state-outer.json
+
+      (
+        set +e
+        nixops4 state dump unappliedStateDeployment.innerState --show-trace 2> unapplied-state.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+      )
+      cat unapplied-state.log
+      grep -F "Resource unappliedStateDeployment.innerState has no record in unappliedStateDeployment.outerState to work from." unapplied-state.log
+
+      # The error terminated `dump` before anything would be created.
+      [[ ! -e unapplied-state-inner.json ]]
+
+      mv unapplied-state.log $out/logs/unapplied-state.stderr
+      rm -f unapplied-state-outer.json
     )
 
     h1 STATE DUMP

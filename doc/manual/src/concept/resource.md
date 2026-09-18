@@ -45,6 +45,29 @@ Since NixOps4 can not automatically know when to delete an untracked resource, s
 
 So if you use stateless deployments, make sure the names you use are unchanging, or if they do change, you manage the change yourself.
 
+### Provider-Private State
+
+Private state lets providers remember information without exposing it to deployment expressions.
+
+Occasionally, a provider needs to remember something about a resource that isn't suitable to be exposed as an output.
+Examples include:
+- a version number of the provider resource implementation, so that a later version of the provider knows what to migrate
+- values for the API machinery, such as an ETag or last-modified timestamp that makes requests quicker or safer
+
+These values tend to be irrelevant to a declarative deployment expression, and often unsuitable.
+E.g. by referencing some resource's timestamp, the deployment would become subject to unexpected changes at unexpected times.
+Furthermore, they would have to be documented, distracting users with unnecessary detail about values they should probably avoid anyway.
+
+Instead, a provider returns such a value as a field inside the `privateState` slot of its create and update responses.
+Then NixOps stores `privateState` alongside the resource in the deployment state and hands it back verbatim with the resource on every later operation, until the provider responds with an updated `privateState`, in which case that value takes this role.
+
+The shape and meaning of the value are entirely up to the provider; NixOps treats it as opaque JSON.
+
+This depends on there being a deployment state to keep it in.
+A resource created with `isStateful` false has none, so a `privateState` in its create response is discarded with a warning; a provider that needs private state declares `requireState = true` and refuses such a create, as described under [Private State](../resource-provider/interface.md#private-state).
+
+Private means private to the provider, not secret: the value is kept in the deployment state, where it is no better protected than the rest of that state, so it is not a place for credentials.
+
 ### Skipping Unchanged Resources
 
 When NixOps applies a stateful resource whose inputs haven't changed since the last apply, it considers the resource up to date and does not perform the update operation.

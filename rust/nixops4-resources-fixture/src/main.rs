@@ -14,13 +14,27 @@ use std::path::Path;
 struct FixtureResourceProvider;
 
 /// `stateful_state_file`: a state resource that is itself stateful,
-/// so NixOps has to track it in the state resource that it declares
-/// in turn.
+/// so its *own* `privateState` has to round-trip through the state
+/// resource that it declares in turn.
 ///
 /// - `name`: path of the JSON document holding the stored state.
+/// - `new_private_state`: what the provider writes into its own
+///   `privateState` on create/update.
+/// - `expected_prior`: when set, this resource asserts on update that
+///   the prior `privateState` handed back equals this value.
+/// - `expect_own_private_state`: when set, `state_read` and
+///   `state_event` assert that the private state NixOps4 hands back
+///   with this resource equals this value. Catches NixOps4 opening
+///   a stateful state resource as if it had never written private state.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct StatefulStateFileInProperties {
     name: String,
+    #[serde(default)]
+    new_private_state: Option<Value>,
+    #[serde(default)]
+    expected_prior: Option<Value>,
+    #[serde(default)]
+    expect_own_private_state: Option<Value>,
 }
 
 /// Deserialise a resource's input properties, the way
@@ -77,12 +91,65 @@ fn write_state_document(path: &str, state: &Value) -> Result<()> {
     fs::write(path, contents).with_context(|| format!("writing state document {}", path))
 }
 
+/// Assert that the private state NixOps4 handed back with the resource is
+/// what the deployment said to expect.
+///
+/// Nix serialises an undefined optional input as `null`, so `None` and
+/// `null` both mean "no expectation"; only a concrete shape asserts.
+fn assert_private_state(
+    expected: Option<&Value>,
+    resource: &v0::ExtantResource,
+    op: &str,
+) -> Result<()> {
+    let expected = match expected {
+        Some(v) if !v.is_null() => v,
+        _ => return Ok(()),
+    };
+    let actual = resource.private_state.as_ref().map(|s| &s.0);
+    if actual != Some(expected) {
+        bail!(
+            "{} ({}): expected private state {:?}, got {:?}",
+            resource.type_.as_str(),
+            op,
+            expected,
+            actual
+        );
+    }
+    Ok(())
+}
+
+/// `private_state_echo`: round-trips arbitrary JSON through the
+/// resource protocol's `privateState` slot.
+///
+/// - `new_private_state`: what the provider writes into
+///   `privateState` on this operation. Absent means "clear it."
+/// - `expected_prior`: on update and destroy, the provider asserts the
+///   prior `privateState` handed back by NixOps4 equals this value.
+///   Catches NixOps4 losing or corrupting the state.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct PrivateStateEchoInProperties {
+    new_private_state: Option<Value>,
+    #[serde(default)]
+    expected_prior: Option<Value>,
+}
+
 impl ResourceProvider for FixtureResourceProvider {
     async fn create(
         &self,
         request: v0::CreateResourceRequest,
     ) -> Result<v0::CreateResourceResponse> {
         match request.type_.as_str() {
+            "private_state_echo" => {
+                require_stateful(request.is_stateful, request.type_.as_str())?;
+                let p = parse_inputs::<PrivateStateEchoInProperties>(
+                    &request.input_properties,
+                    request.type_.as_str(),
+                )?;
+                Ok(v0::CreateResourceResponse {
+                    output_properties: v0::OutputProperties(Default::default()),
+                    private_state: p.new_private_state.map(v0::PrivateState),
+                })
+            }
             "stateful_state_file" => {
                 require_stateful(request.is_stateful, request.type_.as_str())?;
                 let p = parse_inputs::<StatefulStateFileInProperties>(
@@ -96,6 +163,7 @@ impl ResourceProvider for FixtureResourceProvider {
                 }
                 Ok(v0::CreateResourceResponse {
                     output_properties: v0::OutputProperties(Default::default()),
+                    private_state: p.new_private_state.map(v0::PrivateState),
                 })
             }
             "undestroyable" => {
@@ -106,6 +174,7 @@ impl ResourceProvider for FixtureResourceProvider {
                 )?;
                 Ok(v0::CreateResourceResponse {
                     output_properties: v0::OutputProperties(Default::default()),
+                    private_state: None,
                 })
             }
             t => bail!("fixture provider: unknown resource type {}", t),
@@ -117,13 +186,26 @@ impl ResourceProvider for FixtureResourceProvider {
         request: v0::UpdateResourceRequest,
     ) -> Result<v0::UpdateResourceResponse> {
         match request.resource.type_.as_str() {
-            "stateful_state_file" => {
-                parse_inputs::<StatefulStateFileInProperties>(
+            "private_state_echo" => {
+                let p = parse_inputs::<PrivateStateEchoInProperties>(
                     &request.input_properties,
                     request.resource.type_.as_str(),
                 )?;
+                assert_private_state(p.expected_prior.as_ref(), &request.resource, "update")?;
                 Ok(v0::UpdateResourceResponse {
                     output_properties: v0::OutputProperties(Default::default()),
+                    private_state: p.new_private_state.map(v0::PrivateState),
+                })
+            }
+            "stateful_state_file" => {
+                let p = parse_inputs::<StatefulStateFileInProperties>(
+                    &request.input_properties,
+                    request.resource.type_.as_str(),
+                )?;
+                assert_private_state(p.expected_prior.as_ref(), &request.resource, "update")?;
+                Ok(v0::UpdateResourceResponse {
+                    output_properties: v0::OutputProperties(Default::default()),
+                    private_state: p.new_private_state.map(v0::PrivateState),
                 })
             }
             "undestroyable" => {
@@ -133,6 +215,7 @@ impl ResourceProvider for FixtureResourceProvider {
                 )?;
                 Ok(v0::UpdateResourceResponse {
                     output_properties: v0::OutputProperties(Default::default()),
+                    private_state: None,
                 })
             }
             t => bail!("fixture provider: unknown resource type {}", t),
@@ -148,6 +231,11 @@ impl ResourceProvider for FixtureResourceProvider {
                 let p = parse_inputs::<StatefulStateFileInProperties>(
                     &request.resource.input_properties,
                     request.resource.type_.as_str(),
+                )?;
+                assert_private_state(
+                    p.expect_own_private_state.as_ref(),
+                    &request.resource,
+                    "state_read",
                 )?;
                 let state = read_state_document(p.name.as_str())?;
                 Ok(v0::StateResourceReadResponse {
@@ -169,6 +257,11 @@ impl ResourceProvider for FixtureResourceProvider {
                     &request.resource.input_properties,
                     request.resource.type_.as_str(),
                 )?;
+                assert_private_state(
+                    p.expect_own_private_state.as_ref(),
+                    &request.resource,
+                    "state_event",
+                )?;
                 let mut state = read_state_document(p.name.as_str())?;
                 json_patch::patch(&mut state, &request.patch.0).context("applying state patch")?;
                 write_state_document(p.name.as_str(), &state)?;
@@ -183,6 +276,16 @@ impl ResourceProvider for FixtureResourceProvider {
         request: v0::DestroyResourceRequest,
     ) -> Result<v0::DestroyResourceResponse> {
         match request.resource.type_.as_str() {
+            "private_state_echo" => {
+                // Inputs come from the state record here, not from the
+                // deployment, so `expected_prior` is still readable.
+                let p = parse_inputs::<PrivateStateEchoInProperties>(
+                    &request.resource.input_properties,
+                    request.resource.type_.as_str(),
+                )?;
+                assert_private_state(p.expected_prior.as_ref(), &request.resource, "destroy")?;
+                Ok(v0::DestroyResourceResponse {})
+            }
             "stateful_state_file" => {
                 // A real state resource should check that it's not tracking any live
                 // resources anymore, but we don't need that behavior here.
@@ -190,6 +293,11 @@ impl ResourceProvider for FixtureResourceProvider {
                 let p = parse_inputs::<StatefulStateFileInProperties>(
                     &request.resource.input_properties,
                     request.resource.type_.as_str(),
+                )?;
+                assert_private_state(
+                    p.expect_own_private_state.as_ref(),
+                    &request.resource,
+                    "destroy",
                 )?;
                 // Removing the document is what makes a destroy observable.
                 match fs::remove_file(p.name.as_str()) {

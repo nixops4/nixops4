@@ -985,6 +985,7 @@ impl WorkContext {
         inputs: serde_json::Map<String, serde_json::Value>,
         outputs: serde_json::Map<String, serde_json::Value>,
         resource_type: String,
+        private_state: Option<nixops4_resource::schema::v0::PrivateState>,
     ) -> Result<Outcome> {
         if self.options.verbose {
             eprintln!("Resource outputs: {:?}", outputs);
@@ -1009,6 +1010,10 @@ impl WorkContext {
             input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
             output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
             type_: nixops4_resource::schema::v0::ResourceType(resource_type),
+            // Carried so that a stateful state provider, whose resource is
+            // handed to `StateHandle::open` by `Goal::RunState`, sees the
+            // private state it last wrote.
+            private_state,
         };
 
         Ok(Outcome::ResourceOutputs(resource))
@@ -1065,6 +1070,10 @@ impl WorkContext {
                         inputs,
                         past_resource.output_properties.clone(),
                         provider_info.resource_type,
+                        past_resource
+                            .private_state
+                            .clone()
+                            .map(nixops4_resource::schema::v0::PrivateState),
                     )
                     .await;
             }
@@ -1085,24 +1094,41 @@ impl WorkContext {
 
         let mut provider = provider::start_provider(&provider_info).await?;
 
-        let outputs = match state {
-            None => provider
-                .create(provider_info.resource_type.as_str(), &inputs, false)
-                .await
-                .with_context(|| {
-                    format!("Failed to create stateless resource {}", resource_path)
-                })?,
+        let (outputs, private_state) = match state {
+            None => {
+                let outcome = provider
+                    .create(provider_info.resource_type.as_str(), &inputs, false)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to create stateless resource {}", resource_path)
+                    })?;
+                // A resource without state cannot round-trip private state:
+                // there is nowhere to persist it. A provider that needs it is
+                // supposed to declare `requireState` and refuse a create with
+                // `isStateful` false, so answering with one here is a provider
+                // bug. Say so rather than dropping it in silence.
+                if outcome.private_state.is_some() {
+                    tracing::warn!(
+                        "Provider for {} returned private state for a resource without state; \
+                         it is discarded, since there is nowhere to persist it. The provider \
+                         should declare requireState and refuse a create with isStateful false.",
+                        resource_path
+                    );
+                }
+                (outcome.output_properties, None)
+            }
             Some(ref state_handle) => {
                 match saved_past_resource.take() {
                     Some(past_resource) => {
                         // Type check already done above; inputs differ if we reach here
                         tracing::debug!("Updating resource {}: inputs changed", resource_path);
-                        let outputs = provider
+                        let outcome = provider
                             .update(
                                 provider_info.resource_type.as_str(),
                                 &inputs,
                                 &past_resource.input_properties,
                                 &past_resource.output_properties,
+                                past_resource.private_state.clone(),
                             )
                             .await
                             .with_context(|| {
@@ -1111,7 +1137,8 @@ impl WorkContext {
                         let current_resource = crate::state::ResourceState {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
-                            output_properties: outputs.clone(),
+                            output_properties: outcome.output_properties.clone(),
+                            private_state: outcome.private_state.clone(),
                         };
                         if current_resource != past_resource {
                             state_handle
@@ -1123,10 +1150,10 @@ impl WorkContext {
                                 )
                                 .await?;
                         }
-                        outputs
+                        (outcome.output_properties, outcome.private_state)
                     }
                     None => {
-                        let outputs = provider
+                        let outcome = provider
                             .create(provider_info.resource_type.as_str(), &inputs, true)
                             .await
                             .with_context(|| {
@@ -1135,12 +1162,13 @@ impl WorkContext {
                         let current_resource = crate::state::ResourceState {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
-                            output_properties: outputs.clone(),
+                            output_properties: outcome.output_properties.clone(),
+                            private_state: outcome.private_state.clone(),
                         };
                         state_handle
                             .resource_event(&resource_path, "create", None, &current_resource)
                             .await?;
-                        outputs
+                        (outcome.output_properties, outcome.private_state)
                     }
                 }
             }
@@ -1153,8 +1181,14 @@ impl WorkContext {
         // per resource, except when it's a state provider (elsewhere).
         provider.close_wait().await?;
 
-        self.publish_resource_outputs(&resource_path, inputs, outputs, provider_info.resource_type)
-            .await
+        self.publish_resource_outputs(
+            &resource_path,
+            inputs,
+            outputs,
+            provider_info.resource_type,
+            private_state.map(nixops4_resource::schema::v0::PrivateState),
+        )
+        .await
     }
 
     /// Open the state resource at `path`, so that the state it holds can be
@@ -1190,12 +1224,20 @@ impl WorkContext {
                 (resource, provider_info)
             }
             None => {
-                // Read-only path: resolve inputs without applying
-                let (provider_info, inputs_thunk) = self
-                    .resolve_resource_inputs(&context, id, &path, None)
-                    .await?;
-                let inputs = clone_result(inputs_thunk.force().await)?;
-                let resource = declared_resource(provider_info.resource_type.clone(), inputs);
+                // Read-only path: the resource is not applied, so what
+                // describes it is its record, or its declaration when it has
+                // no state resource to be recorded in.
+                let provider_info =
+                    get_resource_provider_info(&context, id, path.clone(), READ_ONLY)
+                        .await
+                        .with_context(|| {
+                            format!("Failed to get provider info for resource {}", path)
+                        })?
+                        .await?;
+
+                let (resource, _state_handle) =
+                    unapplied_resource(&context, self.root_composite_id, id, &path, &provider_info)
+                        .await?;
 
                 (resource, provider_info)
             }
@@ -1640,8 +1682,8 @@ async fn request_resource_input_values(
     Ok(value_futs)
 }
 
-/// Build an `ExtantResource` from the deployment's declaration alone, with no
-/// output properties.
+/// Build an `ExtantResource` from the deployment's declaration alone: no
+/// output properties and no private state.
 pub(crate) fn declared_resource(
     resource_type: String,
     inputs: serde_json::Map<String, Value>,
@@ -1650,6 +1692,7 @@ pub(crate) fn declared_resource(
         type_: nixops4_resource::schema::v0::ResourceType(resource_type),
         input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
         output_properties: None,
+        private_state: None,
     }
 }
 
@@ -1671,6 +1714,31 @@ pub(crate) async fn load_member_resolved(
             name,
             dep.depends_on.resource,
             dep.depends_on.name,
+        ),
+    }
+}
+
+/// Resolve a component path to its eval resource ID.
+pub(crate) async fn resolve_resource_path(
+    dispatch: &impl Dispatch,
+    root_id: Id<CompositeType>,
+    resource_path: &ComponentPath,
+) -> Result<Id<ResourceType>> {
+    let (parent_path, name) = resource_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot get resource ID for root path"))?;
+
+    let parent_id = if parent_path.is_root() {
+        root_id
+    } else {
+        resolve_composite_path(dispatch, parent_path).await?.await?
+    };
+
+    match load_member_resolved(dispatch, parent_id, name, None).await? {
+        ComponentHandle::Resource(id) => Ok(id),
+        ComponentHandle::Composite(_) => bail!(
+            "Expected resource at {}, but found composite",
+            resource_path
         ),
     }
 }
@@ -1726,35 +1794,11 @@ pub(crate) async fn tracking(
     })
 }
 
-/// Resolve a component path to its eval resource ID.
-pub(crate) async fn resolve_resource_path(
-    dispatch: &impl Dispatch,
-    root_id: Id<CompositeType>,
-    resource_path: &ComponentPath,
-) -> Result<Id<ResourceType>> {
-    let (parent_path, name) = resource_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Cannot get resource ID for root path"))?;
-
-    let parent_id = if parent_path.is_root() {
-        root_id
-    } else {
-        resolve_composite_path(dispatch, parent_path).await?.await?
-    };
-
-    match load_member_resolved(dispatch, parent_id, name, None).await? {
-        ComponentHandle::Resource(id) => Ok(id),
-        ComponentHandle::Composite(_) => bail!(
-            "Expected resource at {}, but found composite",
-            resource_path
-        ),
-    }
-}
-
 /// The resource as it can be accounted for without applying it, and the state
 /// resource that accounts for it, where there is one.
 ///
-/// For the callers that have to describe a resource they may not apply.
+/// This function is for the callers that have to describe a resource they may
+/// not apply, such as `nixops4 destroy`, or the read-only open of a state resource.
 pub(crate) async fn unapplied_resource(
     dispatch: &impl Dispatch,
     root_id: Id<CompositeType>,
@@ -1766,19 +1810,22 @@ pub(crate) async fn unapplied_resource(
     Option<Arc<crate::state::StateHandle>>,
 )> {
     match tracking(dispatch, root_id, path, provider_info, READ_ONLY).await? {
-        Tracking::Recorded { recorded, handle } => Ok((
-            nixops4_resource::schema::v0::ExtantResource {
-                type_: nixops4_resource::schema::v0::ResourceType(recorded.type_.clone()),
-                input_properties: nixops4_resource::schema::v0::InputProperties(
-                    recorded.input_properties.clone(),
-                ),
-                output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
-                    recorded.output_properties.clone(),
-                )),
-            },
-            Some(handle),
-        )),
+        Tracking::Recorded { recorded, handle } => {
+            Ok((recorded.to_extant_resource(), Some(handle)))
+        }
 
+        // It might not be entirely impossible to do something here, but
+        // it would usually be up to the caller to make something out of this
+        // situation.
+        // Fundamentally the private state and outputs are not known yet, but
+        // either the caller could tolerate that and work with what it can get
+        // or maybe a Read operation is viable. Not sure.
+        //
+        // In particular a state resource implementation might be possible to
+        // work with, without having to apply.
+        // It might be able to do `state_*` operations without a full `apply`?
+        //
+        // Under the current framing it seems right to just throw an error here.
         Tracking::Unrecorded {
             state_path,
             handle: _,

@@ -73,6 +73,24 @@ pub struct ResourceState {
     pub input_properties: serde_json::Map<String, serde_json::Value>,
     /// The output properties of the resource
     pub output_properties: serde_json::Map<String, serde_json::Value>,
+    /// Provider-owned private state that NixOps4 stores opaquely
+    /// between operations. Absent when the provider has not written
+    /// any. NixOps4 does not inspect it; the provider parses its own
+    /// format on the way back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_state: Option<serde_json::Value>,
+}
+
+impl ResourceState {
+    /// The resource as this record describes it, to hand to its provider.
+    pub fn to_extant_resource(&self) -> ExtantResource {
+        ExtantResource {
+            type_: v0::ResourceType(self.type_.clone()),
+            input_properties: v0::InputProperties(self.input_properties.clone()),
+            output_properties: Some(v0::OutputProperties(self.output_properties.clone())),
+            private_state: self.private_state.clone().map(v0::PrivateState),
+        }
+    }
 }
 
 pub struct StateHandle {
@@ -330,6 +348,7 @@ mod tests {
             type_: "test".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -350,6 +369,7 @@ mod tests {
             type_: "test".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -398,6 +418,7 @@ mod tests {
             type_: "new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -454,6 +475,7 @@ mod tests {
             type_: "deep_new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -502,6 +524,7 @@ mod tests {
             type_: "brand_new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -553,6 +576,7 @@ mod tests {
                 map
             },
             output_properties: serde_json::Map::new(),
+            private_state: None,
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();

@@ -30,6 +30,16 @@
       "title": "Output properties",
       "description": "Arbitrary fields that make up the output properties. The set of fields is determined by the resource provider implementation. Unknown fields will be ignored by the Nix expressions."
     },
+    "privateState": {
+      "type": ["object", "array", "string", "number", "boolean", "null"],
+      "title": "Provider-owned private state",
+      "description": "Arbitrary JSON value that NixOps4 stores as a black box, to hand it back between operations. Absent when the provider has not written any private state.",
+      "x-rust-type": {
+        "crate": "serde_json",
+        "version": "1.0.0",
+        "path": "serde_json::Value"
+      }
+    },
     "ExtantResource": {
       "type": "object",
       "properties": {
@@ -41,6 +51,9 @@
         },
         "outputProperties": {
           "$ref": "#/definitions/outputProperties"
+        },
+        "privateState": {
+          "$ref": "#/definitions/privateState"
         }
       },
       "required": [
@@ -77,6 +90,9 @@
         "outputProperties": {
           "$ref": "#/definitions/outputProperties",
           "description": "The properties of the created resource. The resource provider may return additional properties that are not defined in the resource type schema. It is not recommended to return verbatim inputProperties here, because that invites a dependency on the provider for information that is already known, deteriorating the user experience; concurrency, completeness of plan, unnecessary strictness, etc."
+        },
+        "privateState": {
+          "$ref": "#/definitions/privateState"
         }
       },
       "required": [
@@ -105,6 +121,9 @@
       "properties": {
         "outputProperties": {
           "$ref": "#/definitions/outputProperties"
+        },
+        "privateState": {
+          "$ref": "#/definitions/privateState"
         }
       },
       "required": [

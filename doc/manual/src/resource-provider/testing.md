@@ -74,6 +74,18 @@ A NixOS VM test can be run on a macOS host, but it will not test the provider on
 
 The [`nixops4-resource-runner`] tool provides a simple way to test resource providers by invoking all provider operations directly. See the [resource provider interface](./interface.md) for details about the protocol.
 
+`create` and `update` print the provider's response, so that every part of it can be inspected:
+
+```json
+{
+  "outputProperties": { "value": "hello world" },
+  "privateState": { "generation": 1 }
+}
+```
+
+`privateState` is omitted when the provider returns none.
+You may hand a value to the provider with `--previous-private-state-json` on `update`, or with `--private-state-json` on `destroy`, `state-read` and `state-event`, which all carry a resource that may have private state of its own.
+
 ### Example: Testing a stateless resource
 
 ```bash

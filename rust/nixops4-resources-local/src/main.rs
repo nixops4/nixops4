@@ -407,6 +407,7 @@ fn do_create<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
 
     Ok(v0::CreateResourceResponse {
         output_properties: v0::OutputProperties(out_properties),
+        private_state: None,
     })
 }
 
@@ -442,6 +443,7 @@ fn do_update<In: for<'de> Deserialize<'de>, Out: serde::Serialize>(
 
     Ok(v0::UpdateResourceResponse {
         output_properties: v0::OutputProperties(out_properties),
+        private_state: None,
     })
 }
 
@@ -516,6 +518,7 @@ mod tests {
                     serde_json::json!(file.path().to_str().unwrap()),
                 )])),
                 output_properties: None,
+                private_state: None,
             },
         };
 

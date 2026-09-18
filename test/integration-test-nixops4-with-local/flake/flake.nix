@@ -536,12 +536,84 @@
                   type = providers.fixture.stateful_state_file;
                   state = members.outerState;
                   inputs.name = "nested-state-inner.json";
+                  # Same value twice: innerState expects to be handed back what it wrote.
+                  inputs.new_private_state = "STATE_PRIVATE_V1";
+                  inputs.expect_own_private_state = "STATE_PRIVATE_V1";
                 };
 
                 members.thing = {
                   type = providers.local.memo;
                   state = members.innerState;
                   inputs.initialize_with = "thing-v1";
+                };
+
+                # Destroyed by the test.
+                members.disposable = {
+                  type = providers.fixture.private_state_echo;
+                  state = members.innerState;
+                  inputs.new_private_state = "DISPOSABLE_PRIVATE_V1";
+                  # Asserted on destroy: the resource is handed the private
+                  # state it wrote when it was created.
+                  inputs.expected_prior = "DISPOSABLE_PRIVATE_V1";
+                };
+              };
+
+            # Applied by the test, so that the state file below exists and can
+            # be read. Its records are of this deployment's own resources.
+            members.unappliedStateSetup =
+              { members, ... }:
+              {
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = "unapplied-state-outer.json";
+                };
+
+                members.marker = {
+                  type = providers.local.memo;
+                  state = members.state;
+                  inputs.initialize_with = "marker";
+                };
+              };
+
+            # Test case: a tracked state resource that is never applied, so
+            # the state resource tracking it holds no record of it. Never
+            # applied by the test; `outerState` names the file that
+            # unappliedStateSetup wrote.
+            members.unappliedStateDeployment =
+              { members, ... }:
+              {
+                members.outerState = {
+                  type = providers.local.state_file;
+                  inputs.name = "unapplied-state-outer.json";
+                };
+
+                members.innerState = {
+                  type = providers.fixture.stateful_state_file;
+                  state = members.outerState;
+                  inputs.name = "unapplied-state-inner.json";
+                };
+              };
+
+            # Test case: private-state persistence.
+            # On first apply, private_state_echo stashes `new_private_state`
+            # as the resource's private state via the resource protocol's
+            # opaque `privateState` slot. On second apply (after changing
+            # `new_private_state`), the provider asserts the prior private
+            # state NixOps4 hands back equals `expected_prior`. A
+            # regression that drops the bytes anywhere along the persist
+            # chain surfaces as a provider diagnostic.
+            members.privateStateDeployment =
+              { members, ... }:
+              {
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = "private-state.json";
+                };
+
+                members.echo = {
+                  type = providers.fixture.private_state_echo;
+                  state = members.state;
+                  inputs.new_private_state = "PRIVATE_STATE_TOKEN";
                 };
               };
 

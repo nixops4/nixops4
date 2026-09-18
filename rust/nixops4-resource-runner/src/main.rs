@@ -18,6 +18,23 @@ fn main() -> Result<()> {
         .block_on(async_main())
 }
 
+/// Parse the value of a private-state flag.
+///
+/// It is optional to mirror nixops4 itself, where `private_state` is an
+/// `Option` for reasons that have nothing to do with whether the provider
+/// uses private state: a resource being created for the first time has no
+/// prior record at all, a stateless resource can never round-trip one
+/// (there is nowhere to persist it), and a provider that does use private
+/// state may still have written `None` on its last operation.
+/// `flag` names the flag the value came from, because more than one
+/// subcommand takes one and the error has to say which.
+fn parse_private_state(json: &Option<String>, flag: &str) -> Result<Option<serde_json::Value>> {
+    json.as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .with_context(|| format!("failed to parse value of {}", flag))
+}
+
 async fn async_main() -> Result<()> {
     let args = Args::parse();
 
@@ -105,6 +122,7 @@ async fn async_main() -> Result<()> {
             input_properties_json,
             previous_input_properties_json,
             previous_output_properties_json,
+            previous_private_state_json,
         } => {
             let input_properties_json = serde_json::from_str(input_properties_json.as_str())
                 .with_context(|| "failed to parse value of --inputs-json")?;
@@ -114,6 +132,8 @@ async fn async_main() -> Result<()> {
             let previous_output_properties_json =
                 serde_json::from_str(previous_output_properties_json.as_str())
                     .with_context(|| "failed to parse value of --previous-outputs-json")?;
+            let previous_private_state =
+                parse_private_state(previous_private_state_json, "--previous-private-state-json")?;
 
             let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
@@ -127,6 +147,7 @@ async fn async_main() -> Result<()> {
                     &input_properties_json,
                     &previous_input_properties_json,
                     &previous_output_properties_json,
+                    previous_private_state,
                 )
                 .await;
 
@@ -148,11 +169,13 @@ async fn async_main() -> Result<()> {
             resource_type,
             input_properties_json,
             output_properties_json,
+            private_state_json,
         } => {
             let input_properties_json = serde_json::from_str(input_properties_json.as_str())
                 .with_context(|| "failed to parse value of --inputs-json")?;
             let output_properties_json = serde_json::from_str(output_properties_json.as_str())
                 .with_context(|| "failed to parse value of --outputs-json")?;
+            let private_state = parse_private_state(private_state_json, "--private-state-json")?;
 
             let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
@@ -168,6 +191,7 @@ async fn async_main() -> Result<()> {
                 output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
                     output_properties_json,
                 )),
+                private_state: private_state.map(nixops4_resource::schema::v0::PrivateState),
             };
 
             let result = provider.destroy(resource).await;
@@ -187,11 +211,13 @@ async fn async_main() -> Result<()> {
             resource_type,
             input_properties_json,
             output_properties_json,
+            private_state_json,
         } => {
             let input_properties_json = serde_json::from_str(input_properties_json.as_str())
                 .with_context(|| "failed to parse value of --inputs-json")?;
             let output_properties_json = serde_json::from_str(output_properties_json.as_str())
                 .with_context(|| "failed to parse value of --outputs-json")?;
+            let private_state = parse_private_state(private_state_json, "--private-state-json")?;
 
             let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
                 provider_executable: provider_exe.clone(),
@@ -207,6 +233,7 @@ async fn async_main() -> Result<()> {
                 output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
                     output_properties_json,
                 )),
+                private_state: private_state.map(nixops4_resource::schema::v0::PrivateState),
             };
 
             let result = provider.state_read(resource).await;
@@ -229,6 +256,7 @@ async fn async_main() -> Result<()> {
             resource_type,
             input_properties_json,
             output_properties_json,
+            private_state_json,
             event,
             nixops_version,
             patch_json,
@@ -237,6 +265,7 @@ async fn async_main() -> Result<()> {
                 .with_context(|| "failed to parse value of --inputs-json")?;
             let output_properties_json = serde_json::from_str(output_properties_json.as_str())
                 .with_context(|| "failed to parse value of --outputs-json")?;
+            let private_state = parse_private_state(private_state_json, "--private-state-json")?;
             let patch: json_patch::Patch = serde_json::from_str(patch_json.as_str())
                 .with_context(|| "failed to parse value of --patch-json")?;
 
@@ -255,6 +284,7 @@ async fn async_main() -> Result<()> {
                     output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
                         output_properties_json,
                     )),
+                    private_state: private_state.map(nixops4_resource::schema::v0::PrivateState),
                 },
                 event: event.clone(),
                 nixops_version: nixops_version.clone(),
@@ -371,6 +401,11 @@ enum Commands {
         /// The previous JSON output properties for the resource, as recorded in the state
         #[arg(long("previous-outputs-json"))]
         previous_output_properties_json: String,
+
+        /// The previous JSON private state for the resource, as recorded
+        /// in the state. Omit when no private state was stored.
+        #[arg(long("previous-private-state-json"))]
+        previous_private_state_json: Option<String>,
     },
 
     /// Destroy a resource
@@ -390,6 +425,10 @@ enum Commands {
         /// The JSON output properties the resource returned
         #[arg(long("outputs-json"))]
         output_properties_json: String,
+
+        /// The JSON private state that the provider last wrote for the resource
+        #[arg(long("private-state-json"))]
+        private_state_json: Option<String>,
     },
 
     /// Read state from a state resource
@@ -409,6 +448,10 @@ enum Commands {
         /// The JSON output properties for the resource
         #[arg(long("outputs-json"))]
         output_properties_json: String,
+
+        /// The JSON private state that the provider last wrote for the resource
+        #[arg(long("private-state-json"))]
+        private_state_json: Option<String>,
     },
 
     /// Send a state event to a state resource
@@ -428,6 +471,10 @@ enum Commands {
         /// The JSON output properties for the resource
         #[arg(long("outputs-json"))]
         output_properties_json: String,
+
+        /// The JSON private state that the provider last wrote for the resource
+        #[arg(long("private-state-json"))]
+        private_state_json: Option<String>,
 
         /// The operation that produced this change
         #[arg(long)]
