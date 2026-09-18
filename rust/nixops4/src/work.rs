@@ -1091,67 +1091,38 @@ impl WorkContext {
         ResourceProviderInfo,
         Thunk<std::result::Result<serde_json::Map<String, serde_json::Value>, Arc<anyhow::Error>>>,
     )> {
-        let provider_info_thunk = context
-            .spawn(Goal::GetResourceProviderInfo(
+        // Both requests go out before either answer is awaited.
+        let provider_info =
+            get_resource_provider_info(context, id, resource_path.clone(), mutation_cap).await?;
+        let inputs_list =
+            list_resource_inputs(context, id, resource_path.clone(), mutation_cap).await?;
+
+        // The input values can only be requested once their names are known.
+        let mut input_values = BTreeMap::new();
+        for input_name in inputs_list.await? {
+            let value = get_resource_input_value(
+                context,
                 id,
                 resource_path.clone(),
+                input_name.clone(),
                 mutation_cap,
-            ))
+            )
             .await?;
-
-        let resource_inputs_list_id = context
-            .spawn(Goal::ListResourceInputs(
-                id,
-                resource_path.clone(),
-                mutation_cap,
-            ))
-            .await?;
-
-        let inputs_list = {
-            let outcome = clone_result(resource_inputs_list_id.force().await.as_ref())?;
-            match outcome {
-                Outcome::ResourceInputsListed(i) => i,
-                _ => {
-                    panic!("Unexpected outcome from ListResourceInputs: {:?}", outcome)
-                }
-            }
-        };
-
-        let mut inputs_thunks = BTreeMap::new();
-        for input_name in inputs_list {
-            let input_id = context
-                .spawn(Goal::GetResourceInputValue(
-                    id,
-                    resource_path.clone(),
-                    input_name.clone(),
-                    mutation_cap,
-                ))
-                .await?;
-            inputs_thunks.insert(input_name, input_id);
+            input_values.insert(input_name, value);
         }
 
-        let provider_info = {
-            let outcome = clone_result(provider_info_thunk.force().await.as_ref())?;
-            match outcome {
-                Outcome::ResourceProviderInfo(i) => i,
-                _ => panic!(
-                    "Unexpected outcome from GetResourceProviderInfo: {:?}",
-                    outcome
-                ),
-            }
-        };
+        let provider_info = provider_info.await?;
 
+        // Returned unforced, like the requests above, so that a caller can
+        // overlap its own work with the values arriving. The apply path
+        // starts the resource's state resource in the meantime.
         let inputs_thunk = Thunk::new(async move {
             let mut inputs = serde_json::Map::new();
-            for (input_name, thunk) in inputs_thunks {
-                match clone_result(thunk.force().await.as_ref()) {
-                    Ok(Outcome::ResourceInputValue(v)) => {
-                        inputs.insert(input_name, v);
+            for (input_name, value) in input_values {
+                match value.await {
+                    Ok(value) => {
+                        inputs.insert(input_name, value);
                     }
-                    Ok(outcome) => panic!(
-                        "Unexpected outcome from GetResourceInputValue: {:?}",
-                        outcome
-                    ),
                     Err(e) => return Err(Arc::new(e)),
                 }
             }
@@ -1452,24 +1423,13 @@ impl TaskWork for WorkContext {
                                 }
                             };
 
-                            // Get the provider info
-                            let provider_info_thunk = context
-                                .spawn(Goal::GetResourceProviderInfo(id, path.clone(), Some(cap)))
-                                .await
-                                .with_context(|| {
-                                    format!("Failed to get provider info for resource {}", path)
-                                })?;
-                            let provider_info = {
-                                let outcome =
-                                    clone_result(provider_info_thunk.force().await.as_ref())?;
-                                match outcome {
-                                    Outcome::ResourceProviderInfo(i) => i,
-                                    _ => panic!(
-                                        "Unexpected outcome from GetResourceProviderInfo: {:?}",
-                                        outcome
-                                    ),
-                                }
-                            };
+                            let provider_info =
+                                get_resource_provider_info(&context, id, path.clone(), Some(cap))
+                                    .await
+                                    .with_context(|| {
+                                        format!("Failed to get provider info for resource {}", path)
+                                    })?
+                                    .await?;
 
                             (resource, provider_info)
                         }
@@ -1539,6 +1499,81 @@ pub(crate) fn clone_anyhow_from_arc(e: &Arc<anyhow::Error>) -> anyhow::Error {
         err = err.context(msg.to_string());
     }
     err
+}
+
+/// Ask the evaluator for a resource's provider info.
+///
+/// The request is dispatched before this returns, and the returned future
+/// waits for the answer, so a caller with more requests to make can dispatch
+/// those first and await this one when it needs the value.
+async fn get_resource_provider_info(
+    context: &TaskContext<WorkContext>,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<impl Future<Output = Result<ResourceProviderInfo>> + 'static> {
+    let thunk = context
+        .spawn(Goal::GetResourceProviderInfo(id, path, mutation_cap))
+        .await?;
+    Ok(async move {
+        match thunk.force().await.as_ref() {
+            Ok(Outcome::ResourceProviderInfo(info)) => Ok(info.clone()),
+            // The goal determines the outcome variant; a mismatch is a bug here.
+            Ok(other) => panic!(
+                "Unexpected outcome from GetResourceProviderInfo: {:?}",
+                other
+            ),
+            Err(e) => Err(clone_anyhow_from_arc(e)),
+        }
+    })
+}
+
+/// Ask the evaluator which inputs a resource has. See
+/// [`get_resource_provider_info`] for what awaiting the result does.
+async fn list_resource_inputs(
+    context: &TaskContext<WorkContext>,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<impl Future<Output = Result<Vec<String>>> + 'static> {
+    let thunk = context
+        .spawn(Goal::ListResourceInputs(id, path, mutation_cap))
+        .await?;
+    Ok(async move {
+        match thunk.force().await.as_ref() {
+            Ok(Outcome::ResourceInputsListed(names)) => Ok(names.clone()),
+            // The goal determines the outcome variant; a mismatch is a bug here.
+            Ok(other) => panic!("Unexpected outcome from ListResourceInputs: {:?}", other),
+            Err(e) => Err(clone_anyhow_from_arc(e)),
+        }
+    })
+}
+
+/// Ask the evaluator for the value of one resource input. See
+/// [`get_resource_provider_info`] for what awaiting the result does.
+async fn get_resource_input_value(
+    context: &TaskContext<WorkContext>,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    input_name: String,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<impl Future<Output = Result<Value>> + 'static> {
+    let thunk = context
+        .spawn(Goal::GetResourceInputValue(
+            id,
+            path,
+            input_name,
+            mutation_cap,
+        ))
+        .await?;
+    Ok(async move {
+        match thunk.force().await.as_ref() {
+            Ok(Outcome::ResourceInputValue(value)) => Ok(value.clone()),
+            // The goal determines the outcome variant; a mismatch is a bug here.
+            Ok(other) => panic!("Unexpected outcome from GetResourceInputValue: {:?}", other),
+            Err(e) => Err(clone_anyhow_from_arc(e)),
+        }
+    })
 }
 
 /// Resolve a component path to a composite ID.
