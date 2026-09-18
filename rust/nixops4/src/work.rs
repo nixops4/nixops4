@@ -30,6 +30,21 @@ type CleanupTask = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<()>> +
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct MutationCapability;
 
+/// How a resource is accounted for.
+pub(crate) enum Tracking {
+    /// It declares no state, so the declaration is all there is.
+    Untracked,
+    /// It declares a state resource that holds no record of it yet.
+    Unrecorded {
+        handle: Arc<crate::state::StateHandle>,
+    },
+    /// It declares a state resource, and this is what that recorded.
+    Recorded {
+        handle: Arc<crate::state::StateHandle>,
+        recorded: crate::state::ResourceState,
+    },
+}
+
 /// An item in the deployment preview, representing either a known resource
 /// or an unknown structure blocked by a structural dependency.
 #[derive(Clone, Debug)]
@@ -447,6 +462,59 @@ impl WorkContext {
                 )
             }
         }
+    }
+
+    /// Open the state resource that `resource_path` declares, and read what it
+    /// records about it.
+    ///
+    /// With a `mutation_cap` the state resource is applied before it is
+    /// opened, because a state resource is a resource like any other and may
+    /// not exist yet, or need to be updated.
+    async fn tracking(
+        &self,
+        context: &TaskContext<Self>,
+        resource_path: &ComponentPath,
+        provider_info: &ResourceProviderInfo,
+        mutation_cap: Option<MutationCapability>,
+    ) -> Result<Tracking> {
+        let state_resource_path = match &provider_info.state {
+            Some(path) => path,
+            None => return Ok(Tracking::Untracked),
+        };
+
+        let state_resource_id = self
+            .get_resource_id(context, state_resource_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Invalid state reference '{}' for resource {}",
+                    state_resource_path, resource_path
+                )
+            })?;
+
+        let thunk = context
+            .spawn(Goal::RunState(
+                state_resource_id,
+                state_resource_path.clone(),
+                mutation_cap,
+            ))
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to start state provider '{}' for resource {}",
+                    state_resource_path, resource_path
+                )
+            })?;
+
+        let handle = match clone_result(thunk.force().await.as_ref())? {
+            Outcome::RunState(handle) => handle,
+            other => panic!("Unexpected outcome from RunState: {:?}", other),
+        };
+
+        Ok(match handle.recorded(resource_path).await {
+            Some(recorded) => Tracking::Recorded { handle, recorded },
+            None => Tracking::Unrecorded { handle },
+        })
     }
 
     /// Resolve a dependency by requiring the resource output value.
@@ -1140,86 +1208,40 @@ impl WorkContext {
             .resolve_resource_inputs(&context, id, &resource_path, Some(mutation_cap))
             .await?;
 
-        let state_provider = match &provider_info.state {
-            Some(state_resource_path) => {
-                // Get the state resource ID
-                let state_resource_id = self
-                    .get_resource_id(&context, state_resource_path)
-                    .await
-                    .with_context(|| {
-                    format!(
-                        "Invalid state reference '{}' for resource {}",
-                        state_resource_path, resource_path
-                    )
-                })?;
-
-                let thunk = context
-                    .spawn(Goal::RunState(
-                        state_resource_id,
-                        state_resource_path.clone(),
-                        Some(mutation_cap),
-                    ))
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to start state provider '{}' for resource {}",
-                            state_resource_path, resource_path
-                        )
-                    })?;
-                Some((state_resource_path, state_resource_id, thunk))
-            }
-            None => None,
-        };
-
-        let state = match state_provider {
-            Some((_state_resource_id, _state_resource_name, thunk)) => {
-                let outcome = clone_result(thunk.force().await.as_ref())?;
-                match outcome {
-                    Outcome::RunState(i) => Some(i),
-                    _ => panic!("Unexpected outcome from RunState: {:?}", outcome),
-                }
-            }
-            None => None,
+        let (state, mut saved_past_resource) = match self
+            .tracking(&context, &resource_path, &provider_info, Some(mutation_cap))
+            .await?
+        {
+            Tracking::Untracked => (None, None),
+            Tracking::Unrecorded { handle } => (Some(handle), None),
+            Tracking::Recorded { handle, recorded } => (Some(handle), Some(recorded)),
         };
 
         let inputs = clone_result(inputs_thunk.force().await)?;
 
-        // Read past resource once and cache it for both the skip check and the
-        // later create-vs-update decision, avoiding a second state lock.
-        //
         // Skip optimization: see "Skipping Unchanged Resources" in
         // doc/manual/src/concept/resource.md for the assumptions.
-        let mut saved_past_resource: Option<crate::state::ResourceState> = None;
-        if let Some(ref state_handle) = state {
-            saved_past_resource = state_handle
-                .current
-                .lock()
-                .await
-                .deployment
-                .get_resource(&resource_path)
-                .cloned();
-            if let Some(ref past_resource) = saved_past_resource {
-                if past_resource.type_ != provider_info.resource_type {
-                    bail!(
-                        "Resource type change is not supported: {} != {}",
-                        past_resource.type_,
-                        provider_info.resource_type
-                    );
-                }
-                if inputs == past_resource.input_properties {
-                    tracing::info!(
-                        "Skipping update for resource {}: inputs unchanged",
-                        resource_path
-                    );
-                    return self
-                        .publish_resource_outputs(
-                            &resource_path,
-                            inputs,
-                            past_resource.output_properties.clone(),
-                            provider_info.resource_type,
-                        )
-                        .await;
-                }
+        if let Some(ref past_resource) = saved_past_resource {
+            if past_resource.type_ != provider_info.resource_type {
+                bail!(
+                    "Resource type change is not supported: {} != {}",
+                    past_resource.type_,
+                    provider_info.resource_type
+                );
+            }
+            if inputs == past_resource.input_properties {
+                tracing::info!(
+                    "Skipping update for resource {}: inputs unchanged",
+                    resource_path
+                );
+                return self
+                    .publish_resource_outputs(
+                        &resource_path,
+                        inputs,
+                        past_resource.output_properties.clone(),
+                        provider_info.resource_type,
+                    )
+                    .await;
             }
         }
 

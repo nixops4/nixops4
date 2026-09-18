@@ -102,6 +102,17 @@ impl StateHandle {
         }))
     }
 
+    /// Get the `ResourceState` that this state resource has for `resource_path`,
+    /// or `None` when it holds no record of it or it has been removed.
+    pub async fn recorded(&self, resource_path: &ComponentPath) -> Option<ResourceState> {
+        self.current
+            .lock()
+            .await
+            .deployment
+            .get_resource(resource_path)
+            .cloned()
+    }
+
     pub async fn resource_event(
         &self,
         resource_path: &ComponentPath,
