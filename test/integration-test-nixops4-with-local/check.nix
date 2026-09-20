@@ -356,6 +356,33 @@ runCommand "itest-nixops4-with-local"
       rm -f structural-deployments.stdout structural-deployments-state.json
     )
 
+    h1 "STRUCTURAL DEPENDENCY: NAMES THE BLOCKED ANCESTOR, NOT THE FULL PATH"
+    (
+      set -x
+      echo "=== Testing that resolving a deeper path under a blocked ancestor names the ancestor ==="
+
+      # With the state file gone (previous block), selector's value is
+      # unresolved again, so childResource's own existence is a structural
+      # dependency once more. Ask for a path one segment deeper than the
+      # blocked ancestor: the failure has to name childResource itself, not
+      # just the full, deeper path this command was given.
+      (
+        set +e
+        nixops4 members list structuralDeploymentsAttr.conditionalChild.childResource.extra --show-trace 2> ancestor-err.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+      )
+
+      grep -F "Failed to resolve path 'structuralDeploymentsAttr.conditionalChild.childResource.extra' for members list" ancestor-err.log
+      grep -F "while resolving 'structuralDeploymentsAttr.conditionalChild.childResource'" ancestor-err.log
+      grep -F "Structural dependency while loading member 'childResource'" ancestor-err.log
+
+      mv ancestor-err.log $out/logs/ancestor-blocked.stderr
+    )
+
     h1 STRUCTURAL DEPENDENCY: CONDITIONAL RESOURCES IN COMPOSITE
     (
       set -x

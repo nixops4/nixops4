@@ -387,7 +387,9 @@ impl WorkContext {
         }
         let (parent_path, name) = composite_path.parent().unwrap();
         let parent_id = Box::pin(self.get_composite_id(context, &parent_path)).await?;
-        let handle = load_member_resolved(context, parent_id, name, None).await?;
+        let handle = load_member_resolved(context, parent_id, name, None)
+            .await
+            .with_context(|| format!("while resolving '{}'", composite_path))?;
         match handle {
             ComponentHandle::Composite(id) => Ok(id),
             ComponentHandle::Resource(_) => {
