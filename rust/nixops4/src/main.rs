@@ -2,6 +2,7 @@ mod application;
 mod apply;
 mod complete;
 mod control;
+mod destroy_resource;
 mod eval_client;
 mod interrupt;
 mod logging;
@@ -55,6 +56,13 @@ async fn run_args(interrupt_state: &InterruptState, args: Args) -> Result<()> {
                     }
                 }
             };
+            Ok(())
+        }
+        Commands::Destroy { resource_path } => {
+            let mut logging = set_up_logging(interrupt_state, &args)?;
+            destroy_resource::destroy_resource(interrupt_state, &args.options, resource_path)
+                .await?;
+            logging.tear_down()?;
             Ok(())
         }
         Commands::State(sub) => {
@@ -317,6 +325,13 @@ enum Commands {
     /// Commands that operate on component members
     #[command(subcommand)]
     Members(Members),
+
+    /// Destroy a resource, removing it from both the provider and state.
+    Destroy {
+        /// Resource path (dot-separated, e.g., "neatservice.prod.appvm")
+        #[arg(add = ArgValueCompleter::new(complete::component_path_completer_resource))]
+        resource_path: ComponentPath,
+    },
 
     /// Commands that operate on deployment state
     #[command(subcommand)]

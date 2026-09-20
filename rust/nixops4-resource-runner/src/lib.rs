@@ -170,6 +170,22 @@ impl ResourceProviderClient {
         }
     }
 
+    pub async fn destroy(&mut self, resource: v0::ExtantResource) -> Result<()> {
+        let req = v0::DestroyResourceRequest { resource };
+
+        self.write_request(v0::Request::DestroyResourceRequest(req))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::DestroyResourceResponse(_) => Ok(()),
+            _ => anyhow::bail!(
+                "Expected DestroyResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
     pub async fn state_event(&mut self, request: v0::StateResourceEvent) -> Result<()> {
         // Write the request
         self.write_request(v0::Request::StateResourceEvent(request))

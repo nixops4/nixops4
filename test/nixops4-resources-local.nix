@@ -361,6 +361,79 @@ runCommand "check-nixops4-resources-local"
     [[ ! -s state_absent_out.json ]]
     grep -F "Could not open state file absent-state.json" state_absent_err.log
 
+    # Test "file" destroy - removes the file, and an absent file is success
+
+    [[ -f test.txt ]]
+    nixops4-resource-runner destroy \
+      --provider-exe nixops4-resources-local \
+      --type file \
+      --inputs-json '{"name": "test.txt", "contents": "hi"}' \
+      --outputs-json '{}'
+    [[ ! -e test.txt ]]
+
+    nixops4-resource-runner destroy \
+      --provider-exe nixops4-resources-local \
+      --type file \
+      --inputs-json '{"name": "test.txt", "contents": "hi"}' \
+      --outputs-json '{}'
+
+    # Test "state_file" destroy - refused while it still records resources
+
+    nixops4-resource-runner state-event \
+      --provider-exe nixops4-resources-local \
+      --type state_file \
+      --inputs-json '{"name": "new-state.json"}' \
+      --outputs-json '{}' \
+      --event "create" \
+      --nixops-version "4.0.0-test" \
+      --patch-json '[
+        {
+          "op": "add",
+          "path": "/resources/blocker",
+          "value": {
+            "type": "file",
+            "inputProperties": {"name": "blocker.txt", "contents": "x"},
+            "outputProperties": {}
+          }
+        }
+      ]'
+
+    (
+      set +e
+      nixops4-resource-runner destroy \
+        --provider-exe nixops4-resources-local \
+        --type state_file \
+        --inputs-json '{"name": "new-state.json"}' \
+        --outputs-json '{}' \
+        > state_destroy_out.json 2> state_destroy_err.log
+      [[ $? == 1 ]]
+    )
+    grep -F "still records resources" state_destroy_err.log
+    [[ -f new-state.json ]]
+
+    # ... and succeeds once it records none
+
+    nixops4-resource-runner state-event \
+      --provider-exe nixops4-resources-local \
+      --type state_file \
+      --inputs-json '{"name": "new-state.json"}' \
+      --outputs-json '{}' \
+      --event "destroy" \
+      --nixops-version "4.0.0-test" \
+      --patch-json '[
+        {
+          "op": "remove",
+          "path": "/resources/blocker"
+        }
+      ]'
+
+    nixops4-resource-runner destroy \
+      --provider-exe nixops4-resources-local \
+      --type state_file \
+      --inputs-json '{"name": "new-state.json"}' \
+      --outputs-json '{}'
+    [[ ! -e new-state.json ]]
+
     echo "All state persistence tests passed!"
 
     # Test documentation examples - verify state-read resolves correctly

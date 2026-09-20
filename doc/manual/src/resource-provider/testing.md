@@ -109,6 +109,20 @@ The `--stateful` flag indicates that state persistence will be provided to the r
 
 See [`nixops4-resource-runner create`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-create) and [`nixops4-resource-runner update`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-update).
 
+### Example: Destroying a resource
+
+Note that destroy takes the resource as it was created, although most providers will ignore some inputs.
+
+```bash
+nixops4-resource-runner destroy \
+  --provider-exe nixops4-resources-local \
+  --type file \
+  --inputs-json '{"name": "test.txt", "contents": "Hello, world!"}' \
+  --outputs-json '{}'
+```
+
+See [`nixops4-resource-runner destroy`](../cli/nixops4-resource-runner.md#nixops4-resource-runner-destroy).
+
 ### Example: Testing state resources
 
 State resources provide persistent storage for resource state using JSON files and incremental updates via JSON Patch operations.

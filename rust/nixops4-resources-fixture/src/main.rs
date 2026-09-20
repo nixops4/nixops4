@@ -49,6 +49,16 @@ fn require_stateful(is_stateful: bool, resource_type: &str) -> Result<()> {
     Ok(())
 }
 
+/// `undestroyable`: creates and updates without doing anything; always
+/// fails to destroy. Lets a test watch a destroy fail and then see the
+/// resource still in state.
+///
+/// - `reason`: text the provider puts in the error it fails with.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct UndestroyableInProperties {
+    reason: String,
+}
+
 /// Read the stored state document, defaulting to the empty-state
 /// skeleton when the file does not exist yet.
 fn read_state_document(path: &str) -> Result<Value> {
@@ -88,6 +98,16 @@ impl ResourceProvider for FixtureResourceProvider {
                     output_properties: v0::OutputProperties(Default::default()),
                 })
             }
+            "undestroyable" => {
+                require_stateful(request.is_stateful, request.type_.as_str())?;
+                parse_inputs::<UndestroyableInProperties>(
+                    &request.input_properties,
+                    request.type_.as_str(),
+                )?;
+                Ok(v0::CreateResourceResponse {
+                    output_properties: v0::OutputProperties(Default::default()),
+                })
+            }
             t => bail!("fixture provider: unknown resource type {}", t),
         }
     }
@@ -99,6 +119,15 @@ impl ResourceProvider for FixtureResourceProvider {
         match request.resource.type_.as_str() {
             "stateful_state_file" => {
                 parse_inputs::<StatefulStateFileInProperties>(
+                    &request.input_properties,
+                    request.resource.type_.as_str(),
+                )?;
+                Ok(v0::UpdateResourceResponse {
+                    output_properties: v0::OutputProperties(Default::default()),
+                })
+            }
+            "undestroyable" => {
+                parse_inputs::<UndestroyableInProperties>(
                     &request.input_properties,
                     request.resource.type_.as_str(),
                 )?;
@@ -146,6 +175,44 @@ impl ResourceProvider for FixtureResourceProvider {
                 Ok(v0::StateResourceEventResponse {})
             }
             t => bail!("fixture provider: state_event on resource type {}", t),
+        }
+    }
+
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        match request.resource.type_.as_str() {
+            "stateful_state_file" => {
+                // A real state resource should check that it's not tracking any live
+                // resources anymore, but we don't need that behavior here.
+                // That's tested with/for local's state_file just fine.
+                let p = parse_inputs::<StatefulStateFileInProperties>(
+                    &request.resource.input_properties,
+                    request.resource.type_.as_str(),
+                )?;
+                // Removing the document is what makes a destroy observable.
+                match fs::remove_file(p.name.as_str()) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(e)
+                            .with_context(|| format!("removing state document {}", p.name))
+                    }
+                }
+                Ok(v0::DestroyResourceResponse {})
+            }
+            "undestroyable" => {
+                // The point of the type: a destroy that fails, so a test
+                // can watch the command fail and then see the resource
+                // still in state.
+                let p = parse_inputs::<UndestroyableInProperties>(
+                    &request.resource.input_properties,
+                    request.resource.type_.as_str(),
+                )?;
+                bail!("fixture provider: refusing to destroy: {}", p.reason)
+            }
+            t => bail!("fixture provider: unknown resource type {}", t),
         }
     }
 }

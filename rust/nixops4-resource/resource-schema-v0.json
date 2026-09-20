@@ -172,6 +172,23 @@
       "properties": {},
       "additionalProperties": false
     },
+    "DestroyResourceRequest": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyResourceResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "ErrorResponse": {
       "type": "object",
       "description": "An error response from the resource provider, indicating that the requested operation failed.",
@@ -237,6 +254,18 @@
           "required": [
             "stateResourceReadRequest"
           ]
+        },
+        {
+          "type": "object",
+          "title": "DestroyResourceRequest",
+          "properties": {
+            "destroyResourceRequest": {
+              "$ref": "#/definitions/DestroyResourceRequest"
+            }
+          },
+          "required": [
+            "destroyResourceRequest"
+          ]
         }
       ]
     },
@@ -290,6 +319,18 @@
           },
           "required": [
             "stateResourceReadResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "DestroyResourceResponse",
+          "properties": {
+            "destroyResourceResponse": {
+              "$ref": "#/definitions/DestroyResourceResponse"
+            }
+          },
+          "required": [
+            "destroyResourceResponse"
           ]
         },
         {

@@ -36,6 +36,8 @@ pub(crate) enum Tracking {
     Untracked,
     /// It declares a state resource that holds no record of it yet.
     Unrecorded {
+        /// The state resource, for saying which one an error is about.
+        state_path: ComponentPath,
         handle: Arc<crate::state::StateHandle>,
     },
     /// It declares a state resource, and this is what that recorded.
@@ -44,6 +46,10 @@ pub(crate) enum Tracking {
         recorded: crate::state::ResourceState,
     },
 }
+
+/// No `MutationCapability`, named so that a call site says which capability it
+/// is withholding rather than passing a bare `None`.
+pub(crate) const READ_ONLY: Option<MutationCapability> = None;
 
 /// An item in the deployment preview, representing either a known resource
 /// or an unknown structure blocked by a structural dependency.
@@ -1027,7 +1033,10 @@ impl WorkContext {
         .await?
         {
             Tracking::Untracked => (None, None),
-            Tracking::Unrecorded { handle } => (Some(handle), None),
+            Tracking::Unrecorded {
+                handle,
+                state_path: _,
+            } => (Some(handle), None),
             Tracking::Recorded { handle, recorded } => (Some(handle), Some(recorded)),
         };
 
@@ -1512,7 +1521,7 @@ pub(crate) async fn load_member(
 }
 
 /// Ask the evaluator for a resource's provider info.
-async fn get_resource_provider_info(
+pub(crate) async fn get_resource_provider_info(
     dispatch: &impl Dispatch,
     id: Id<ResourceType>,
     path: ComponentPath,
@@ -1708,7 +1717,10 @@ pub(crate) async fn tracking(
 
     Ok(match handle.recorded(resource_path).await {
         Some(recorded) => Tracking::Recorded { handle, recorded },
-        None => Tracking::Unrecorded { handle },
+        None => Tracking::Unrecorded {
+            state_path: state_resource_path.clone(),
+            handle,
+        },
     })
 }
 
@@ -1735,6 +1747,80 @@ pub(crate) async fn resolve_resource_path(
             resource_path
         ),
     }
+}
+
+/// The resource as it can be accounted for without applying it, and the state
+/// resource that accounts for it, where there is one.
+///
+/// For the callers that have to describe a resource they may not apply.
+pub(crate) async fn unapplied_resource(
+    dispatch: &impl Dispatch,
+    root_id: Id<CompositeType>,
+    id: Id<ResourceType>,
+    path: &ComponentPath,
+    provider_info: &ResourceProviderInfo,
+) -> Result<(
+    nixops4_resource::schema::v0::ExtantResource,
+    Option<Arc<crate::state::StateHandle>>,
+)> {
+    match tracking(dispatch, root_id, path, provider_info, READ_ONLY).await? {
+        Tracking::Recorded { recorded, handle } => Ok((
+            nixops4_resource::schema::v0::ExtantResource {
+                type_: nixops4_resource::schema::v0::ResourceType(recorded.type_.clone()),
+                input_properties: nixops4_resource::schema::v0::InputProperties(
+                    recorded.input_properties.clone(),
+                ),
+                output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
+                    recorded.output_properties.clone(),
+                )),
+            },
+            Some(handle),
+        )),
+
+        Tracking::Unrecorded {
+            state_path,
+            handle: _,
+        } => bail!(
+            "Resource {} has no record in {} to work from.",
+            path,
+            state_path
+        ),
+
+        // Stateless provides imperfect information but is workable; see
+        // "Changing a Declaration" in doc/manual/src/concept/resource.md.
+        Tracking::Untracked => {
+            let inputs = gather_resource_inputs(dispatch, id, path.clone(), READ_ONLY)
+                .await?
+                .await
+                .with_context(|| format!("Failed to get the inputs of {}", path))?;
+
+            Ok((
+                declared_resource(provider_info.resource_type.clone(), inputs),
+                None,
+            ))
+        }
+    }
+}
+
+/// Ask the evaluator for all of a resource's input values.
+pub(crate) async fn gather_resource_inputs(
+    dispatch: &impl Dispatch,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<impl Future<Output = Result<serde_json::Map<String, Value>>> + 'static> {
+    let value_futs = request_resource_input_values(dispatch, id, path, mutation_cap).await?;
+
+    Ok(async move {
+        let mut inputs = serde_json::Map::new();
+        for (name, value_fut) in value_futs {
+            let value = value_fut
+                .await
+                .with_context(|| format!("Failed to get resource input '{}'", name))?;
+            inputs.insert(name, value);
+        }
+        Ok(inputs)
+    })
 }
 
 /// Ask the evaluator to resolve a component path to a composite ID.

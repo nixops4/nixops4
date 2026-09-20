@@ -96,6 +96,19 @@ See [`CreateResourceRequest`](../schema/resource-v0.md#11-property-createresourc
 
 See [`UpdateResourceRequest`](../schema/resource-v0.md#12-property-updateresourcerequest) and [`UpdateResourceResponse`](../schema/resource-v0.md#22-property-updateresourceresponse) in the schema documentation.
 
+**Destroy**: Removes whatever the resource represents. The request includes:
+- `resource`: The resource as it was last recorded (type, input properties, and output properties)
+
+What "as it was last recorded" amounts to depends on whether the resource is tracked, which also decides what an update can do; see [Changing a Declaration](../concept/resource.md#changing-a-declaration).
+
+The response is empty: a provider reports failure by returning an error, not by answering with a field.
+A destroy is expected to succeed when there is nothing left to remove, so that destroying twice is not an error.
+
+A provider may refuse a destroy that would lose track of something.
+The `state_file` resource of the `local` provider does this: it refuses while the state file it would delete still records resources, so that those resources are not orphaned.
+
+See [`DestroyResourceRequest`](../schema/resource-v0.md#15-property-destroyresourcerequest) and [`DestroyResourceResponse`](../schema/resource-v0.md#25-property-destroyresourceresponse) in the schema documentation.
+
 ### State Operations
 
 Resources that provide state storage implement additional operations:

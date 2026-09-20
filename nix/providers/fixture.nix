@@ -46,5 +46,27 @@ in
         options = { };
       };
     };
+    undestroyable = {
+      description = ''
+        Creates and updates without doing anything; always fails to
+        destroy. Lets a test watch a destroy fail and then see the
+        resource still in state.
+      '';
+      requireState = true;
+      inputs = {
+        options = {
+          reason = mkOption {
+            type = types.str;
+            default = "undestroyable by construction";
+            description = ''
+              Text the provider puts in the error it fails with.
+            '';
+          };
+        };
+      };
+      outputs = {
+        options = { };
+      };
+    };
   };
 }

@@ -749,6 +749,89 @@ runCommand "itest-nixops4-with-local"
       rm -f rename-stateless-before.txt rename-stateless-after.txt
     )
 
+    h1 DESTROY
+    (
+      set -x
+      echo "=== Testing the destroy command ==="
+
+      nixops4 apply -v destroyDeployment --show-trace
+      test -f destroy-doomed.json
+      test -f destroy-scratch.txt
+
+      h2 "Destroy a tracked resource"
+      # The record lands in the state resource that `doomed` declared.
+      nixops4 state dump destroyDeployment.state --show-trace > destroy-dump.json
+      jq -e '.deployments.destroyDeployment.resources | has("doomed")' destroy-dump.json
+
+      nixops4 destroy destroyDeployment.doomed --show-trace
+
+      [[ ! -e destroy-doomed.json ]]
+      nixops4 state dump destroyDeployment.state --show-trace > destroy-dump.json
+      jq -e '.deployments.destroyDeployment.resources | has("doomed") | not' destroy-dump.json
+
+      h2 "Destroying it again names the state resource that has no record of it"
+      # A tracked resource is destroyed as its state records it, so once that
+      # record is gone the destroy has no account of it to work from.
+      (
+        set +e
+        nixops4 destroy destroyDeployment.doomed --show-trace 2> destroy-again.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+      )
+      grep -F "Resource destroyDeployment.doomed has no record in destroyDeployment.state to work from." destroy-again.log
+
+      h2 "Destroy a resource with no declared state"
+      # `scratch` has no state resource, so destroy takes it as the
+      # deployment describes it.
+      nixops4 destroy destroyDeployment.scratch --show-trace
+      [[ ! -e destroy-scratch.txt ]]
+
+      h2 "A refused destroy leaves the resource in state"
+      (
+        set +e
+        nixops4 destroy destroyDeployment.stubborn --show-trace 2> destroy-refused.log
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ]; then
+          echo "FAIL: expected nonzero exit code" >&2
+          exit 1
+        fi
+      )
+      grep -F "refusing to destroy: undestroyable by construction" destroy-refused.log
+      nixops4 state dump destroyDeployment.state --show-trace > destroy-dump.json
+      jq -e '.deployments.destroyDeployment.resources | has("stubborn")' destroy-dump.json
+
+      h2 "Destroy after the declared name changed"
+      # A tracked resource is destroyed as its state records it, so editing
+      # the declaration in between must not redirect the destroy at the new
+      # name. A resource with no state has nothing but the declaration to go
+      # on, so it can only do the opposite. Both are shown here.
+
+      [[ -f destroy-renamed-tracked-before.json ]]
+      [[ -f destroy-renamed-stateless-before.txt ]]
+
+      echo '"destroy-renamed-tracked-after.json"' > destroy-renamed-tracked-name.nix
+      echo '"destroy-renamed-stateless-after.txt"' > destroy-renamed-stateless-name.nix
+
+      # Make the newly declared names exist too, so that destroying the
+      # wrong one is visible rather than silently indistinguishable.
+      echo '{}' > destroy-renamed-tracked-after.json
+      echo renamed > destroy-renamed-stateless-after.txt
+
+      nixops4 destroy destroyDeployment.renamedTracked --show-trace
+      [[ ! -e destroy-renamed-tracked-before.json ]]
+      [[ -f destroy-renamed-tracked-after.json ]]
+
+      nixops4 destroy destroyDeployment.renamedStateless --show-trace
+      [[ -f destroy-renamed-stateless-before.txt ]]
+      [[ ! -e destroy-renamed-stateless-after.txt ]]
+
+      rm -f destroy-state.json destroy-dump.json destroy-refused.log destroy-again.log
+      rm -f destroy-renamed-tracked-after.json destroy-renamed-stateless-before.txt
+    )
+
     h1 STATE DUMP
     (
       set -x

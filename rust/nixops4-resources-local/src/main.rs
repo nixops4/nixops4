@@ -240,6 +240,101 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
             ),
         }
     }
+
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                let inputs = parse_input_properties::<FileInProperties>(
+                    &request.resource.input_properties,
+                    &request.resource.type_,
+                )?;
+                remove_file_if_present(&inputs.name)?;
+                Ok(v0::DestroyResourceResponse {})
+            }
+            // An optional destroy command could be implemented.
+            "exec" => Ok(v0::DestroyResourceResponse {}),
+            // A memo is only state, so nothing to do before that state is dropped.
+            "memo" => Ok(v0::DestroyResourceResponse {}),
+            "state_file" => {
+                let inputs = parse_input_properties::<StateFileInProperties>(
+                    &request.resource.input_properties,
+                    &request.resource.type_,
+                )?;
+                // Avoid orphaning any resources that may still be in this file.
+                // The write lock is held across the check and the removal, so
+                // an apply cannot append a create event in between: it would
+                // be recorded in a file this has already decided to delete.
+                let r = OpenOptions::new()
+                    .read(true)
+                    .append(true)
+                    .open(inputs.name.as_str());
+                match r {
+                    Ok(file) => {
+                        let mut locking = fd_lock::RwLock::new(file);
+                        let write_guard = {
+                            let mon =
+                                WaitMonitor::new("Waiting for state file write lock".to_owned());
+                            let g = locking.write()?;
+                            mon.done();
+                            g
+                        };
+
+                        let stream =
+                            StateEventStream::open_from_reader(io::BufReader::new(&*write_guard))?;
+                        let mut state = serde_json::json!({});
+                        state::apply_state_events(&mut state, stream)?;
+                        if records_any_resource(&state) {
+                            bail!(
+                                "Refusing to destroy state file {}: it still records resources; destroy those first",
+                                inputs.name
+                            );
+                        }
+                        remove_file_if_present(&inputs.name)?;
+                    }
+                    // Already gone, so there is nothing to orphan.
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(e)
+                            .with_context(|| format!("Could not open state file {}", inputs.name))
+                    }
+                }
+                Ok(v0::DestroyResourceResponse {})
+            }
+            t => bail!(
+                "LocalResourceProvider::destroy: unknown resource type: {}",
+                t
+            ),
+        }
+    }
+}
+
+/// Remove a file, treating an already absent one as success.
+fn remove_file_if_present(name: &str) -> Result<()> {
+    match std::fs::remove_file(name) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("Could not remove {}", name)),
+    }
+}
+
+/// Whether a materialized state document records any resource.
+fn records_any_resource(state: &Value) -> bool {
+    let Some(obj) = state.as_object() else {
+        return false;
+    };
+    if obj
+        .get("resources")
+        .and_then(|r| r.as_object())
+        .is_some_and(|r| !r.is_empty())
+    {
+        return true;
+    }
+    obj.get("deployments")
+        .and_then(|d| d.as_object())
+        .is_some_and(|deployments| deployments.values().any(records_any_resource))
 }
 
 fn run_exec(p: ExecInProperties) -> Result<ExecOutProperties> {
@@ -372,6 +467,40 @@ mod tests {
     use super::*;
     use nixops4_resource::framework::ResourceProvider;
     use std::io::Write;
+
+    #[test]
+    fn records_any_resource_ignores_an_empty_state() {
+        let state = serde_json::json!({
+            "_type": "nixopsState",
+            "resources": {},
+            "deployments": { "dep": { "resources": {}, "deployments": {} } },
+        });
+        assert!(!records_any_resource(&state));
+    }
+
+    #[test]
+    fn records_any_resource_sees_a_top_level_resource() {
+        let state = serde_json::json!({
+            "resources": { "a": { "type": "file" } },
+            "deployments": {},
+        });
+        assert!(records_any_resource(&state));
+    }
+
+    #[test]
+    fn records_any_resource_sees_a_deeply_nested_resource() {
+        let state = serde_json::json!({
+            "resources": {},
+            "deployments": { "dep": {
+                "resources": {},
+                "deployments": { "inner": {
+                    "resources": { "thing": { "type": "memo" } },
+                    "deployments": {},
+                } },
+            } },
+        });
+        assert!(records_any_resource(&state));
+    }
 
     #[tokio::test]
     async fn test_state_read_invalid_state_file() {

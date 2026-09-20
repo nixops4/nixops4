@@ -191,6 +191,20 @@ impl StateHandle {
         )
         .await
     }
+    /// Remove a resource from state and send a destroy event to the state provider.
+    pub async fn resource_destroy_event(&self, resource_path: &ComponentPath) -> Result<()> {
+        self.commit_state_change(
+            "destroy",
+            |state| remove_resource_from_deployment_state(state, resource_path),
+            |patch_count| {
+                format!(
+                    "Failed to remove resource '{}' from state - {} field(s) changed",
+                    resource_path, patch_count
+                )
+            },
+        )
+        .await
+    }
 
     pub async fn close(self: Arc<Self>) -> Result<()> {
         // Only close if this is the last reference
@@ -251,6 +265,50 @@ fn update_resource_in_deployment_state(
     // Set the resource (last element of path is the resource name)
     let resource_name = &path_parts[path_parts.len() - 1];
     current["resources"][resource_name] = resource_json;
+
+    Ok(())
+}
+
+/// Remove a resource from a complete deployment state JSON structure.
+/// This modifies the deployment state JSON in-place to remove the resource at the given path.
+fn remove_resource_from_deployment_state(
+    deployment_state: &mut serde_json::Value,
+    resource_path: &ComponentPath,
+) -> Result<()> {
+    let path_parts = &resource_path.0;
+    if path_parts.is_empty() {
+        bail!("Empty resource path");
+    }
+
+    // Navigate to the correct deployment
+    let mut current = &mut *deployment_state;
+    for deployment_name in &path_parts[..path_parts.len() - 1] {
+        current = current
+            .get_mut("deployments")
+            .and_then(|d| d.get_mut(deployment_name))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Deployment '{}' not found in state while removing resource {}",
+                    deployment_name,
+                    resource_path
+                )
+            })?;
+    }
+
+    let resource_name = &path_parts[path_parts.len() - 1];
+    let resources = current
+        .get_mut("resources")
+        .and_then(|r| r.as_object_mut())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No resources object found in state while removing resource {}",
+                resource_path
+            )
+        })?;
+
+    if resources.remove(resource_name).is_none() {
+        bail!("Resource '{}' not found in state", resource_path);
+    }
 
     Ok(())
 }
@@ -516,5 +574,69 @@ mod tests {
             }
         });
         assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_root() {
+        let mut state = serde_json::json!({
+            "resources": {
+                "myresource": {"type": "test", "input_properties": {}, "output_properties": {}},
+                "other": {"type": "other"}
+            }
+        });
+
+        let resource_path = ComponentPath(vec!["myresource".to_string()]);
+        remove_resource_from_deployment_state(&mut state, &resource_path).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {
+                "other": {"type": "other"}
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_nested() {
+        let mut state = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "target": {"type": "test"},
+                        "sibling": {"type": "sibling"}
+                    }
+                }
+            }
+        });
+
+        let resource_path = ComponentPath(vec!["deploy1".to_string(), "target".to_string()]);
+        remove_resource_from_deployment_state(&mut state, &resource_path).unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "sibling": {"type": "sibling"}
+                    }
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_not_found() {
+        let mut state = serde_json::json!({
+            "resources": {}
+        });
+
+        let resource_path = ComponentPath(vec!["nonexistent".to_string()]);
+        let result = remove_resource_from_deployment_state(&mut state, &resource_path);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Resource 'nonexistent' not found in state"
+        );
     }
 }

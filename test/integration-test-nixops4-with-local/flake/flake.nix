@@ -476,6 +476,50 @@
                 };
               };
 
+            # Test case: the destroy command
+            members.destroyDeployment =
+              { members, ... }:
+              {
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = "destroy-state.json";
+                };
+
+                members.doomed = {
+                  type = providers.fixture.stateful_state_file;
+                  state = members.state;
+                  inputs.name = "destroy-doomed.json";
+                };
+
+                members.scratch = {
+                  type = providers.local.file;
+                  inputs.name = "destroy-scratch.txt";
+                  inputs.contents = "scratch";
+                };
+
+                # Always fails to destroy, so the test can observe that
+                # and see the resource still in state.
+                members.stubborn = {
+                  type = providers.fixture.undestroyable;
+                  state = members.state;
+                };
+
+                # A pair for the question of which name a destroy acts on
+                # when the declaration changed after the apply. Their names
+                # come from files the test rewrites in between.
+                members.renamedTracked = {
+                  type = providers.fixture.stateful_state_file;
+                  state = members.state;
+                  inputs.name = import ./destroy-renamed-tracked-name.nix;
+                };
+
+                members.renamedStateless = {
+                  type = providers.local.file;
+                  inputs.name = import ./destroy-renamed-stateless-name.nix;
+                  inputs.contents = "renamed";
+                };
+              };
+
             # Test case: a state resource that is itself tracked.
             # `innerState` declares `outerState` as its state, so NixOps
             # has to apply `innerState` and record it in `outerState` before

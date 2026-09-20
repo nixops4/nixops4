@@ -17,7 +17,6 @@ pub fn component_path_completer_all(current: &OsStr) -> Vec<CompletionCandidate>
 }
 
 /// Completer for destroy: only resources are valid targets.
-#[allow(dead_code)] // anticipated use in destroy command
 pub fn component_path_completer_resource(current: &OsStr) -> Vec<CompletionCandidate> {
     component_path_completer_inner(current, CompletionMode::ResourceOnly).unwrap_or_default()
 }

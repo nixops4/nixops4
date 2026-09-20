@@ -143,6 +143,45 @@ async fn async_main() -> Result<()> {
                 }
             }
         }
+        Commands::Destroy {
+            provider_exe,
+            resource_type,
+            input_properties_json,
+            output_properties_json,
+        } => {
+            let input_properties_json = serde_json::from_str(input_properties_json.as_str())
+                .with_context(|| "failed to parse value of --inputs-json")?;
+            let output_properties_json = serde_json::from_str(output_properties_json.as_str())
+                .with_context(|| "failed to parse value of --outputs-json")?;
+
+            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+                provider_executable: provider_exe.clone(),
+                provider_args: vec![],
+            })
+            .await?;
+
+            let resource = nixops4_resource::schema::v0::ExtantResource {
+                type_: nixops4_resource::schema::v0::ResourceType(resource_type.clone()),
+                input_properties: nixops4_resource::schema::v0::InputProperties(
+                    input_properties_json,
+                ),
+                output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
+                    output_properties_json,
+                )),
+            };
+
+            let result = provider.destroy(resource).await;
+
+            provider.close_wait().await?;
+
+            match result {
+                Ok(()) => Ok(()),
+                Err(err) => {
+                    eprintln!("error: {:#}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::StateRead {
             provider_exe,
             resource_type,
@@ -332,6 +371,25 @@ enum Commands {
         /// The previous JSON output properties for the resource, as recorded in the state
         #[arg(long("previous-outputs-json"))]
         previous_output_properties_json: String,
+    },
+
+    /// Destroy a resource
+    Destroy {
+        /// The executable that implements the resource operations
+        #[arg(long)]
+        provider_exe: String,
+
+        /// The type of resource to destroy: an identifier recognized by the resource provider
+        #[arg(long("type"))]
+        resource_type: String,
+
+        /// The JSON input properties the resource was created with
+        #[arg(long("inputs-json"))]
+        input_properties_json: String,
+
+        /// The JSON output properties the resource returned
+        #[arg(long("outputs-json"))]
+        output_properties_json: String,
     },
 
     /// Read state from a state resource
