@@ -1032,34 +1032,20 @@ impl WorkContext {
         // Both requests go out before either answer is awaited.
         let provider_info =
             get_resource_provider_info(context, id, resource_path.clone(), mutation_cap).await?;
-        let inputs_list =
-            list_resource_inputs(context, id, resource_path.clone(), mutation_cap).await?;
-
-        // The input values can only be requested once their names are known.
-        let mut input_values = BTreeMap::new();
-        for input_name in inputs_list.await? {
-            let value = get_resource_input_value(
-                context,
-                id,
-                resource_path.clone(),
-                input_name.clone(),
-                mutation_cap,
-            )
-            .await?;
-            input_values.insert(input_name, value);
-        }
+        let value_futs =
+            request_resource_input_values(context, id, resource_path.clone(), mutation_cap).await?;
 
         let provider_info = provider_info.await?;
 
-        // Returned unforced, like the requests above, so that a caller can
+        // Returned unforced, like the request above, so that a caller can
         // overlap its own work with the values arriving. The apply path
         // starts the resource's state resource in the meantime.
         let inputs_thunk = Thunk::new(async move {
             let mut inputs = serde_json::Map::new();
-            for (input_name, value) in input_values {
-                match value.await {
+            for (name, value_fut) in value_futs {
+                match value_fut.await {
                     Ok(value) => {
-                        inputs.insert(input_name, value);
+                        inputs.insert(name, value);
                     }
                     Err(e) => return Err(Arc::new(e)),
                 }
@@ -1693,6 +1679,28 @@ pub(crate) async fn run_state(
         },
     )
     .await
+}
+
+/// The names have to arrive before the values can be asked for, but the
+/// values are then all requested before any of them is awaited.
+async fn request_resource_input_values(
+    dispatch: &impl Dispatch,
+    id: Id<ResourceType>,
+    path: ComponentPath,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<BTreeMap<String, impl Future<Output = Result<Value>> + 'static>> {
+    let names = list_resource_inputs(dispatch, id, path.clone(), mutation_cap)
+        .await?
+        .await?;
+
+    let mut value_futs = BTreeMap::new();
+    for name in names {
+        let value_fut =
+            get_resource_input_value(dispatch, id, path.clone(), name.clone(), mutation_cap)
+                .await?;
+        value_futs.insert(name, value_fut);
+    }
+    Ok(value_futs)
 }
 
 /// Ask the evaluator to resolve a component path to a composite ID.
