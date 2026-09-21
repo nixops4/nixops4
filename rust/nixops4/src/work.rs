@@ -1226,6 +1226,72 @@ impl WorkContext {
         self.publish_resource_outputs(&resource_path, inputs, outputs, provider_info.resource_type)
             .await
     }
+
+    /// Open the state resource at `path`, so that the state it holds can be
+    /// read and written.
+    ///
+    /// With a `MutationCapability` the resource is applied first, because a
+    /// state resource is a resource like any other and may not exist yet.
+    /// Without one it stays unapplied, so its declaration is the only
+    /// account of it available here.
+    async fn perform_run_state(
+        &self,
+        context: TaskContext<Self>,
+        id: Id<ResourceType>,
+        path: ComponentPath,
+        cap: Option<MutationCapability>,
+    ) -> Result<Outcome> {
+        let (resource, provider_info) = match cap {
+            Some(cap) => {
+                // Mutating path: apply the resource first
+                let resource = apply_resource(&context, id, path.clone(), cap)
+                    .await
+                    .with_context(|| format!("Failed to apply resource {}", path))?
+                    .await?;
+
+                let provider_info =
+                    get_resource_provider_info(&context, id, path.clone(), Some(cap))
+                        .await
+                        .with_context(|| {
+                            format!("Failed to get provider info for resource {}", path)
+                        })?
+                        .await?;
+
+                (resource, provider_info)
+            }
+            None => {
+                // Read-only path: resolve inputs without applying
+                let (provider_info, inputs_thunk) = self
+                    .resolve_resource_inputs(&context, id, &path, None)
+                    .await?;
+                let inputs = clone_result(inputs_thunk.force().await)?;
+                let resource = nixops4_resource::schema::v0::ExtantResource {
+                    input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
+                    output_properties: None,
+                    type_: nixops4_resource::schema::v0::ResourceType(
+                        provider_info.resource_type.clone(),
+                    ),
+                };
+
+                (resource, provider_info)
+            }
+        };
+
+        let handle = crate::state::StateHandle::open(&provider_info, &resource).await?;
+
+        // Register cleanup task for this state handle
+        {
+            let handle_for_cleanup = handle.clone();
+            let cleanup_task = Box::new(
+                move || -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+                    Box::pin(async move { handle_for_cleanup.close().await })
+                },
+            );
+            self.state.lock().await.cleanup_tasks.push(cleanup_task);
+        }
+
+        Ok(Outcome::RunState(handle))
+    }
 }
 
 impl TaskWork for WorkContext {
@@ -1328,66 +1394,13 @@ impl TaskWork for WorkContext {
             }
 
             Goal::RunState(id, path, cap) => {
-                (async {
-                    let (resource, provider_info) = match cap {
-                        Some(cap) => {
-                            // Mutating path: apply the resource first
-                            let resource = apply_resource(&context, id, path.clone(), cap)
-                                .await
-                                .with_context(|| format!("Failed to apply resource {}", path))?
-                                .await?;
-
-                            let provider_info =
-                                get_resource_provider_info(&context, id, path.clone(), Some(cap))
-                                    .await
-                                    .with_context(|| {
-                                        format!("Failed to get provider info for resource {}", path)
-                                    })?
-                                    .await?;
-
-                            (resource, provider_info)
-                        }
-                        None => {
-                            // Read-only path: resolve inputs without applying
-                            let (provider_info, inputs_thunk) = self
-                                .resolve_resource_inputs(&context, id, &path, None)
-                                .await?;
-                            let inputs = clone_result(inputs_thunk.force().await)?;
-
-                            let resource = nixops4_resource::schema::v0::ExtantResource {
-                                input_properties: nixops4_resource::schema::v0::InputProperties(
-                                    inputs,
-                                ),
-                                output_properties: None,
-                                type_: nixops4_resource::schema::v0::ResourceType(
-                                    provider_info.resource_type.clone(),
-                                ),
-                            };
-
-                            (resource, provider_info)
-                        }
-                    };
-
-                    let handle = crate::state::StateHandle::open(&provider_info, &resource).await?;
-
-                    // Register cleanup task for this state handle
-                    {
-                        let handle_for_cleanup = handle.clone();
-                        let cleanup_task = Box::new(
-                            move || -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
-                                Box::pin(async move { handle_for_cleanup.close().await })
-                            },
-                        );
-                        self.state.lock().await.cleanup_tasks.push(cleanup_task);
-                    }
-
-                    Ok(Outcome::RunState(handle))
-                })
-                .instrument(info_span!(
-                    "Running state provider resource",
-                    resource = ?path
-                ))
-                .await
+                let path_2 = path.clone();
+                self.perform_run_state(context, id, path, cap)
+                    .instrument(info_span!(
+                        "Running state provider resource",
+                        resource = ?path_2
+                    ))
+                    .await
             }
         };
         Arc::new(r.map_err(Arc::new))
