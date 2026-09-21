@@ -153,11 +153,7 @@ impl StateHandle {
             patch: json_patch::Patch(vec![json_patch::PatchOperation::Add(
                 json_patch::AddOperation {
                     path: "".parse().expect("empty path"),
-                    value: serde_json::json!({
-                        "_type": "nixopsState",
-                        "resources": {},
-                        "deployments": {},
-                    }),
+                    value: nixops4_resource::state::empty_state(),
                 },
             )]),
         }

@@ -22,3 +22,13 @@
 //! - **Interoperability**: JSON Patch is a standard format
 
 pub mod schema;
+
+/// The skeleton that a fresh, untouched state document produces:
+/// no resources or deployments recorded yet.
+pub fn empty_state() -> serde_json::Value {
+    serde_json::json!({
+        "_type": "nixopsState",
+        "resources": {},
+        "deployments": {},
+    })
+}
