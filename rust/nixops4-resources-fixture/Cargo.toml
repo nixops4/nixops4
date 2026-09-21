@@ -1,0 +1,19 @@
+[package]
+name = "nixops4-resources-fixture"
+version = "0.1.0"
+edition = "2021"
+description = "Test-only resource provider covering the NixOps4 resource protocol surface."
+license = "LGPL-2.1"
+publish = false
+
+[dependencies]
+nixops4-resource = { path = "../nixops4-resource" }
+anyhow = "1.0"
+json-patch = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros"] }
+
+[[bin]]
+path = "src/main.rs"
+name = "nixops4-resources-fixture"

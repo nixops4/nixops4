@@ -8,7 +8,10 @@
 let
   inputs = nixops4Flake.inputs;
   binaries = {
-    inherit (nixops4Flake.packages.${stdenv.hostPlatform.system}) nixops4-resources-local-release;
+    inherit (nixops4Flake.packages.${stdenv.hostPlatform.system})
+      nixops4-resources-local-release
+      nixops4-resources-fixture-release
+      ;
   };
 in
 runCommand "nixops4-flake-in-a-bottle"

@@ -112,6 +112,9 @@
         flake.modules.nixops4Provider.local = flake-parts-lib.importApply ./nix/providers/local.nix {
           inherit withSystem;
         };
+        flake.modules.nixops4Provider.fixture = flake-parts-lib.importApply ./nix/providers/fixture.nix {
+          inherit withSystem;
+        };
 
         partitionedAttrs.devShells = "dev";
         partitionedAttrs.checks = "dev";

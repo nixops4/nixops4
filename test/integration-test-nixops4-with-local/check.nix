@@ -691,6 +691,42 @@ runCommand "itest-nixops4-with-local"
       rm -f structural-cycle.stdout
     )
 
+    h1 NESTED STATE RESOURCES
+    (
+      set -x
+      echo "=== Testing a state resource that is itself tracked ==="
+
+      nixops4 apply -v nestedStateDeployment --show-trace
+
+      test -f nested-state-outer.json
+      test -f nested-state-inner.json
+
+      # outerState must have tracked innerState as a resource.
+      jq -es '
+        [.[] | .patch[]? | .value? | .. | objects | select(.type == "stateful_state_file")]
+          | length > 0
+      ' nested-state-outer.json | grep -q true || {
+        echo "FAIL: innerState not tracked as a resource in outerState"
+        cat nested-state-outer.json
+        exit 1
+      }
+
+      # The memo declared innerState as its state, so its record is in innerState.
+      jq -e '.deployments.nestedStateDeployment.resources.thing.input_properties.initialize_with == "thing-v1"' \
+        nested-state-inner.json
+
+      h2 "Re-apply with unchanged inputs"
+      nixops4 apply -v nestedStateDeployment --show-trace
+
+      h2 "Read-only: state dump reads the nested state resource"
+      nixops4 state dump nestedStateDeployment.innerState --show-trace > nested-state-dump.json
+      jq -e '.deployments.nestedStateDeployment.resources.thing.input_properties.initialize_with == "thing-v1"' \
+        nested-state-dump.json
+
+      mv nested-state-dump.json $out/logs/nested-state-dump.json
+      rm -f nested-state-outer.json nested-state-inner.json
+    )
+
     h1 STATE DUMP
     (
       set -x

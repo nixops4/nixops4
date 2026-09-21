@@ -1134,6 +1134,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nixops4-resources-fixture"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "json-patch",
+ "nixops4-resource",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "nixops4-resources-local"
 version = "0.1.0"
 dependencies = [

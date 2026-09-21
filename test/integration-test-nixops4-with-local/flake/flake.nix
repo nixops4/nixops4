@@ -28,6 +28,7 @@
           {
             # Provider is defined at root level and inherited by all nested composites
             providers.local = inputs.nixops4.modules.nixops4Provider.local;
+            providers.fixture = inputs.nixops4.modules.nixops4Provider.fixture;
 
             members.myDeployment = {
               members.hello = {
@@ -461,6 +462,31 @@
                 inputs.initialize_with = "will-fail";
               };
             };
+
+            # Test case: a state resource that is itself tracked.
+            # `innerState` declares `outerState` as its state, so NixOps
+            # has to apply `innerState` and record it in `outerState` before
+            # using it to store state itself.
+            members.nestedStateDeployment =
+              { members, ... }:
+              {
+                members.outerState = {
+                  type = providers.local.state_file;
+                  inputs.name = "nested-state-outer.json";
+                };
+
+                members.innerState = {
+                  type = providers.fixture.stateful_state_file;
+                  state = members.outerState;
+                  inputs.name = "nested-state-inner.json";
+                };
+
+                members.thing = {
+                  type = providers.local.memo;
+                  state = members.innerState;
+                  inputs.initialize_with = "thing-v1";
+                };
+              };
 
             # Test case: circular dependency between resources.
             # A's input depends on B's output, B's input depends on A's output.
