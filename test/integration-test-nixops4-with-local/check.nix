@@ -727,6 +727,28 @@ runCommand "itest-nixops4-with-local"
       rm -f nested-state-outer.json nested-state-inner.json
     )
 
+    h1 "RENAMING AN UNTRACKED FILE"
+    (
+      set -x
+      # A file's `name` is a mutable identity.
+      # In this test, the file is untracked, so there is no record
+      # of the old one to rename from, and the provider can only upsert.
+      # The new name is created and the old file is left behind.
+      # See "Changing a Declaration" in doc/manual/src/concept/resource.md.
+
+      nixops4 apply -v renameDeployment --show-trace
+      [[ "untracked" == "$(cat rename-stateless-before.txt)" ]]
+
+      echo '"rename-stateless-after.txt"' > rename-stateless-name.nix
+      nixops4 apply -v renameDeployment --show-trace
+
+      [[ "untracked" == "$(cat rename-stateless-after.txt)" ]]
+      # Orphaned rather than renamed. Not great, but expected.
+      [[ -f rename-stateless-before.txt ]]
+
+      rm -f rename-stateless-before.txt rename-stateless-after.txt
+    )
+
     h1 STATE DUMP
     (
       set -x

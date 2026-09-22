@@ -26,6 +26,23 @@ When a resource type has `requireState = false`:
 - The resource does not need a state handler
 - The resource is stateless and can be idempotently recreated from its inputs
 
+### Changing a Declaration
+
+What NixOps can do depends on whether the resource state is tracked or not, i.e. whether `state` is set.
+
+When a resource is tracked, NixOps knows the state as it was last applied.
+This means it can hand the provider both this previous state and the declared intended state,
+so that the provider can carry out the changes with full information.
+
+A resource with no state has only the declaration, because the state of it was not recorded.
+This means that the provider can only perform an "upsert"-style operation: create if it doesn't exist yet, and update if it does.
+Often this is good enough, but it breaks down with mutable identities.
+For instance, the file `name` property may have changed, but without tracking the previous state, the provider can not know to rename it.
+Instead, you will have a new resource under the new name, and the old resource sticks around, without a way for NixOps to remove it or tell you that it's still there.
+This can be a costly affair, so virtually all cloud provisioning resources require state and can not be used without it (even if in some cases they could work statelessly).
+
+So if you use stateless deployments, make sure the names you use are unchanging, or if they do change, you manage the change yourself.
+
 ### Skipping Unchanged Resources
 
 When NixOps applies a stateful resource whose inputs haven't changed since the last apply, it considers the resource up to date and does not perform the update operation.

@@ -463,6 +463,19 @@
               };
             };
 
+            # Test case: editing the declaration of an untracked resource
+            # The previous name went unrecorded, so the apply cannot
+            # carry it over and leaves the old file behind.
+            members.renameDeployment =
+              { members, ... }:
+              {
+                members.untracked = {
+                  type = providers.local.file;
+                  inputs.name = import ./rename-stateless-name.nix;
+                  inputs.contents = "untracked";
+                };
+              };
+
             # Test case: a state resource that is itself tracked.
             # `innerState` declares `outerState` as its state, so NixOps
             # has to apply `innerState` and record it in `outerState` before
