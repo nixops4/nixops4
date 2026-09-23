@@ -113,12 +113,21 @@ impl StateHandle {
             .cloned()
     }
 
-    pub async fn resource_event(
+    /// Change the recorded deployment state, and adopt the change only when
+    /// the state provider has accepted it.
+    ///
+    /// `mutate` edits a copy, and the difference between the copy and the
+    /// original gets sent.
+    /// Memory is updated after the provider succeeds.
+    /// Otherwise, the change is not applied in memory either.
+    ///
+    /// `describe` formats the failure (using the number of changed fields),
+    /// so that callers can describe the failure in understandable terms.
+    async fn commit_state_change(
         &self,
-        resource_path: &ComponentPath,
         event: &str,
-        _past_resource: Option<&ResourceState>,
-        current_resource: &ResourceState,
+        mutate: impl FnOnce(&mut serde_json::Value) -> Result<()>,
+        describe: impl FnOnce(usize) -> String,
     ) -> Result<()> {
         // Use whole-state diff approach for reliability
         let mut current_state = self.current.lock().await;
@@ -127,9 +136,8 @@ impl StateHandle {
         let old_state = serde_json::to_value(&current_state.deployment)
             .with_context(|| "Failed to serialize current deployment state")?;
 
-        // Create new state with the resource updated
         let mut new_state = old_state.clone();
-        update_resource_in_deployment_state(&mut new_state, resource_path, current_resource)?;
+        mutate(&mut new_state)?;
 
         // TODO: this is expensive for large states, O(n^2)
         let patch = json_patch::diff(&old_state, &new_state);
@@ -152,14 +160,7 @@ impl StateHandle {
             .await
             .state_event(event)
             .await
-            .with_context(|| {
-                // TODO: In the future, we could log specific attribute paths that changed (without values)
-                // to help with debugging while maintaining security. E.g. "resource.input_properties.password changed"
-                format!(
-                    "Failed to update state for resource '{}' (type: {}) - {} field(s) changed",
-                    resource_path, current_resource.type_, patch_count
-                )
-            })?;
+            .with_context(|| describe(patch_count))?;
 
         // Update current state after successful patch application
         let new_deployment_state: DeploymentState = serde_json::from_value(new_state)
@@ -167,6 +168,28 @@ impl StateHandle {
         current_state.deployment = new_deployment_state;
 
         Ok(())
+    }
+
+    pub async fn resource_event(
+        &self,
+        resource_path: &ComponentPath,
+        event: &str,
+        _past_resource: Option<&ResourceState>,
+        current_resource: &ResourceState,
+    ) -> Result<()> {
+        self.commit_state_change(
+            event,
+            |state| update_resource_in_deployment_state(state, resource_path, current_resource),
+            |patch_count| {
+                // TODO: In the future, we could log specific attribute paths that changed (without values)
+                // to help with debugging while maintaining security. E.g. "resource.input_properties.password changed"
+                format!(
+                    "DATA LOSS: Failed to save state update for resource '{}' (type: {}) - {} field(s) changed",
+                    resource_path, current_resource.type_, patch_count
+                )
+            },
+        )
+        .await
     }
 
     pub async fn close(self: Arc<Self>) -> Result<()> {
