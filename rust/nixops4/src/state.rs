@@ -86,14 +86,7 @@ impl StateHandle {
         provider_info: &ResourceProviderInfo,
         resource: &ExtantResource,
     ) -> Result<Arc<StateHandle>> {
-        let provider_argv = provider::parse_provider(&provider_info.provider)?;
-        // Run the provider
-        let mut provider =
-            ResourceProviderClient::new(nixops4_resource_runner::ResourceProviderConfig {
-                provider_executable: provider_argv.executable,
-                provider_args: provider_argv.args,
-            })
-            .await?;
+        let mut provider = provider::start_provider(provider_info).await?;
 
         let state = provider.state_read(resource.clone()).await?;
         // Awkwardly construct a JSON object from the BTreeMap

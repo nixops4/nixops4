@@ -13,7 +13,6 @@ use nixops4_core::eval_api::{
     EvalRequest, EvalResponse, Id, IdNum, MessageType, NamedProperty, Property, QueryRequest,
     QueryResponseValue, ResourceProviderInfo, ResourceType, StepResult,
 };
-use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
@@ -1237,13 +1236,7 @@ impl WorkContext {
             eprintln!("Resource inputs for {}: {:?}", resource_path, inputs);
         }
 
-        let provider_argv = provider::parse_provider(&provider_info.provider)?;
-        // Run the provider
-        let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-            provider_executable: provider_argv.executable,
-            provider_args: provider_argv.args,
-        })
-        .await?;
+        let mut provider = provider::start_provider(&provider_info).await?;
 
         let outputs = match state {
             None => provider
