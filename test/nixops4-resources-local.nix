@@ -346,6 +346,21 @@ runCommand "check-nixops4-resources-local"
     [[ ! -s state_invalid_out.json ]]
     grep -F "State file invalid" state_invalid_err.log
 
+    # Test reading a state file that does not exist
+
+    (
+      set +e
+      nixops4-resource-runner state-read \
+        --provider-exe nixops4-resources-local \
+        --type state_file \
+        --inputs-json '{"name": "absent-state.json"}' \
+        --outputs-json '{}' \
+        > state_absent_out.json 2> state_absent_err.log
+      [[ $? == 1 ]]
+    )
+    [[ ! -s state_absent_out.json ]]
+    grep -F "Could not open state file absent-state.json" state_absent_err.log
+
     echo "All state persistence tests passed!"
 
     # Test documentation examples - verify state-read resolves correctly

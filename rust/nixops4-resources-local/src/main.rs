@@ -183,7 +183,10 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     &request.resource.type_,
                 )?;
 
-                let file = OpenOptions::new().read(true).open(inputs.name.as_str())?;
+                let file = OpenOptions::new()
+                    .read(true)
+                    .open(inputs.name.as_str())
+                    .with_context(|| format!("Could not open state file {}", inputs.name))?;
                 let locking = fd_lock::RwLock::new(file);
                 let read_guard = {
                     let mon = WaitMonitor::new("Waiting for state file read lock".to_owned());
