@@ -282,29 +282,6 @@ impl WorkContext {
             .await
     }
 
-    /// Load a single member via LoadMember goal.
-    async fn load_member(
-        &self,
-        context: &TaskContext<Self>,
-        composite_id: Id<CompositeType>,
-        name: &str,
-        mutation_cap: Option<MutationCapability>,
-    ) -> Result<ComponentHandle> {
-        match load_member(context, composite_id, name.to_string(), mutation_cap)
-            .await
-            .with_context(|| format!("Error while loading member '{}'", name))?
-            .await?
-        {
-            Ok(handle) => Ok(handle),
-            Err(dep) => bail!(
-                "Structural dependency while loading member '{}' (depends on {}.{})",
-                name,
-                dep.depends_on.resource,
-                dep.depends_on.name,
-            ),
-        }
-    }
-
     /// Load all members in parallel and partition by kind, preserving typed IDs.
     /// Returns Err(PreviewItem) if any member has a structural dependency (preview mode).
     async fn load_and_partition_members(
@@ -404,7 +381,7 @@ impl WorkContext {
         }
         let (parent_path, name) = composite_path.parent().unwrap();
         let parent_id = Box::pin(self.get_composite_id(context, &parent_path)).await?;
-        let handle = self.load_member(context, parent_id, name, None).await?;
+        let handle = load_member_resolved(context, parent_id, name, None).await?;
         match handle {
             ComponentHandle::Composite(id) => Ok(id),
             ComponentHandle::Resource(_) => {
@@ -422,70 +399,7 @@ impl WorkContext {
         context: &TaskContext<Self>,
         resource_path: &ComponentPath,
     ) -> Result<Id<ResourceType>> {
-        let (parent_path, name) = resource_path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("Cannot get resource ID for root path"))?;
-        let parent_id = self.get_composite_id(context, &parent_path).await?;
-        let handle = self.load_member(context, parent_id, name, None).await?;
-        match handle {
-            ComponentHandle::Resource(id) => Ok(id),
-            ComponentHandle::Composite(_) => {
-                bail!(
-                    "Expected resource at {}, but found composite",
-                    resource_path
-                )
-            }
-        }
-    }
-
-    /// Open the state resource that `resource_path` declares, and read what it
-    /// records about it.
-    ///
-    /// With a `mutation_cap` the state resource is applied before it is
-    /// opened, because a state resource is a resource like any other and may
-    /// not exist yet, or need to be updated.
-    async fn tracking(
-        &self,
-        context: &TaskContext<Self>,
-        resource_path: &ComponentPath,
-        provider_info: &ResourceProviderInfo,
-        mutation_cap: Option<MutationCapability>,
-    ) -> Result<Tracking> {
-        let state_resource_path = match &provider_info.state {
-            Some(path) => path,
-            None => return Ok(Tracking::Untracked),
-        };
-
-        let state_resource_id = self
-            .get_resource_id(context, state_resource_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Invalid state reference '{}' for resource {}",
-                    state_resource_path, resource_path
-                )
-            })?;
-
-        let state = run_state(
-            context,
-            state_resource_id,
-            state_resource_path.clone(),
-            mutation_cap,
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to start state provider '{}' for resource {}",
-                state_resource_path, resource_path
-            )
-        })?;
-
-        let handle = state.await?;
-
-        Ok(match handle.recorded(resource_path).await {
-            Some(recorded) => Tracking::Recorded { handle, recorded },
-            None => Tracking::Unrecorded { handle },
-        })
+        resolve_resource_path(context, self.root_composite_id, resource_path).await
     }
 
     /// Resolve a dependency by requiring the resource output value.
@@ -1103,9 +1017,14 @@ impl WorkContext {
             .resolve_resource_inputs(&context, id, &resource_path, Some(mutation_cap))
             .await?;
 
-        let (state, mut saved_past_resource) = match self
-            .tracking(&context, &resource_path, &provider_info, Some(mutation_cap))
-            .await?
+        let (state, mut saved_past_resource) = match tracking(
+            &context,
+            self.root_composite_id,
+            &resource_path,
+            &provider_info,
+            Some(mutation_cap),
+        )
+        .await?
         {
             Tracking::Untracked => (None, None),
             Tracking::Unrecorded { handle } => (Some(handle), None),
@@ -1265,13 +1184,7 @@ impl WorkContext {
                     .resolve_resource_inputs(&context, id, &path, None)
                     .await?;
                 let inputs = clone_result(inputs_thunk.force().await)?;
-                let resource = nixops4_resource::schema::v0::ExtantResource {
-                    input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
-                    output_properties: None,
-                    type_: nixops4_resource::schema::v0::ResourceType(
-                        provider_info.resource_type.clone(),
-                    ),
-                };
+                let resource = declared_resource(provider_info.resource_type.clone(), inputs);
 
                 (resource, provider_info)
             }
@@ -1714,6 +1627,114 @@ async fn request_resource_input_values(
         value_futs.insert(name, value_fut);
     }
     Ok(value_futs)
+}
+
+/// Build an `ExtantResource` from the deployment's declaration alone, with no
+/// output properties.
+pub(crate) fn declared_resource(
+    resource_type: String,
+    inputs: serde_json::Map<String, Value>,
+) -> nixops4_resource::schema::v0::ExtantResource {
+    nixops4_resource::schema::v0::ExtantResource {
+        type_: nixops4_resource::schema::v0::ResourceType(resource_type),
+        input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
+        output_properties: None,
+    }
+}
+
+/// Load a member, turning a structural dependency into a normal error.
+pub(crate) async fn load_member_resolved(
+    dispatch: &impl Dispatch,
+    composite_id: Id<CompositeType>,
+    name: &str,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<ComponentHandle> {
+    match load_member(dispatch, composite_id, name.to_string(), mutation_cap)
+        .await
+        .with_context(|| format!("Error while loading member '{}'", name))?
+        .await?
+    {
+        Ok(handle) => Ok(handle),
+        Err(dep) => bail!(
+            "Structural dependency while loading member '{}' (depends on {}.{})",
+            name,
+            dep.depends_on.resource,
+            dep.depends_on.name,
+        ),
+    }
+}
+
+/// Open the state resource that `resource_path` declares, and read what it
+/// records about `resource_path`.
+///
+/// With a `mutation_cap` the state resource is applied before it is opened,
+/// because a state resource is a resource like any other and may not exist
+/// yet, or need to be updated.
+pub(crate) async fn tracking(
+    dispatch: &impl Dispatch,
+    root_id: Id<CompositeType>,
+    resource_path: &ComponentPath,
+    provider_info: &ResourceProviderInfo,
+    mutation_cap: Option<MutationCapability>,
+) -> Result<Tracking> {
+    let state_resource_path = match &provider_info.state {
+        Some(path) => path,
+        None => return Ok(Tracking::Untracked),
+    };
+
+    let state_resource_id = resolve_resource_path(dispatch, root_id, state_resource_path)
+        .await
+        .with_context(|| {
+            format!(
+                "Invalid state reference '{}' for resource {}",
+                state_resource_path, resource_path
+            )
+        })?;
+
+    let handle = run_state(
+        dispatch,
+        state_resource_id,
+        state_resource_path.clone(),
+        mutation_cap,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "Failed to start state provider '{}' for resource {}",
+            state_resource_path, resource_path
+        )
+    })?
+    .await?;
+
+    Ok(match handle.recorded(resource_path).await {
+        Some(recorded) => Tracking::Recorded { handle, recorded },
+        None => Tracking::Unrecorded { handle },
+    })
+}
+
+/// Resolve a component path to its eval resource ID.
+pub(crate) async fn resolve_resource_path(
+    dispatch: &impl Dispatch,
+    root_id: Id<CompositeType>,
+    resource_path: &ComponentPath,
+) -> Result<Id<ResourceType>> {
+    let (parent_path, name) = resource_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot get resource ID for root path"))?;
+
+    let parent_id = if parent_path.is_root() {
+        root_id
+    } else {
+        resolve_composite_path(dispatch, parent_path).await?.await?
+    };
+
+    match load_member_resolved(dispatch, parent_id, name, None).await? {
+        ComponentHandle::Resource(id) => Ok(id),
+        ComponentHandle::Composite(_) => bail!(
+            "Expected resource at {}, but found composite",
+            resource_path
+        ),
+    }
 }
 
 /// Ask the evaluator to resolve a component path to a composite ID.
