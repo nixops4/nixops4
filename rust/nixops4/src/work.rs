@@ -1149,8 +1149,8 @@ impl WorkContext {
                     .await
                     .with_context(|| {
                     format!(
-                        "Invalid state reference '{}' for resource",
-                        state_resource_path
+                        "Invalid state reference '{}' for resource {}",
+                        state_resource_path, resource_path
                     )
                 })?;
 
@@ -1163,8 +1163,8 @@ impl WorkContext {
                     .await
                     .with_context(|| {
                         format!(
-                            "Failed to start state provider '{}' for resource",
-                            state_resource_path
+                            "Failed to start state provider '{}' for resource {}",
+                            state_resource_path, resource_path
                         )
                     })?;
                 Some((state_resource_path, state_resource_id, thunk))
