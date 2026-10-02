@@ -172,6 +172,42 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
         }
     }
 
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        match request.resource.type_.as_str() {
+            "file" => {
+                let inputs = parse_input_properties::<FileInProperties>(
+                    &request.resource.input_properties,
+                    &request.resource.type_,
+                )?;
+                // Idempotent: a missing file is already destroyed.
+                match std::fs::remove_file(&inputs.name) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(e)
+                            .with_context(|| format!("Could not delete file '{}'", inputs.name))
+                    }
+                }
+                Ok(v0::DestroyResourceResponse {})
+            }
+            // The effects of exec and memo resources are not tracked outside
+            // the deployment state; removing the state entry is all there is.
+            "exec" | "memo" => Ok(v0::DestroyResourceResponse {}),
+            // Destroying a state file would destroy the deployment state of
+            // other resources; that is not a regular destroy operation.
+            "state_file" => {
+                bail!("Refusing to destroy state-providing resource of type 'state_file'")
+            }
+            t => bail!(
+                "LocalResourceProvider::destroy: unknown resource type: {}",
+                t
+            ),
+        }
+    }
+
     async fn state_read(
         &self,
         request: v0::StateResourceReadRequest,

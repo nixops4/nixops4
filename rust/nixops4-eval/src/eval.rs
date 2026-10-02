@@ -417,6 +417,16 @@ impl<R: Respond> EvaluationDriver<R> {
                 )
                 .await
             }
+            // Find the dependencies of a resource: its inputs referencing
+            // other resources' outputs. Uses the edges recorded so far.
+            EvalRequest::GetResourceDependencies(req) => {
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ResourceDependencies,
+                    |this, resource| perform_get_resource_dependencies(this, *resource),
+                )
+                .await
+            }
         }
     }
 }
@@ -686,6 +696,24 @@ fn perform_discover_dependencies<R: Respond>(
         }
         StepResult::Needs(dep) => Ok(StepResult::Needs(dep)),
     }
+}
+
+/// Get the dependencies of a resource: the edges recorded so far while
+/// evaluating this resource's inputs, filtered by the resource's component
+/// path. See [`DependencyTracker`].
+fn perform_get_resource_dependencies<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    resource: Id<ResourceType>,
+) -> Result<StepResult<Vec<DependencyEdge>>> {
+    let source = driver.component_path(resource.num())?;
+    let tracker = driver.dependency_tracker.borrow();
+    let dependencies = tracker
+        .edges
+        .iter()
+        .filter(|edge| edge.source == source)
+        .cloned()
+        .collect();
+    Ok(StepResult::Done(dependencies))
 }
 
 /// Discover the dependants of a resource: edges of resources whose inputs

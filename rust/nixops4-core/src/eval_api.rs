@@ -236,6 +236,16 @@ pub enum EvalRequest {
     /// resource's component path. Returns `Needs` when the root structure is
     /// blocked by a structural dependency.
     GetResourceDependants(QueryRequest<Id<ResourceType>, StepResult<Vec<DependencyEdge>>>),
+    /// Get the dependencies of a resource: the edges of this resource's
+    /// inputs referencing other resources' outputs.
+    ///
+    /// Unlike [`EvalRequest::GetResourceDependants`], this does not run a
+    /// discovery walk: it returns the edges recorded so far while evaluating
+    /// this resource's inputs (e.g. during an apply). Used to persist the
+    /// dependency edges of a resource in the deployment state, so that it can
+    /// still be ordered correctly for destruction after being removed from
+    /// the deployment expression.
+    GetResourceDependencies(QueryRequest<Id<ResourceType>, StepResult<Vec<DependencyEdge>>>),
 }
 
 pub trait RequestIdType {
@@ -300,6 +310,8 @@ pub enum QueryResponseValue {
     DependencyGraph(StepResult<DependencyGraph>),
     /// Result of a GetResourceDependants request
     ResourceDependants(StepResult<Vec<DependencyEdge>>),
+    /// Result of a GetResourceDependencies request
+    ResourceDependencies(StepResult<Vec<DependencyEdge>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

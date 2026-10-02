@@ -150,6 +150,38 @@ impl ResourceProviderClient {
         }
     }
 
+    /// Destroy (delete) an existing resource.
+    ///
+    /// The `inputs` and `outputs` identify the resource to destroy; they are
+    /// typically taken from the deployment state.
+    pub async fn destroy(
+        &mut self,
+        type_: &str,
+        inputs: &serde_json::Map<String, Value>,
+        outputs: &serde_json::Map<String, Value>,
+    ) -> Result<()> {
+        let req = v0::DestroyResourceRequest {
+            resource: v0::ExtantResource {
+                type_: v0::ResourceType(type_.to_string()),
+                input_properties: v0::InputProperties(inputs.clone()),
+                output_properties: Some(v0::OutputProperties(outputs.clone())),
+            },
+        };
+
+        // Write the request
+        self.write_request(v0::Request::DestroyResourceRequest(req))
+            .await?;
+
+        let response = self.read_response().await?;
+        match response {
+            v0::Response::DestroyResourceResponse(_) => Ok(()),
+            _ => anyhow::bail!(
+                "Expected DestroyResourceResponse from provider but got: {:?}",
+                response
+            ),
+        }
+    }
+
     pub async fn state_read(
         &mut self,
         resource: v0::ExtantResource,
