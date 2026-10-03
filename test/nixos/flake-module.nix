@@ -9,7 +9,7 @@
           {
             # System installation is not actually needed. Should we test without it?
             environment.systemPackages = [ config.packages.nixops4 ];
-            nix.settings.experimental-features = "flakes";
+            nix.settings.experimental-features = [ "flakes" ];
           };
       };
     in
