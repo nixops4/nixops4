@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{bail, Result};
 use base64::engine::Engine;
@@ -9,12 +9,28 @@ use nix_bindings_expr::{
     value::{Value, ValueType},
 };
 use nixops4_core::eval_api::{
-    AnyType, AssignRequest, ComponentHandle, ComponentRequest, CompositeType, EvalRequest,
-    EvalResponse, FlakeType, Id, IdNum, NamedProperty, QueryRequest, QueryResponseValue,
-    RequestIdType, ResourceProviderInfo, ResourceType, StepResult,
+    AnyType, AssignRequest, ComponentHandle, ComponentPath, ComponentRequest, CompositeType,
+    DependencyEdge, DependencyGraph, DiscoveryBlocker, EvalRequest, EvalResponse, FlakeType, Id,
+    IdNum, NamedProperty, QueryRequest, QueryResponseValue, RequestIdType, ResourceProviderInfo,
+    ResourceType, StepResult, StructuralDependency,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// Interior-mutable state for dependency discovery, shared between the
+/// evaluation driver and the `nixopsLoadMemberOutput` primop.
+///
+/// The primop is invoked whenever a resource input references a resource
+/// output. Edges are attributed to the input being evaluated via `current`,
+/// which is set by `GetResourceInput` and dependency discovery.
+#[derive(Default)]
+struct DependencyTracker {
+    /// The resource path and input name whose value is currently being
+    /// evaluated, if known.
+    current: Option<(ComponentPath, String)>,
+    /// All edges discovered so far, from input evaluations and discovery runs.
+    edges: BTreeSet<DependencyEdge>,
+}
 
 /// Convert a Result to StepResult, catching dependency exceptions.
 ///
@@ -48,11 +64,16 @@ pub struct EvaluationDriver<R: Respond> {
     values: HashMap<IdNum, Result<Value, String>>,
     respond: R,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
+    /// Dependency discovery state, shared with the `nixopsLoadMemberOutput` primop.
+    dependency_tracker: Rc<RefCell<DependencyTracker>>,
     /// Maps resource IDs to resource names for GetResource lookups
     resource_names: HashMap<IdNum, String>,
     /// Stores ComponentRequests by ID so GetComponentKind can load/retry.
     /// Populated by AssignMember.
     member_requests: HashMap<IdNum, ComponentRequest>,
+    /// The ID of the root composite, assigned by LoadRoot or LoadFile.
+    /// Used by dependency discovery to walk the whole component tree.
+    root_id: Option<IdNum>,
 }
 impl<R: Respond> EvaluationDriver<R> {
     pub fn new(
@@ -68,8 +89,10 @@ impl<R: Respond> EvaluationDriver<R> {
             flake_settings,
             respond,
             known_outputs: Rc::new(RefCell::new(HashMap::new())),
+            dependency_tracker: Rc::new(RefCell::new(DependencyTracker::default())),
             resource_names: HashMap::new(),
             member_requests: HashMap::new(),
+            root_id: None,
         }
     }
 
@@ -202,6 +225,21 @@ impl<R: Respond> EvaluationDriver<R> {
         }
     }
 
+    /// Compute the component path of a component by walking up the
+    /// `member_requests` to the root component.
+    fn component_path(&self, id: IdNum) -> Result<ComponentPath> {
+        if self.root_id == Some(id) {
+            return Ok(ComponentPath::root());
+        }
+        let req = self
+            .member_requests
+            .get(&id)
+            .ok_or_else(|| anyhow::anyhow!("no component request found for id {}", id))?;
+        let mut path = self.component_path(req.parent.num())?;
+        path.0.push(req.name.clone());
+        Ok(path)
+    }
+
     fn get_flake_root_value(&mut self, flake: Id<FlakeType>) -> Result<Value> {
         let flake = self.get_value(flake)?.clone();
         let outputs = self.eval_state.require_attrs_select(&flake, "outputs")?;
@@ -265,21 +303,30 @@ impl<R: Respond> EvaluationDriver<R> {
                 .await
             }
             EvalRequest::LoadRoot(req) => {
+                self.root_id = Some(req.assign_to.num());
                 let known_outputs = Rc::clone(&self.known_outputs);
+                let dependency_tracker = Rc::clone(&self.dependency_tracker);
                 self.handle_assign_request(req, |this, req| {
-                    perform_load_root(this, req, known_outputs)
+                    perform_load_root(this, req, known_outputs, dependency_tracker)
                 })
                 .await
             }
             EvalRequest::LoadFile(req) => {
+                self.root_id = Some(req.assign_to.num());
                 let known_outputs = Rc::clone(&self.known_outputs);
+                let dependency_tracker = Rc::clone(&self.dependency_tracker);
                 self.handle_assign_request(req, |this, req| {
                     let import_fn = this
                         .eval_state
                         .eval_from_string("builtins.import", "<nixops4 file>")?;
                     let path_val = this.eval_state.new_value_str(&req.abspath)?;
                     let imported = this.eval_state.call(import_fn, path_val)?;
-                    evaluate_root_component(&mut this.eval_state, &imported, known_outputs)
+                    evaluate_root_component(
+                        &mut this.eval_state,
+                        &imported,
+                        known_outputs,
+                        dependency_tracker,
+                    )
                 })
                 .await
             }
@@ -351,6 +398,35 @@ impl<R: Respond> EvaluationDriver<R> {
                 }
                 Ok(())
             }
+            // Discover the dependency graph of a composite, forcing all
+            // resource inputs without applying anything. See DependencyGraph.
+            EvalRequest::DiscoverDependencies(req) => {
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::DependencyGraph,
+                    |this, composite| perform_discover_dependencies(this, *composite),
+                )
+                .await
+            }
+            // Find the dependants of a resource: inputs referencing its outputs.
+            EvalRequest::GetResourceDependants(req) => {
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ResourceDependants,
+                    |this, resource| perform_get_resource_dependants(this, *resource),
+                )
+                .await
+            }
+            // Find the dependencies of a resource: its inputs referencing
+            // other resources' outputs. Uses the edges recorded so far.
+            EvalRequest::GetResourceDependencies(req) => {
+                self.handle_simple_request(
+                    req,
+                    QueryResponseValue::ResourceDependencies,
+                    |this, resource| perform_get_resource_dependencies(this, *resource),
+                )
+                .await
+            }
         }
     }
 }
@@ -360,6 +436,7 @@ fn evaluate_root_component(
     es: &mut EvalState,
     root: &Value,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
+    dependency_tracker: Rc<RefCell<DependencyTracker>>,
 ) -> Result<Value, anyhow::Error> {
     {
         let tag = es.require_attrs_select(root, "_type")?;
@@ -442,9 +519,24 @@ fn evaluate_root_component(
             let mut resource_path = component_path.clone();
             resource_path.push(member_name.to_string());
             let property = NamedProperty {
-                resource: nixops4_core::eval_api::ComponentPath(resource_path),
+                resource: ComponentPath(resource_path),
                 name: attr_name.to_string(),
             };
+            // Dependency discovery: attribute the output access to the input
+            // being evaluated, if known. See DependencyTracker.
+            {
+                let current = dependency_tracker.borrow().current.clone();
+                if let Some((source, input)) = current {
+                    dependency_tracker
+                        .borrow_mut()
+                        .edges
+                        .insert(DependencyEdge {
+                            source,
+                            input,
+                            target: property.clone(),
+                        });
+                }
+            }
             let val = { known_outputs.borrow().get(&property).cloned() };
             match val {
                 Some(val) => Ok(val),
@@ -482,9 +574,15 @@ fn perform_load_root<R: Respond>(
     driver: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::RootRequest,
     known_outputs: Rc<RefCell<HashMap<NamedProperty, Value>>>,
+    dependency_tracker: Rc<RefCell<DependencyTracker>>,
 ) -> Result<Value, anyhow::Error> {
     let root = driver.get_flake_root_value(req.flake)?;
-    evaluate_root_component(&mut driver.eval_state, &root, known_outputs)
+    evaluate_root_component(
+        &mut driver.eval_state,
+        &root,
+        known_outputs,
+        dependency_tracker,
+    )
 }
 
 fn perform_get_resource<R: Respond>(
@@ -549,12 +647,237 @@ fn perform_get_resource_input<R: Respond>(
     this: &mut EvaluationDriver<R>,
     req: &nixops4_core::eval_api::Property,
 ) -> Result<StepResult<serde_json::Value>> {
-    catch_dependency((|| {
+    // Attribute output accesses made while evaluating this input to the
+    // resource, for dependency discovery. See DependencyTracker.
+    let source = this.component_path(req.resource.num()).ok();
+    let tracker = Rc::clone(&this.dependency_tracker);
+    tracker.borrow_mut().current = source.map(|resource| (resource, req.name.clone()));
+    let result = catch_dependency((|| {
         let resource = this.get_value(req.resource.to_owned())?.clone();
         let inputs = this.eval_state.require_attrs_select(&resource, "inputs")?;
         let input = this.eval_state.require_attrs_select(&inputs, &req.name)?;
         value_to_json(&mut this.eval_state, &input)
-    })())
+    })());
+    tracker.borrow_mut().current = None;
+    result
+}
+
+/// Discover the dependency graph of a component tree.
+///
+/// Walks the members of the composite and forces the value of every resource
+/// input to find which resource outputs they reference. Resources are not
+/// applied: outputs that are not known yet still produce edges (recorded by
+/// the `nixopsLoadMemberOutput` primop) and mark the dependant incomplete.
+///
+/// The returned graph edges are accumulated across all requests; `incomplete`
+/// and `structural` reflect the current state of this discovery run.
+fn perform_discover_dependencies<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    composite: Id<CompositeType>,
+) -> Result<StepResult<DependencyGraph>> {
+    let composite_value = driver.get_value(composite)?.clone();
+    let mut walk_graph = DependencyGraph::default();
+    // If the structure of the queried composite itself is blocked, nothing can
+    // be discovered: report the dependency so the caller can resolve and retry.
+    let walk = discover_walk(
+        driver,
+        &composite_value,
+        ComponentPath::root(),
+        &mut walk_graph,
+    )?;
+    match walk {
+        StepResult::Done(()) => {
+            let tracker = driver.dependency_tracker.borrow();
+            Ok(StepResult::Done(DependencyGraph {
+                edges: tracker.edges.clone(),
+                incomplete: walk_graph.incomplete,
+                structural: walk_graph.structural,
+            }))
+        }
+        StepResult::Needs(dep) => Ok(StepResult::Needs(dep)),
+    }
+}
+
+/// Get the dependencies of a resource: the edges recorded so far while
+/// evaluating this resource's inputs, filtered by the resource's component
+/// path. See [`DependencyTracker`].
+fn perform_get_resource_dependencies<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    resource: Id<ResourceType>,
+) -> Result<StepResult<Vec<DependencyEdge>>> {
+    let source = driver.component_path(resource.num())?;
+    let tracker = driver.dependency_tracker.borrow();
+    let dependencies = tracker
+        .edges
+        .iter()
+        .filter(|edge| edge.source == source)
+        .cloned()
+        .collect();
+    Ok(StepResult::Done(dependencies))
+}
+
+/// Discover the dependants of a resource: edges of resources whose inputs
+/// reference one of the resource's outputs.
+///
+/// Runs dependency discovery on the root component tree and filters the
+/// discovered edges by the resource's component path.
+fn perform_get_resource_dependants<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    resource: Id<ResourceType>,
+) -> Result<StepResult<Vec<DependencyEdge>>> {
+    let root_id = driver.root_id.ok_or_else(|| {
+        anyhow::anyhow!("GetResourceDependants requires a root component to be loaded")
+    })?;
+    let resource_path = driver.component_path(resource.num())?;
+    let root = Id::<CompositeType>::same_id_with_new_type_because_im_absolutely_confident(root_id);
+    let root_value = driver.get_value(root)?.clone();
+    let mut walk_graph = DependencyGraph::default();
+    let walk = discover_walk(driver, &root_value, ComponentPath::root(), &mut walk_graph)?;
+    match walk {
+        StepResult::Done(()) => {
+            let tracker = driver.dependency_tracker.borrow();
+            let dependants = tracker
+                .edges
+                .iter()
+                .filter(|edge| edge.target.resource == resource_path)
+                .cloned()
+                .collect();
+            Ok(StepResult::Done(dependants))
+        }
+        StepResult::Needs(dep) => Ok(StepResult::Needs(dep)),
+    }
+}
+
+/// Walk the members of a composite component to discover dependencies.
+///
+/// Returns `Needs` if the structure of this composite is blocked by a
+/// dependency. The caller decides whether to report that as a structural
+/// dependency (nested composites) or to retry (the queried composite).
+fn discover_walk<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    composite_value: &Value,
+    path: ComponentPath,
+    graph: &mut DependencyGraph,
+) -> Result<StepResult<()>> {
+    let members = match catch_dependency(
+        driver
+            .eval_state
+            .require_attrs_select(composite_value, "members"),
+    )? {
+        StepResult::Done(members) => members,
+        StepResult::Needs(dep) => return Ok(StepResult::Needs(dep)),
+    };
+    let names = match catch_dependency(driver.eval_state.require_attrs_names(&members))? {
+        StepResult::Done(names) => names,
+        StepResult::Needs(dep) => return Ok(StepResult::Needs(dep)),
+    };
+    for name in names {
+        let member_path = path.child(name.clone());
+        let member =
+            match catch_dependency(driver.eval_state.require_attrs_select(&members, &name))? {
+                StepResult::Done(member) => member,
+                StepResult::Needs(dep) => {
+                    graph.structural.insert(StructuralDependency {
+                        path: Some(member_path),
+                        depends_on: dep,
+                    });
+                    continue;
+                }
+            };
+        let resource = match catch_dependency(
+            driver
+                .eval_state
+                .require_attrs_select_opt(&member, "resource"),
+        )? {
+            StepResult::Done(Some(resource)) => resource,
+            // Composite component: recurse into its members
+            StepResult::Done(None) => {
+                match discover_walk(driver, &member, member_path.clone(), graph)? {
+                    StepResult::Done(()) => {}
+                    StepResult::Needs(dep) => {
+                        graph.structural.insert(StructuralDependency {
+                            path: Some(member_path),
+                            depends_on: dep,
+                        });
+                    }
+                }
+                continue;
+            }
+            // The member value itself depends on a resource output
+            StepResult::Needs(dep) => {
+                graph.structural.insert(StructuralDependency {
+                    path: Some(member_path),
+                    depends_on: dep,
+                });
+                continue;
+            }
+        };
+        discover_resource_inputs(driver, &member_path, &resource, graph)?;
+    }
+    Ok(StepResult::Done(()))
+}
+
+/// Force the value of every input of a resource to discover the resource
+/// outputs it references.
+///
+/// Unknown outputs are not resolved; the discovered edges are recorded by the
+/// primop before the dependency error, and the resource is marked incomplete.
+fn discover_resource_inputs<R: Respond>(
+    driver: &mut EvaluationDriver<R>,
+    resource_path: &ComponentPath,
+    resource: &Value,
+    graph: &mut DependencyGraph,
+) -> Result<StepResult<()>> {
+    let inputs = match catch_dependency(driver.eval_state.require_attrs_select(resource, "inputs"))?
+    {
+        StepResult::Done(inputs) => inputs,
+        StepResult::Needs(dep) => {
+            graph.structural.insert(StructuralDependency {
+                path: Some(resource_path.clone()),
+                depends_on: dep,
+            });
+            return Ok(StepResult::Done(()));
+        }
+    };
+    let input_names = match catch_dependency(driver.eval_state.require_attrs_names(&inputs))? {
+        StepResult::Done(input_names) => input_names,
+        StepResult::Needs(dep) => {
+            graph.structural.insert(StructuralDependency {
+                path: Some(resource_path.clone()),
+                depends_on: dep,
+            });
+            return Ok(StepResult::Done(()));
+        }
+    };
+    for input_name in input_names {
+        // Attribute output accesses made while evaluating this input.
+        let tracker = Rc::clone(&driver.dependency_tracker);
+        tracker.borrow_mut().current = Some((resource_path.clone(), input_name.clone()));
+        let result = catch_dependency((|| {
+            let input = driver
+                .eval_state
+                .require_attrs_select(&inputs, &input_name)?;
+            value_to_json(&mut driver.eval_state, &input)
+        })());
+        tracker.borrow_mut().current = None;
+        match result {
+            Ok(StepResult::Done(_)) => {}
+            Ok(StepResult::Needs(_)) => {
+                // The primop recorded the edge before the dependency error.
+                graph
+                    .incomplete
+                    .insert(resource_path.clone(), DiscoveryBlocker::Dependency);
+            }
+            Err(e) => {
+                // e.g. the input value is a function, or throws an error
+                graph.incomplete.insert(
+                    resource_path.clone(),
+                    DiscoveryBlocker::Error(e.to_string()),
+                );
+            }
+        }
+    }
+    Ok(StepResult::Done(()))
 }
 
 /// Parse a dependency error from the evaluator.
@@ -601,6 +924,7 @@ fn json_to_value(eval_state: &mut EvalState, json: &serde_json::Value) -> Result
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::{Arc, Mutex};
 
     use super::*;
@@ -611,8 +935,9 @@ mod tests {
     use nix_bindings_flake::FlakeSettings;
     use nix_bindings_store::store::Store;
     use nixops4_core::eval_api::{
-        AnyType, AssignRequest, ComponentPath, ComponentRequest, CompositeType, FlakeRequest, Id,
-        Ids, QueryRequest, QueryResponseValue, ResourceType, RootRequest, StepResult,
+        AnyType, AssignRequest, ComponentPath, ComponentRequest, CompositeType, DependencyEdge,
+        DiscoveryBlocker, FlakeRequest, Id, Ids, NamedProperty, QueryRequest, QueryResponseValue,
+        ResourceType, RootRequest, StepResult, StructuralDependency,
     };
     use tempfile::TempDir;
     use tokio::runtime;
@@ -1091,6 +1416,545 @@ mod tests {
                     panic!("expected 0 responses, got: {:?}", r);
                 }
             };
+            drop(guard);
+        }
+    }
+
+    /// Load a member as a resource, via AssignMember + GetComponentKind.
+    fn assign_member_resource(
+        driver: &mut EvaluationDriver<TestRespond>,
+        ids: &Ids,
+        root_id: Id<CompositeType>,
+        name: &str,
+    ) -> Id<ResourceType> {
+        let member_id: Id<AnyType> = ids.next();
+        block_on(
+            driver.perform_request(&EvalRequest::AssignMember(AssignRequest {
+                assign_to: member_id,
+                payload: ComponentRequest {
+                    parent: root_id,
+                    name: name.to_string(),
+                },
+            })),
+        )
+        .unwrap();
+        block_on(
+            driver.perform_request(&EvalRequest::GetComponentKind(QueryRequest::new(
+                ids.next(),
+                member_id,
+            ))),
+        )
+        .unwrap();
+        Id::<ResourceType>::same_id_with_new_type_because_im_absolutely_confident(member_id.num())
+    }
+
+    /// Dependency discovery over a Terraform provider-style deployment:
+    /// an `aws_security_group` referencing a VPC, etc.
+    ///
+    /// No outputs are applied up front; discovery records the edges anyway,
+    /// marking the dependants incomplete. After applying outputs (e.g. the
+    /// VPC id), discovery finds the same edges, now fully evaluated.
+    #[test]
+    fn test_dependancy_discover() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                vpc = {
+                                    resource = {
+                                        type = "aws_vpc";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = { id = {}; };
+                                        state = null;
+                                    };
+                                };
+                                subnet = {
+                                    resource = {
+                                        type = "aws_subnet";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            vpc_id = outputValues.vpc.id;
+                                        };
+                                        outputsSkeleton = { id = {}; };
+                                        state = null;
+                                    };
+                                };
+                                securityGroup = {
+                                    resource = {
+                                        type = "aws_security_group";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            vpc_id = outputValues.vpc.id;
+                                            description = "allow ssh";
+                                        };
+                                        outputsSkeleton = { id = {}; };
+                                        state = null;
+                                    };
+                                };
+                                instance = {
+                                    resource = {
+                                        type = "aws_instance";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            subnet_id = outputValues.subnet.id;
+                                            security_groups = [ outputValues.securityGroup.id ];
+                                        };
+                                        outputsSkeleton = {};
+                                        state = null;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id: Id<CompositeType> = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+
+            let expected_edges: BTreeSet<DependencyEdge> = [
+                ("subnet", "vpc_id", "vpc", "id"),
+                ("securityGroup", "vpc_id", "vpc", "id"),
+                ("instance", "subnet_id", "subnet", "id"),
+                ("instance", "security_groups", "securityGroup", "id"),
+            ]
+            .iter()
+            .map(
+                |(source, input, target_resource, target_output)| DependencyEdge {
+                    source: ComponentPath(vec![source.to_string()]),
+                    input: input.to_string(),
+                    target: NamedProperty {
+                        resource: ComponentPath(vec![target_resource.to_string()]),
+                        name: target_output.to_string(),
+                    },
+                },
+            )
+            .collect();
+
+            // Discover the dependency graph while no outputs are known yet
+            block_on(driver.perform_request(&EvalRequest::DiscoverDependencies(
+                QueryRequest::new(ids.next(), root_id),
+            )))
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+                let graph = match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::DependencyGraph(StepResult::Done(graph)),
+                    ) => graph,
+                    other => panic!("expected DependencyGraph Done, got: {:?}", other),
+                };
+                assert_eq!(&graph.edges, &expected_edges, "unexpected edges");
+                assert!(
+                    graph.structural.is_empty(),
+                    "unexpected structural: {:?}",
+                    graph.structural
+                );
+                assert_eq!(
+                    graph.incomplete,
+                    BTreeMap::from([
+                        (
+                            ComponentPath(vec!["subnet".to_string()]),
+                            DiscoveryBlocker::Dependency
+                        ),
+                        (
+                            ComponentPath(vec!["securityGroup".to_string()]),
+                            DiscoveryBlocker::Dependency
+                        ),
+                        (
+                            ComponentPath(vec!["instance".to_string()]),
+                            DiscoveryBlocker::Dependency
+                        ),
+                    ]),
+                    "unexpected incomplete"
+                );
+            }
+
+            // Apply the vpc and subnet outputs, then discover again.
+            // The same edges must be found, now fully evaluated.
+            for (resource, output, value) in [
+                (ComponentPath(vec!["vpc".to_string()]), "id", "vpc-123"),
+                (
+                    ComponentPath(vec!["subnet".to_string()]),
+                    "id",
+                    "subnet-456",
+                ),
+            ] {
+                block_on(driver.perform_request(&EvalRequest::PutResourceOutput(
+                    NamedProperty {
+                        resource,
+                        name: output.to_string(),
+                    },
+                    serde_json::json!(value),
+                )))
+                .unwrap();
+            }
+            responses.lock().unwrap().clear();
+            block_on(driver.perform_request(&EvalRequest::DiscoverDependencies(
+                QueryRequest::new(ids.next(), root_id),
+            )))
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+                let graph = match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::DependencyGraph(StepResult::Done(graph)),
+                    ) => graph,
+                    other => panic!("expected DependencyGraph Done, got: {:?}", other),
+                };
+                assert_eq!(&graph.edges, &expected_edges, "unexpected edges");
+                assert_eq!(
+                    graph.incomplete,
+                    BTreeMap::from([(
+                        ComponentPath(vec!["instance".to_string()]),
+                        DiscoveryBlocker::Dependency
+                    )]),
+                    "unexpected incomplete"
+                );
+            }
+
+            // Look for the dependants of each resource
+            let vpc_id = assign_member_resource(&mut driver, &ids, root_id, "vpc");
+            let security_group_id =
+                assign_member_resource(&mut driver, &ids, root_id, "securityGroup");
+            let instance_id = assign_member_resource(&mut driver, &ids, root_id, "instance");
+
+            let expect_dependants =
+                |responses: &Arc<Mutex<Vec<EvalResponse>>>, expected_sources: &[&str]| {
+                    {
+                        let r = responses.lock().unwrap();
+                        assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+                        match &r[0] {
+                            EvalResponse::QueryResponse(
+                                _,
+                                QueryResponseValue::ResourceDependants(StepResult::Done(edges)),
+                            ) => {
+                                let mut sources: Vec<String> = edges
+                                    .iter()
+                                    .map(|e| e.source.0.last().unwrap().clone())
+                                    .collect();
+                                sources.sort();
+                                let expected: Vec<String> =
+                                    expected_sources.iter().map(|s| s.to_string()).collect();
+                                assert_eq!(sources, expected, "unexpected dependants");
+                            }
+                            other => panic!("expected ResourceDependants Done, got: {:?}", other),
+                        }
+                    }
+                    responses.lock().unwrap().clear();
+                };
+
+            responses.lock().unwrap().clear();
+            // The subnet and security group depend on the vpc
+            block_on(driver.perform_request(&EvalRequest::GetResourceDependants(
+                QueryRequest::new(ids.next(), vpc_id),
+            )))
+            .unwrap();
+            expect_dependants(&responses, &["securityGroup", "subnet"]);
+
+            // The instance depends on the security group
+            block_on(driver.perform_request(&EvalRequest::GetResourceDependants(
+                QueryRequest::new(ids.next(), security_group_id),
+            )))
+            .unwrap();
+            expect_dependants(&responses, &["instance"]);
+
+            // Nothing depends on the instance
+            block_on(driver.perform_request(&EvalRequest::GetResourceDependants(
+                QueryRequest::new(ids.next(), instance_id),
+            )))
+            .unwrap();
+            expect_dependants(&responses, &[]);
+
+            drop(guard);
+        }
+    }
+
+    /// Test that dependency discovery reports structural dependencies
+    /// (structure of the component tree depending on resource outputs)
+    /// while still discovering the edges of unblocked resources.
+    #[test]
+    fn test_dependency_discover_structural() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = { resourceType = {}; };
+                                        state = null;
+                                    };
+                                };
+                                b = {
+                                    # The members of this composite depend on
+                                    # resource a's output
+                                    members = if outputValues.a.resourceType == ""
+                                        then {}
+                                        else {};
+                                };
+                                c = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {
+                                            resource_type = outputValues.a.resourceType;
+                                        };
+                                        outputsSkeleton = {};
+                                        state = null;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id: Id<CompositeType> = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+
+            block_on(driver.perform_request(&EvalRequest::DiscoverDependencies(
+                QueryRequest::new(ids.next(), root_id),
+            )))
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+                match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::DependencyGraph(StepResult::Done(graph)),
+                    ) => {
+                        assert_eq!(
+                            graph.edges.len(),
+                            1,
+                            "expected 1 edge, got: {:?}",
+                            graph.edges
+                        );
+                        let edge = graph.edges.iter().next().unwrap();
+                        assert_eq!(edge.source, ComponentPath(vec!["c".to_string()]));
+                        assert_eq!(edge.input, "resource_type");
+                        assert_eq!(
+                            edge.target,
+                            NamedProperty {
+                                resource: ComponentPath(vec!["a".to_string()]),
+                                name: "resourceType".to_string(),
+                            }
+                        );
+                        assert_eq!(
+                            graph.incomplete,
+                            BTreeMap::from([(
+                                ComponentPath(vec!["c".to_string()]),
+                                DiscoveryBlocker::Dependency
+                            )])
+                        );
+                        assert_eq!(
+                            graph.structural,
+                            BTreeSet::from([StructuralDependency {
+                                path: Some(ComponentPath(vec!["b".to_string()])),
+                                depends_on: NamedProperty {
+                                    resource: ComponentPath(vec!["a".to_string()]),
+                                    name: "resourceType".to_string(),
+                                },
+                            }])
+                        );
+                    }
+                    other => panic!("expected DependencyGraph Done, got: {:?}", other),
+                }
+            }
+            drop(guard);
+        }
+    }
+
+    /// Test that DiscoverDependencies returns Needs when the structure of the
+    /// queried composite itself is blocked by a dependency.
+    #[test]
+    fn test_dependency_discover_root_structural() {
+        let flake_nix = r#"
+            {
+                outputs = { self, ... }: {
+                    nixops4 = {
+                        _type = "nixops4Component";
+                        rootFunction = { outputValues, resourceProviderSystem, ... }: {
+                            members = {
+                                a = {
+                                    resource = {
+                                        type = "dummy";
+                                        provider = { type = "stdio"; executable = "__test:dummy"; };
+                                        inputs = {};
+                                        outputsSkeleton = { resourceType = {}; };
+                                        state = null;
+                                    };
+                                };
+                                b = {
+                                    # The structure of this composite depends
+                                    # on resource a's output
+                                    members = if outputValues.a.resourceType == ""
+                                        then {}
+                                        else {};
+                                };
+                            };
+                        };
+                    };
+                };
+            }
+            "#;
+
+        let tmpdir = TempDir::with_suffix("-test-nixops4-eval").unwrap();
+        let flake_path = tmpdir.path().join("flake.nix");
+        std::fs::write(&flake_path, flake_nix).unwrap();
+
+        {
+            let guard = gc_register_my_thread().unwrap();
+            let (eval_state, fetch_settings, flake_settings) = new_eval_state().unwrap();
+            let responses: Arc<Mutex<Vec<EvalResponse>>> = Default::default();
+            let respond = TestRespond {
+                responses: responses.clone(),
+            };
+            let mut driver =
+                EvaluationDriver::new(eval_state, fetch_settings, flake_settings, respond);
+
+            let flake_request = FlakeRequest {
+                abspath: tmpdir.path().to_str().unwrap().to_string(),
+                input_overrides: Vec::new(),
+            };
+            let ids = Ids::new();
+            let flake_id = ids.next();
+            let root_id: Id<CompositeType> = ids.next();
+            let b_id: Id<AnyType> = ids.next();
+            let assign_request = AssignRequest {
+                assign_to: flake_id,
+                payload: flake_request,
+            };
+            block_on(driver.perform_request(&EvalRequest::LoadFlake(assign_request))).unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::LoadRoot(AssignRequest {
+                    assign_to: root_id,
+                    payload: RootRequest { flake: flake_id },
+                })),
+            )
+            .unwrap();
+
+            // Load the nested composite b
+            block_on(
+                driver.perform_request(&EvalRequest::AssignMember(AssignRequest {
+                    assign_to: b_id,
+                    payload: ComponentRequest {
+                        parent: root_id,
+                        name: "b".to_string(),
+                    },
+                })),
+            )
+            .unwrap();
+            block_on(
+                driver.perform_request(&EvalRequest::GetComponentKind(QueryRequest::new(
+                    ids.next(),
+                    b_id,
+                ))),
+            )
+            .unwrap();
+
+            // Discovering b's dependencies is blocked by the structure of b
+            let b_composite_id =
+                Id::<CompositeType>::same_id_with_new_type_because_im_absolutely_confident(
+                    b_id.num(),
+                );
+            responses.lock().unwrap().clear();
+            block_on(driver.perform_request(&EvalRequest::DiscoverDependencies(
+                QueryRequest::new(ids.next(), b_composite_id),
+            )))
+            .unwrap();
+            {
+                let r = responses.lock().unwrap();
+                assert_eq!(r.len(), 1, "expected 1 response, got: {:?}", r);
+                match &r[0] {
+                    EvalResponse::QueryResponse(
+                        _,
+                        QueryResponseValue::DependencyGraph(StepResult::Needs(dep)),
+                    ) => {
+                        assert_eq!(dep.resource, ComponentPath(vec!["a".to_string()]));
+                        assert_eq!(dep.name, "resourceType");
+                    }
+                    other => panic!("expected Needs, got: {:?}", other),
+                }
+            }
             drop(guard);
         }
     }

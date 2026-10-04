@@ -286,6 +286,60 @@ runCommand "itest-nixops4-with-local"
       rm -f initial-version.md current-version.md nixops4-state.json
     )
 
+    h1 DECLARATIVE GARBAGE COLLECTION
+    (
+      set -x
+      echo "=== Testing destroy of resources removed from the deployment ==="
+
+      # Apply everything
+      nixops4 apply -v gcTest --show-trace
+
+      # All members are recorded in state, including provider and dependency
+      # metadata for later destruction
+      nixops4 state dump gcTest.state > gc-state-dump.json
+      jq -e '.deployment.resources["security-group"].type == "memo"' gc-state-dump.json > /dev/null
+      jq -e '.deployment.resources["ec2-instance"].type == "memo"' gc-state-dump.json > /dev/null
+      jq -e '.deployment.resources["keep"].type == "memo"' gc-state-dump.json > /dev/null
+      # The provider is recorded, so removed resources can still be destroyed
+      jq -e '.deployment.resources["security-group"].provider.type == "stdio"' gc-state-dump.json > /dev/null
+      # The instance references the security group's output
+      jq -e '.deployment.resources["ec2-instance"].depends_on == [["gcTest", "security-group"]]' gc-state-dump.json > /dev/null
+
+      # Remove the security group and the instance from the deployment
+      # expression, as if the user edited the configuration
+      sed -i '/members.security-group = {/,/^                };$/d' flake.nix
+      sed -i '/members.ec2-instance = {/,/^                };$/d' flake.nix
+
+      # Apply: the removed resources must be destroyed, dependants first
+      nixops4 apply -v gcTest --show-trace 2> gc-destroy.stderr
+      grep -F 'no longer declared and will be destroyed' gc-destroy.stderr
+      grep -F 'Destroying gcTest.ec2-instance...' gc-destroy.stderr
+      grep -F 'Destroying gcTest.security-group...' gc-destroy.stderr
+      # Order: the instance references the security group, so it must be
+      # destroyed before the security group
+      i=$(grep -n 'Destroying gcTest.ec2-instance' gc-destroy.stderr | cut -d: -f1)
+      j=$(grep -n 'Destroying gcTest.security-group' gc-destroy.stderr | cut -d: -f1)
+      [[ $i -lt $j ]] || {
+        echo "ERROR: ec2-instance must be destroyed before security-group"
+        cat gc-destroy.stderr
+        exit 1
+      }
+
+      # State no longer contains the removed resources
+      nixops4 state dump gcTest.state > gc-state-dump2.json
+      ! jq -e '.deployment.resources["security-group"]' gc-state-dump2.json > /dev/null
+      ! jq -e '.deployment.resources["ec2-instance"]' gc-state-dump2.json > /dev/null
+      jq -e '.deployment.resources["keep"].type == "memo"' gc-state-dump2.json > /dev/null
+
+      # Idempotent: applying again destroys nothing
+      nixops4 apply -v gcTest --show-trace 2> gc-idempotent.stderr
+      if grep -q 'no longer declared' gc-idempotent.stderr; then
+        echo "ERROR: unexpected destroy on re-apply"
+        cat gc-idempotent.stderr
+        exit 1
+      fi
+    )
+
     h1 UNREFERENCED NESTED DEPLOYMENT
     (
       set -x

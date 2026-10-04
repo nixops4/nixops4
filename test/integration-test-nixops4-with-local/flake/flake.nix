@@ -121,6 +121,38 @@
                 };
               };
 
+            # Declarative garbage collection test deployment:
+            # check.nix removes members from this deployment with sed and
+            # expects `nixops4 apply` to destroy them, dependants first.
+            members.gcTest =
+              { members, ... }:
+              {
+                members.state = {
+                  type = providers.local.state_file;
+                  inputs.name = "gc-state.json";
+                };
+
+                # Pretend Terraform resources: a security group, and an EC2
+                # instance that references the security group's output.
+                members.security-group = {
+                  type = providers.local.memo;
+                  state = members.state;
+                  inputs.initialize_with = "sg-123";
+                };
+
+                members.ec2-instance = {
+                  type = providers.local.memo;
+                  state = members.state;
+                  inputs.initialize_with = "instance attached to ${members.security-group.outputs.value}";
+                };
+
+                members.keep = {
+                  type = providers.local.memo;
+                  state = members.state;
+                  inputs.initialize_with = "keep me";
+                };
+              };
+
             # For `state dump` read-only tests: the state provider's
             # `name` input depends on another (uncreated) resource's output,
             # so read-only dependency resolution has nothing in state to fall
