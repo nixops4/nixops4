@@ -533,6 +533,11 @@ impl<W: Write> TuiState<W> {
                     .write_all(self.graphics_mode.as_bytes())
                     .unwrap();
                 for log in new_logs {
+                    // Drop overly verbose terraform logs (hacky)
+                    if log.contains("\"@level\":\"trace\"") || log.contains("\"@level\":\"debug\"")
+                    {
+                        continue;
+                    }
                     self.terminal.backend_mut().write_all(b"nixops| ").unwrap();
                     self.terminal
                         .backend_mut()
