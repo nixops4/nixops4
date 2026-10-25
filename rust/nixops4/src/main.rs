@@ -7,6 +7,7 @@ mod interrupt;
 mod logging;
 mod options;
 mod provider;
+mod resource;
 mod state;
 mod work;
 
@@ -248,10 +249,7 @@ async fn dump_state(
             };
 
             // Read current state and serialize to JSON
-            let state = state_handle.current.lock().await;
-            let json = serde_json::to_string_pretty(&*state)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize state: {}", e))?;
-            Ok(json)
+            state_handle.state_json().await
         },
     )
     .await

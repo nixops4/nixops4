@@ -13,7 +13,7 @@ use nixops4_core::eval_api::{
     EvalRequest, EvalResponse, Id, IdNum, MessageType, NamedProperty, Property, QueryRequest,
     QueryResponseValue, ResourceProviderInfo, ResourceType, StepResult,
 };
-use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
+use nixops4_resource_runner::{ProviderResource, ResourceType as ProviderResourceType};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
@@ -211,7 +211,7 @@ pub enum Outcome {
     ResourceInputsListed(Vec<String>),
     ResourceInputValue(Value),
     ResourceOutputValue, /*Value ignored because passed eagerly before ResourceOutputs, a dependency of this.*/
-    ResourceOutputs(nixops4_resource::schema::v0::ExtantResource),
+    ResourceOutputs(crate::resource::ExtantResource),
     RunState(Arc<crate::state::StateHandle>),
 }
 
@@ -1116,10 +1116,10 @@ impl WorkContext {
                 .await?;
         }
 
-        let resource = nixops4_resource::schema::v0::ExtantResource {
-            input_properties: nixops4_resource::schema::v0::InputProperties(inputs),
-            output_properties: Some(nixops4_resource::schema::v0::OutputProperties(outputs)),
-            type_: nixops4_resource::schema::v0::ResourceType(resource_type),
+        let resource = crate::resource::ExtantResource {
+            input_properties: inputs,
+            output_properties: Some(outputs),
+            type_: resource_type,
         };
 
         Ok(Outcome::ResourceOutputs(resource))
@@ -1232,17 +1232,12 @@ impl WorkContext {
             eprintln!("Resource inputs for {}: {:?}", resource_path, inputs);
         }
 
-        let provider_argv = provider::parse_provider(&provider_info.provider)?;
-        // Run the provider
-        let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-            provider_executable: provider_argv.executable,
-            provider_args: provider_argv.args,
-        })
-        .await?;
+        let mut provider = provider::spawn_provider(&provider_info.provider).await?;
+        let resource_type = ProviderResourceType::new(provider_info.resource_type.clone());
 
         let outputs = match state {
             None => provider
-                .create(provider_info.resource_type.as_str(), &inputs, false)
+                .create(&resource_type, &inputs, false)
                 .await
                 .with_context(|| {
                     format!("Failed to create stateless resource {}", resource_path)
@@ -1252,13 +1247,9 @@ impl WorkContext {
                     Some(past_resource) => {
                         // Type check already done above; inputs differ if we reach here
                         tracing::debug!("Updating resource {}: inputs changed", resource_path);
+                        let previous = crate::resource::ExtantResource::from(&past_resource);
                         let outputs = provider
-                            .update(
-                                provider_info.resource_type.as_str(),
-                                &inputs,
-                                &past_resource.input_properties,
-                                &past_resource.output_properties,
-                            )
+                            .update(&ProviderResource::from(&previous), &inputs)
                             .await
                             .with_context(|| {
                                 format!("Failed to update resource {}", resource_path)
@@ -1282,7 +1273,7 @@ impl WorkContext {
                     }
                     None => {
                         let outputs = provider
-                            .create(provider_info.resource_type.as_str(), &inputs, true)
+                            .create(&resource_type, &inputs, true)
                             .await
                             .with_context(|| {
                                 format!("Failed to create resource {}", resource_path)
@@ -1460,14 +1451,10 @@ impl TaskWork for WorkContext {
                                 .await?;
                             let inputs = clone_result(inputs_thunk.force().await)?;
 
-                            let resource = nixops4_resource::schema::v0::ExtantResource {
-                                input_properties: nixops4_resource::schema::v0::InputProperties(
-                                    inputs,
-                                ),
+                            let resource = crate::resource::ExtantResource {
+                                input_properties: inputs,
                                 output_properties: None,
-                                type_: nixops4_resource::schema::v0::ResourceType(
-                                    provider_info.resource_type.clone(),
-                                ),
+                                type_: provider_info.resource_type.clone(),
                             };
 
                             (resource, provider_info)
