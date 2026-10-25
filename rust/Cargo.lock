@@ -254,7 +254,6 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
- "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -1104,19 +1103,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "nixops4-resource"
+name = "nixops4-provider-wire"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "chrono",
  "json-patch",
- "nix 0.29.0",
  "prettyplease",
  "schemars",
  "serde",
  "serde_json",
  "syn",
  "typify",
+]
+
+[[package]]
+name = "nixops4-resource"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "json-patch",
+ "nix 0.29.0",
+ "nixops4-provider-wire",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
