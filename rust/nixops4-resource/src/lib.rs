@@ -1,3 +1,3 @@
 pub mod framework;
-pub mod schema;
-pub mod state;
+
+pub use nixops4_provider_wire::schema;

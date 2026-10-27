@@ -32,12 +32,12 @@ book: $(shell find src -type f) $(GENERATED) book.toml custom.css mermaid-init.j
 	@echo "      MDBOOK" $@
 	@mdbook build
 
-src/schema/resource-schema-v0.json: ../../rust/nixops4-resource/resource-schema-v0.json
+src/schema/resource-schema-v0.json: ../../rust/nixops4-provider-wire/resource-schema-v0.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@
 
-src/schema/state-schema-v0.json: ../../rust/nixops4-resource/state-schema-v0.json
+src/schema/state-schema-v0.json: ../../rust/nixops4/state-schema-v0.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@
@@ -71,12 +71,12 @@ src/cli/nixops4-resource-runner.md: $(NIXOPS4_RESOURCE_RUNNER_EXE)
 	@mkdir -p $(dir $@)
 	@$(NIXOPS4_RESOURCE_RUNNER_CMD) generate-markdown > $@
 
-src/schema/resource-v0/examples/%.json: ../../rust/nixops4-resource/examples/v0/%.json
+src/schema/resource-v0/examples/%.json: ../../rust/nixops4-provider-wire/examples/v0/%.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@
 
-src/schema/state-v0/examples/%.json: ../../rust/nixops4-resource/examples/state/v0/%.json
+src/schema/state-v0/examples/%.json: ../../rust/nixops4/examples/state/v0/%.json
 	@echo "        COPY" $@
 	@mkdir -p $(dir $@)
 	@cp $< $@

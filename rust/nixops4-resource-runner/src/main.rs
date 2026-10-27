@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use clap::CommandFactory;
 use clap::{Parser, Subcommand};
 use core::str;
-use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
+use nixops4_resource_runner::{
+    ProviderResource, ResourceProviderClient, ResourceProviderConfig, ResourceType, StateEvent,
+};
 
 /// The nixops4-resource-runner executable
 ///
@@ -72,14 +74,14 @@ async fn async_main() -> Result<()> {
                 inputs.insert(k.clone(), serde_json::Value::String(v.clone()));
             }
 
-            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-                provider_executable: provider_exe.clone(),
-                provider_args: vec![],
-            })
-            .await?;
+            let mut provider = spawn_provider(provider_exe).await?;
 
             let result = provider
-                .create(resource_type, &inputs, *stateful)
+                .create(
+                    &ResourceType::new(resource_type.clone()),
+                    &inputs,
+                    *stateful,
+                )
                 .await
                 .with_context(|| "failed to create resource");
 
@@ -112,20 +114,15 @@ async fn async_main() -> Result<()> {
                 serde_json::from_str(previous_output_properties_json.as_str())
                     .with_context(|| "failed to parse value of --previous-outputs-json")?;
 
-            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-                provider_executable: provider_exe.clone(),
-                provider_args: vec![],
-            })
-            .await?;
+            let mut provider = spawn_provider(provider_exe).await?;
 
-            let result = provider
-                .update(
-                    resource_type,
-                    &input_properties_json,
-                    &previous_input_properties_json,
-                    &previous_output_properties_json,
-                )
-                .await;
+            let previous = provider_resource(
+                resource_type,
+                previous_input_properties_json,
+                previous_output_properties_json,
+            );
+
+            let result = provider.update(&previous, &input_properties_json).await;
 
             provider.close_wait().await?;
 
@@ -151,23 +148,12 @@ async fn async_main() -> Result<()> {
             let output_properties_json = serde_json::from_str(output_properties_json.as_str())
                 .with_context(|| "failed to parse value of --outputs-json")?;
 
-            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-                provider_executable: provider_exe.clone(),
-                provider_args: vec![],
-            })
-            .await?;
+            let mut provider = spawn_provider(provider_exe).await?;
 
-            let resource = nixops4_resource::schema::v0::ExtantResource {
-                type_: nixops4_resource::schema::v0::ResourceType(resource_type.clone()),
-                input_properties: nixops4_resource::schema::v0::InputProperties(
-                    input_properties_json,
-                ),
-                output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
-                    output_properties_json,
-                )),
-            };
+            let resource =
+                provider_resource(resource_type, input_properties_json, output_properties_json);
 
-            let result = provider.state_read(resource).await;
+            let result = provider.state_read(&resource).await;
 
             provider.close_wait().await?;
 
@@ -198,28 +184,18 @@ async fn async_main() -> Result<()> {
             let patch: json_patch::Patch = serde_json::from_str(patch_json.as_str())
                 .with_context(|| "failed to parse value of --patch-json")?;
 
-            let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
-                provider_executable: provider_exe.clone(),
-                provider_args: vec![],
-            })
-            .await?;
+            let mut provider = spawn_provider(provider_exe).await?;
 
-            let request = nixops4_resource::schema::v0::StateResourceEvent {
-                resource: nixops4_resource::schema::v0::ExtantResource {
-                    type_: nixops4_resource::schema::v0::ResourceType(resource_type.clone()),
-                    input_properties: nixops4_resource::schema::v0::InputProperties(
-                        input_properties_json,
-                    ),
-                    output_properties: Some(nixops4_resource::schema::v0::OutputProperties(
-                        output_properties_json,
-                    )),
-                },
+            let resource =
+                provider_resource(resource_type, input_properties_json, output_properties_json);
+
+            let event = StateEvent {
                 event: event.clone(),
                 nixops_version: nixops_version.clone(),
                 patch,
             };
 
-            let result = provider.state_event(request).await;
+            let result = provider.state_event(&resource, event).await;
 
             provider.close_wait().await?;
 
@@ -269,6 +245,26 @@ async fn async_main() -> Result<()> {
 struct Args {
     #[command(subcommand)]
     command: Commands,
+}
+
+fn provider_resource(
+    resource_type: &str,
+    input_properties: serde_json::Map<String, serde_json::Value>,
+    output_properties: serde_json::Map<String, serde_json::Value>,
+) -> ProviderResource {
+    ProviderResource {
+        type_: ResourceType::new(resource_type),
+        input_properties,
+        output_properties: Some(output_properties),
+    }
+}
+
+async fn spawn_provider(provider_exe: &str) -> Result<ResourceProviderClient> {
+    ResourceProviderClient::new(ResourceProviderConfig {
+        provider_executable: provider_exe.to_string(),
+        provider_args: vec![],
+    })
+    .await
 }
 
 #[derive(Subcommand, Debug)]

@@ -23,9 +23,10 @@ stdenv.mkDerivation (finalAttrs: {
   src = fileset.toSource {
     fileset = fileset.unions [
       ../../nix/lib/lib.nix
-      ../../rust/nixops4-resource/examples
-      ../../rust/nixops4-resource/resource-schema-v0.json
-      ../../rust/nixops4-resource/state-schema-v0.json
+      ../../rust/nixops4/examples
+      ../../rust/nixops4/state-schema-v0.json
+      ../../rust/nixops4-provider-wire/examples
+      ../../rust/nixops4-provider-wire/resource-schema-v0.json
       (fileset.fileFilter ({ name, ... }: name == "Cargo.toml") ../../rust)
       ./book.toml
       ./cargo-deps.sh
