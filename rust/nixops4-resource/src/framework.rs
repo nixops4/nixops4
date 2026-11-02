@@ -22,6 +22,18 @@ pub trait ResourceProvider {
         request: v0::UpdateResourceRequest,
     ) -> Result<v0::UpdateResourceResponse>;
 
+    /// Destroy (delete) an existing resource.
+    ///
+    /// Implementations must be idempotent: destroying a resource that no
+    /// longer exists must succeed.
+    async fn destroy(
+        &self,
+        request: v0::DestroyResourceRequest,
+    ) -> Result<v0::DestroyResourceResponse> {
+        let _ = request;
+        anyhow::bail!("Destroy operation not implemented by resource provider")
+    }
+
     async fn state_read(
         &self,
         request: v0::StateResourceReadRequest,
@@ -104,6 +116,10 @@ async fn handle_request(
         },
         v0::Request::UpdateResourceRequest(r) => match provider.update(r).await {
             Ok(resp) => v0::Response::UpdateResourceResponse(resp),
+            Err(e) => error_response(e),
+        },
+        v0::Request::DestroyResourceRequest(r) => match provider.destroy(r).await {
+            Ok(resp) => v0::Response::DestroyResourceResponse(resp),
             Err(e) => error_response(e),
         },
         v0::Request::StateResourceEvent(r) => match provider.state_event(r).await {

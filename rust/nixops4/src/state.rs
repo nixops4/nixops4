@@ -62,6 +62,23 @@ impl DeploymentState {
             }
         }
     }
+
+    /// All resource paths recorded in this deployment state, including those
+    /// in nested deployments. The paths are relative to this deployment state,
+    /// mirroring the navigation of [`DeploymentState::get_resource`].
+    pub fn all_resource_paths(&self) -> Vec<ComponentPath> {
+        fn collect(prefix: &ComponentPath, state: &DeploymentState, out: &mut Vec<ComponentPath>) {
+            for name in state.resources.keys() {
+                out.push(prefix.child(name.clone()));
+            }
+            for (name, nested) in &state.deployments {
+                collect(&prefix.child(name.clone()), nested, out);
+            }
+        }
+        let mut out = Vec::new();
+        collect(&ComponentPath::root(), self, &mut out);
+        out
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -73,6 +90,19 @@ pub struct ResourceState {
     pub input_properties: serde_json::Map<String, serde_json::Value>,
     /// The output properties of the resource
     pub output_properties: serde_json::Map<String, serde_json::Value>,
+    /// The provider configuration of the resource, so that it can still be
+    /// destroyed after being removed from the deployment expression.
+    ///
+    /// Resources created by older versions of NixOps have no provider
+    /// information recorded; such resources cannot be destroyed
+    /// automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<serde_json::Value>,
+    /// The resource paths whose outputs this resource's inputs reference, so
+    /// that this resource can be destroyed before the resources it references
+    /// (dependants first) after being removed from the deployment expression.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<ComponentPath>,
 }
 
 pub struct StateHandle {
@@ -127,6 +157,48 @@ impl StateHandle {
         let mut new_state = old_state.clone();
         update_resource_in_deployment_state(&mut new_state, resource_path, current_resource)?;
 
+        self.send_state_patch(
+            &mut current_state,
+            old_state,
+            new_state,
+            event,
+            resource_path,
+        )
+        .await
+    }
+
+    /// Remove a resource from the state, e.g. after it was destroyed.
+    ///
+    /// Removing a resource that is not in the state is a no-op.
+    pub async fn resource_removed(&self, resource_path: &ComponentPath) -> Result<()> {
+        let mut current_state = self.current.lock().await;
+
+        let old_state = serde_json::to_value(&current_state.deployment)
+            .with_context(|| "Failed to serialize current deployment state")?;
+
+        let mut new_state = old_state.clone();
+        remove_resource_from_deployment_state(&mut new_state, resource_path)?;
+
+        self.send_state_patch(
+            &mut current_state,
+            old_state,
+            new_state,
+            "destroy",
+            resource_path,
+        )
+        .await
+    }
+
+    /// Compute the patch between the old and new deployment state, send it as
+    /// a state event, and update the in-memory state on success.
+    async fn send_state_patch(
+        &self,
+        current_state: &mut State,
+        old_state: serde_json::Value,
+        new_state: serde_json::Value,
+        event: &str,
+        resource_path: &ComponentPath,
+    ) -> Result<()> {
         // TODO: this is expensive for large states, O(n^2)
         let patch = json_patch::diff(&old_state, &new_state);
         // If there are no changes, don't send an event
@@ -150,10 +222,11 @@ impl StateHandle {
             .await
             .with_context(|| {
                 // TODO: In the future, we could log specific attribute paths that changed (without values)
-                // to help with debugging while maintaining security. E.g. "resource.input_properties.password changed"
+                //       to help with debugging while maintaining security. E.g. "resource.input_properties.password changed"
+                //       We do log the field count and resource identity here.
                 format!(
-                    "Failed to update state for resource '{}' (type: {}) - {} field(s) changed",
-                    resource_path, current_resource.type_, patch_count
+                    "Failed to update state for resource '{}' - {} field(s) changed",
+                    resource_path, patch_count
                 )
             })?;
 
@@ -228,6 +301,39 @@ fn update_resource_in_deployment_state(
     Ok(())
 }
 
+/// Remove a resource from a complete deployment state JSON structure.
+/// This modifies the deployment state JSON in-place to remove the resource at
+/// the given path. Removing a resource that is not present is a no-op.
+fn remove_resource_from_deployment_state(
+    deployment_state: &mut serde_json::Value,
+    resource_path: &ComponentPath,
+) -> Result<()> {
+    let path_parts = &resource_path.0;
+    if path_parts.is_empty() {
+        bail!("Empty resource path");
+    }
+
+    // Navigate to the correct deployment
+    let mut current = deployment_state;
+    for deployment_name in &path_parts[..path_parts.len() - 1] {
+        current = match current.get_mut("deployments") {
+            Some(deployments) => match deployments.get_mut(deployment_name) {
+                Some(deployment) => deployment,
+                // The deployment does not exist, so the resource is not in it
+                None => return Ok(()),
+            },
+            None => return Ok(()),
+        };
+    }
+
+    // Remove the resource (last element of path is the resource name)
+    if let Some(resources) = current.get_mut("resources").and_then(|r| r.as_object_mut()) {
+        resources.remove(&path_parts[path_parts.len() - 1].to_string());
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +351,8 @@ mod tests {
             type_: "test".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -265,6 +373,8 @@ mod tests {
             type_: "test".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -313,6 +423,8 @@ mod tests {
             type_: "new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -369,6 +481,8 @@ mod tests {
             type_: "deep_new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -417,6 +531,8 @@ mod tests {
             type_: "brand_new".to_string(),
             input_properties: serde_json::Map::new(),
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -468,6 +584,8 @@ mod tests {
                 map
             },
             output_properties: serde_json::Map::new(),
+            provider: None,
+            depends_on: Vec::new(),
         };
 
         update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
@@ -489,5 +607,183 @@ mod tests {
             }
         });
         assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_from_state_root() {
+        let mut state = serde_json::json!({
+            "resources": {
+                "myresource": {"type": "test"},
+                "other": {"type": "other"}
+            }
+        });
+
+        remove_resource_from_deployment_state(
+            &mut state,
+            &ComponentPath(vec!["myresource".to_string()]),
+        )
+        .unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {
+                "other": {"type": "other"}
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_from_state_nested() {
+        let mut state = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "myresource": {"type": "test"}
+                    }
+                }
+            }
+        });
+
+        remove_resource_from_deployment_state(
+            &mut state,
+            &ComponentPath(vec!["deploy1".to_string(), "myresource".to_string()]),
+        )
+        .unwrap();
+
+        let expected = serde_json::json!({
+            "resources": {},
+            "deployments": {
+                "deploy1": {
+                    "resources": {}
+                }
+            }
+        });
+        assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_remove_resource_missing_is_noop() {
+        let state_original = serde_json::json!({
+            "resources": {
+                "other": {"type": "other"}
+            },
+            "deployments": {
+                "deploy1": {
+                    "resources": {
+                        "other": {"type": "other"}
+                    }
+                }
+            }
+        });
+
+        let mut state = state_original.clone();
+        remove_resource_from_deployment_state(
+            &mut state,
+            &ComponentPath(vec!["deploy1".to_string(), "myresource".to_string()]),
+        )
+        .unwrap();
+        remove_resource_from_deployment_state(
+            &mut state,
+            &ComponentPath(vec![
+                "missingDeployment".to_string(),
+                "myresource".to_string(),
+            ]),
+        )
+        .unwrap();
+        remove_resource_from_deployment_state(
+            &mut state,
+            &ComponentPath(vec!["myresource".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(state, state_original);
+    }
+
+    #[test]
+    fn test_all_resource_paths() {
+        let state = DeploymentState {
+            resources: BTreeMap::from([(
+                "rootResource".to_string(),
+                ResourceState {
+                    type_: "test".to_string(),
+                    input_properties: Default::default(),
+                    output_properties: Default::default(),
+                    provider: None,
+                    depends_on: Vec::new(),
+                },
+            )]),
+            deployments: BTreeMap::from([(
+                "deploy1".to_string(),
+                DeploymentState {
+                    resources: BTreeMap::from([(
+                        "nestedResource".to_string(),
+                        ResourceState {
+                            type_: "test".to_string(),
+                            input_properties: Default::default(),
+                            output_properties: Default::default(),
+                            provider: None,
+                            depends_on: Vec::new(),
+                        },
+                    )]),
+                    deployments: BTreeMap::from([(
+                        "deploy2".to_string(),
+                        DeploymentState {
+                            resources: BTreeMap::from([(
+                                "deepResource".to_string(),
+                                ResourceState {
+                                    type_: "test".to_string(),
+                                    input_properties: Default::default(),
+                                    output_properties: Default::default(),
+                                    provider: None,
+                                    depends_on: Vec::new(),
+                                },
+                            )]),
+                            deployments: BTreeMap::new(),
+                        },
+                    )]),
+                },
+            )]),
+        };
+
+        let paths = state.all_resource_paths();
+        let expected = vec![
+            ComponentPath(vec!["rootResource".to_string()]),
+            ComponentPath(vec!["deploy1".to_string(), "nestedResource".to_string()]),
+            ComponentPath(vec![
+                "deploy1".to_string(),
+                "deploy2".to_string(),
+                "deepResource".to_string(),
+            ]),
+        ];
+        assert_eq!(paths, expected);
+    }
+
+    /// Old state files have no provider or depends_on fields; they must still
+    /// deserialize.
+    #[test]
+    fn test_resource_state_backward_compatible() {
+        let old: ResourceState = serde_json::from_value(serde_json::json!({
+            "type": "file",
+            "input_properties": {},
+            "output_properties": {}
+        }))
+        .unwrap();
+        assert_eq!(old.provider, None);
+        assert!(old.depends_on.is_empty());
+
+        let new = ResourceState {
+            type_: "file".to_string(),
+            input_properties: Default::default(),
+            output_properties: Default::default(),
+            provider: Some(serde_json::json!({"type": "stdio", "executable": "/bin/provider"})),
+            depends_on: vec![ComponentPath(vec!["other".to_string()])],
+        };
+        let json = serde_json::to_value(&new).unwrap();
+        // New fields are recorded; empty/default fields are omitted
+        assert!(json.get("provider").is_some());
+        assert!(json.get("depends_on").is_some());
+        let roundtrip: ResourceState = serde_json::from_value(json).unwrap();
+        assert_eq!(roundtrip, new);
     }
 }

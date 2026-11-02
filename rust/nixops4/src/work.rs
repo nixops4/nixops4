@@ -6,6 +6,7 @@ use crate::{
     eval_client,
     interrupt::InterruptState,
     provider,
+    state::ResourceState,
 };
 use anyhow::{bail, Context as _, Result};
 use nixops4_core::eval_api::{
@@ -16,7 +17,7 @@ use nixops4_core::eval_api::{
 use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use pubsub_rs::Pubsub;
 use serde_json::Value;
-use std::{collections::BTreeMap, fmt::Display, sync::Arc};
+use std::{collections::BTreeMap, collections::BTreeSet, fmt::Display, sync::Arc};
 use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 use tracing::{info_span, Instrument as _};
@@ -96,6 +97,19 @@ pub enum Goal {
     /// Apply a composite, creating/updating/deleting resources as needed.
     /// INVARIANT: composite_id must be the ID of the composite at composite_path.
     Apply(Id<CompositeType>, ComponentPath, MutationCapability),
+    /// Destroy a single resource from the deployment state, as part of
+    /// declarative garbage collection: the resource is no longer declared in
+    /// the deployment expression.
+    ///
+    /// The resource is identified by the state provider that holds its
+    /// record (id + path), so it can be destroyed even after being removed
+    /// from the deployment expression. Skips (no-op) when the record is gone.
+    DestroyResource(
+        ComponentPath,
+        Id<ResourceType>,
+        ComponentPath,
+        MutationCapability,
+    ),
     /// List member names in a composite. If listing has a structural dependency, resolves it.
     /// Option<MutationCapability>: Some = retry on dependency (apply), None = return dependency (preview)
     /// Note: composite_path is only used for error reporting; composite_id is the source of truth.
@@ -140,6 +154,9 @@ impl Display for Goal {
             }
             Goal::Apply(_id, path, _cap) => {
                 write!(f, "Apply composite {}", path)
+            }
+            Goal::DestroyResource(path, _state_id, _state_path, _cap) => {
+                write!(f, "Destroy resource {}", path)
             }
             Goal::ListMembers(_id, path, cap) => {
                 if cap.is_some() {
@@ -481,6 +498,75 @@ impl WorkContext {
         Ok(())
     }
 
+    /// Low-level helper to send GetResourceDependencies and receive response.
+    ///
+    /// Returns the dependency edges recorded while evaluating this
+    /// resource's inputs.
+    async fn eval_get_resource_dependencies(
+        &self,
+        id: Id<ResourceType>,
+    ) -> Result<Vec<eval_api::DependencyEdge>> {
+        let msg_id = self.eval_sender.next_id();
+        let rx = self.id_subscriptions.subscribe(vec![msg_id.num()]).await;
+        self.eval_sender
+            .query(msg_id, EvalRequest::GetResourceDependencies, id)
+            .await?;
+
+        loop {
+            let (_id, r) = rx
+                .recv()
+                .await
+                .context("waiting for GetResourceDependencies response")?;
+            match r {
+                EvalResponse::Error(_id, e) => bail!("Evaluation error: {}", e),
+                EvalResponse::QueryResponse(_id, query_response_value) => {
+                    match query_response_value {
+                        QueryResponseValue::ResourceDependencies(step_result) => {
+                            match step_result {
+                                StepResult::Done(edges) => return Ok(edges),
+                                StepResult::Needs(dep) => bail!(
+                            "Unexpected dependency requirement from GetResourceDependencies: {}.{}",
+                            dep.resource,
+                            dep.name
+                        ),
+                            }
+                        }
+                        _ => bail!(
+                            "Unexpected response to GetResourceDependencies, {:?}",
+                            query_response_value
+                        ),
+                    }
+                }
+                EvalResponse::TracingEvent(_) => {}
+            }
+        }
+    }
+
+    /// Get the resource paths whose outputs this resource's inputs reference,
+    /// from the dependency edges recorded while evaluating the inputs.
+    ///
+    /// Recorded in the deployment state with the resource, so that it can
+    /// still be ordered correctly for destruction after being removed from
+    /// the deployment expression.
+    async fn get_resource_depends_on(
+        &self,
+        id: Id<ResourceType>,
+        resource_path: &ComponentPath,
+    ) -> Result<Vec<ComponentPath>> {
+        let edges = self
+            .eval_get_resource_dependencies(id)
+            .await
+            .with_context(|| {
+                format!("Failed to determine the dependencies of {}", resource_path)
+            })?;
+        let deps: BTreeSet<ComponentPath> = edges
+            .iter()
+            .map(|edge| edge.target.resource.clone())
+            .filter(|path| path != resource_path)
+            .collect();
+        Ok(deps.into_iter().collect())
+    }
+
     /// Low-level helper to send ListMembers request and receive response.
     async fn eval_list_members(
         &self,
@@ -610,6 +696,12 @@ impl WorkContext {
         }
         self.interrupt_state.check_interrupted()?;
 
+        // Declarative garbage collection: destroy resources that are no
+        // longer declared, before creating anything, so that names and
+        // objects freed by removed resources can be reused.
+        self.perform_gc(&context, composite_id, &composite_path, mutation_cap)
+            .await?;
+
         // List and partition members, resolving structural dependencies
         // IDs come directly from LoadMember - no separate lookup needed
         let (resources, nested_composites) = self
@@ -676,6 +768,332 @@ impl WorkContext {
                 }
             }
         }
+
+        Ok(Outcome::Done())
+    }
+
+    /// Declarative garbage collection: destroy resources that are recorded in
+    /// the deployment state but no longer declared in the deployment
+    /// expression ("orphans").
+    ///
+    /// Runs before creating or updating resources, so that names and objects
+    /// freed by removed resources can be reused. Destruction is ordered
+    /// dependants first, using the dependency edges recorded in the state
+    /// when each resource was created.
+    ///
+    /// Conservative by design:
+    /// - subtrees whose structure is blocked by a dependency are excluded,
+    ///   because a resource could be declared but not visible yet;
+    /// - state providers that cannot be resolved are excluded;
+    /// - orphans recorded without provider information (older state format)
+    ///   are skipped with a warning instead of destroyed.
+    async fn perform_gc(
+        &self,
+        context: &TaskContext<Self>,
+        composite_id: Id<CompositeType>,
+        composite_path: &ComponentPath,
+        mutation_cap: MutationCapability,
+    ) -> Result<()> {
+        let scope = self
+            .collect_gc_scope(context, composite_id, composite_path)
+            .await?;
+
+        // Collect the orphans: resources recorded in a state provider that
+        // are no longer declared in the deployment expression.
+        let mut orphans: BTreeMap<ComponentPath, (Id<ResourceType>, ComponentPath, ResourceState)> =
+            BTreeMap::new();
+        for state_path in scope.states.keys() {
+            let state_id = match self.get_resource_id(context, state_path).await {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!(
+                        "warning: not garbage-collecting in state provider {}: {}",
+                        state_path, e
+                    );
+                    continue;
+                }
+            };
+            let r = match context
+                .require(Goal::RunState(
+                    state_id,
+                    state_path.clone(),
+                    Some(mutation_cap),
+                ))
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!(
+                        "warning: not garbage-collecting in state provider {}: {}",
+                        state_path, e
+                    );
+                    continue;
+                }
+            };
+            let state_handle = match clone_result(&r) {
+                Ok(Outcome::RunState(handle)) => handle,
+                Ok(outcome) => bail!("Unexpected outcome from RunState: {:?}", outcome),
+                Err(e) => {
+                    eprintln!(
+                        "warning: not garbage-collecting in state provider {}: {}",
+                        state_path, e
+                    );
+                    continue;
+                }
+            };
+            let recorded = state_handle
+                .current
+                .lock()
+                .await
+                .deployment
+                .all_resource_paths();
+            for resource_path in recorded {
+                if !is_under(&resource_path, composite_path) {
+                    continue;
+                }
+                if scope.declared.contains(&resource_path) {
+                    continue;
+                }
+                if scope
+                    .blocked
+                    .iter()
+                    .any(|blocked| is_under(&resource_path, blocked))
+                {
+                    continue;
+                }
+                if let Some(past) = state_handle
+                    .current
+                    .lock()
+                    .await
+                    .deployment
+                    .get_resource(&resource_path)
+                    .cloned()
+                {
+                    orphans.insert(resource_path, (state_id, state_path.clone(), past));
+                }
+            }
+        }
+
+        if orphans.is_empty() {
+            return Ok(());
+        }
+
+        // Destroy dependants before their dependencies: an orphan whose
+        // inputs reference another orphan's outputs must be destroyed first.
+        let orphan_paths: BTreeSet<ComponentPath> = orphans.keys().cloned().collect();
+        let mut dependants: BTreeMap<ComponentPath, BTreeSet<ComponentPath>> = BTreeMap::new();
+        for (path, (_, _, past)) in &orphans {
+            for dependency in &past.depends_on {
+                if orphan_paths.contains(dependency) {
+                    dependants
+                        .entry(dependency.clone())
+                        .or_default()
+                        .insert(path.clone());
+                }
+            }
+        }
+        let order = dependants_first_order(&orphan_paths, &dependants);
+
+        eprintln!("The following resources are no longer declared and will be destroyed:");
+        for path in &order {
+            eprintln!("  - {}", path);
+        }
+        self.interrupt_state.check_interrupted()?;
+
+        for path in order {
+            let (state_id, state_path, _) = orphans.get(&path).unwrap();
+            let r = context
+                .require(Goal::DestroyResource(
+                    path.clone(),
+                    *state_id,
+                    state_path.clone(),
+                    mutation_cap,
+                ))
+                .await?;
+            clone_result(&r)?;
+            self.interrupt_state.check_interrupted()?;
+        }
+
+        Ok(())
+    }
+
+    /// Walk the component tree without applying anything, to collect the
+    /// declared resource paths and the state providers in scope.
+    ///
+    /// Subtrees whose structure is blocked by a dependency are recorded as
+    /// blocked and excluded from garbage collection, because a resource could
+    /// be declared there but not visible yet.
+    async fn collect_gc_scope(
+        &self,
+        context: &TaskContext<Self>,
+        composite_id: Id<CompositeType>,
+        composite_path: &ComponentPath,
+    ) -> Result<GcScope> {
+        let mut scope = GcScope {
+            declared: BTreeSet::new(),
+            states: BTreeMap::new(),
+            blocked: Vec::new(),
+        };
+        let mut stack: Vec<(ComponentPath, Id<CompositeType>)> =
+            vec![(composite_path.clone(), composite_id)];
+        while let Some((path, id)) = stack.pop() {
+            let names = match self.list_member_names(context, id, &path, None).await {
+                Ok(Ok(names)) => names,
+                Ok(Err(dep)) => {
+                    eprintln!(
+                        "warning: not garbage-collecting under {}: its structure depends on {}.{}",
+                        path, dep.depends_on.resource, dep.depends_on.name
+                    );
+                    scope.blocked.push(path);
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("warning: not garbage-collecting under {}: {}", path, e);
+                    scope.blocked.push(path);
+                    continue;
+                }
+            };
+            let (resources, composites) = match self
+                .load_and_partition_members(context, id, names, None)
+                .await?
+            {
+                Ok(partitioned) => partitioned,
+                Err(dep) => {
+                    eprintln!(
+                        "warning: not garbage-collecting under {}: blocked by dependency on {}.{}",
+                        path, dep.depends_on.resource, dep.depends_on.name
+                    );
+                    scope.blocked.push(path);
+                    continue;
+                }
+            };
+            for (name, nested_id) in composites {
+                stack.push((path.child(name), nested_id));
+            }
+            for (name, resource_id) in resources {
+                let resource_path = path.child(name);
+                scope.declared.insert(resource_path.clone());
+                match self.eval_get_resource_provider_info(resource_id).await {
+                    Ok(StepResult::Done(info)) => {
+                        if let Some(state_path) = info.state {
+                            scope
+                                .states
+                                .entry(state_path)
+                                .or_default()
+                                .push(resource_path.clone());
+                        }
+                    }
+                    Ok(StepResult::Needs(dep)) => {
+                        eprintln!(
+                            "warning: cannot determine the state provider of {}: depends on {}.{}",
+                            resource_path, dep.resource, dep.name
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "warning: cannot determine the state provider of {}: {}",
+                            resource_path, e
+                        );
+                    }
+                }
+                // State providers that no resource references (e.g. all
+                // stateful resources were removed from the deployment) are
+                // invisible via `state` references. Detect them by
+                // attempting a read-only state read on every other declared
+                // resource; non-state providers fail without side effects.
+                if !scope.states.contains_key(&resource_path)
+                    && self
+                        .is_state_provider(context, resource_id, &resource_path)
+                        .await
+                {
+                    scope.states.entry(resource_path).or_default();
+                }
+            }
+        }
+        Ok(scope)
+    }
+
+    /// Check whether a resource functions as a state provider, by opening it
+    /// for a read-only state read. Non-state providers fail without side
+    /// effects.
+    async fn is_state_provider(
+        &self,
+        context: &TaskContext<Self>,
+        id: Id<ResourceType>,
+        resource_path: &ComponentPath,
+    ) -> bool {
+        match context
+            .require(Goal::RunState(id, resource_path.clone(), None))
+            .await
+        {
+            Ok(r) => matches!(clone_result(&r), Ok(Outcome::RunState(_handle))),
+            Err(_) => false,
+        }
+    }
+
+    /// Destroy a single resource from the deployment state.
+    ///
+    /// The resource may no longer be declared in the deployment expression,
+    /// so everything needed to destroy it (type, inputs, outputs, provider)
+    /// comes from the state record made when it was created.
+    ///
+    /// Idempotent: a resource without a state record has nothing to destroy.
+    async fn perform_destroy_resource(
+        &self,
+        context: TaskContext<Self>,
+        resource_path: ComponentPath,
+        state_id: Id<ResourceType>,
+        state_path: ComponentPath,
+        mutation_cap: MutationCapability,
+    ) -> Result<Outcome> {
+        // Open the state provider, creating the state storage if needed.
+        let r = context
+            .require(Goal::RunState(state_id, state_path, Some(mutation_cap)))
+            .await?;
+        let state_handle = match clone_result(&r)? {
+            Outcome::RunState(handle) => handle,
+            outcome => bail!("Unexpected outcome from RunState: {:?}", outcome),
+        };
+
+        let past = state_handle
+            .current
+            .lock()
+            .await
+            .deployment
+            .get_resource(&resource_path)
+            .cloned();
+        let past = match past {
+            Some(past) => past,
+            None => {
+                eprintln!("{} is not in state; nothing to destroy.", resource_path);
+                return Ok(Outcome::Done());
+            }
+        };
+
+        let provider_json = match past.provider.as_ref() {
+            Some(provider_json) => provider_json,
+            None => {
+                eprintln!(
+                    "warning: cannot destroy {} automatically: no provider information recorded \
+                     in state (created by an older version of NixOps). Destroy it via its \
+                     provider directly, or apply it with this version of NixOps first.",
+                    resource_path
+                );
+                return Ok(Outcome::Done());
+            }
+        };
+
+        eprintln!("Destroying {}...", resource_path);
+        destroy_with_provider(
+            provider_json,
+            &past.type_,
+            &past.input_properties,
+            &past.output_properties,
+            &resource_path,
+        )
+        .await?;
+        state_handle.resource_removed(&resource_path).await?;
+        eprintln!("Destroyed resource {}.", resource_path);
 
         Ok(Outcome::Done())
     }
@@ -1207,6 +1625,26 @@ impl WorkContext {
                         "Skipping update for resource {}: inputs unchanged",
                         resource_path
                     );
+                    // Refresh the recorded provider and dependency metadata.
+                    // The state diff makes this a no-op when they did not
+                    // change, keeping garbage collection metadata current.
+                    let current_resource = crate::state::ResourceState {
+                        type_: provider_info.resource_type.clone(),
+                        input_properties: inputs.clone(),
+                        output_properties: past_resource.output_properties.clone(),
+                        provider: Some(provider_info.provider.clone()),
+                        depends_on: self.get_resource_depends_on(id, &resource_path).await?,
+                    };
+                    if current_resource != *past_resource {
+                        state_handle
+                            .resource_event(
+                                &resource_path,
+                                "update",
+                                Some(past_resource),
+                                &current_resource,
+                            )
+                            .await?;
+                    }
                     return self
                         .publish_resource_outputs(
                             &resource_path,
@@ -1267,6 +1705,8 @@ impl WorkContext {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
                             output_properties: outputs.clone(),
+                            provider: Some(provider_info.provider.clone()),
+                            depends_on: self.get_resource_depends_on(id, &resource_path).await?,
                         };
                         if current_resource != past_resource {
                             state_handle
@@ -1291,6 +1731,8 @@ impl WorkContext {
                             type_: provider_info.resource_type.clone(),
                             input_properties: inputs.clone(),
                             output_properties: outputs.clone(),
+                            provider: Some(provider_info.provider.clone()),
+                            depends_on: self.get_resource_depends_on(id, &resource_path).await?,
                         };
                         state_handle
                             .resource_event(&resource_path, "create", None, &current_resource)
@@ -1409,6 +1851,13 @@ impl TaskWork for WorkContext {
                 let context = context.clone();
                 self.perform_apply_resource(context, id, path, cap)
                     .instrument(info_span!("Applying resource", resource = ?path_2))
+                    .await
+            }
+
+            Goal::DestroyResource(path, state_id, state_path, cap) => {
+                let path_2 = path.clone();
+                self.perform_destroy_resource(context, path, state_id, state_path, cap)
+                    .instrument(info_span!("Destroying resource", resource = ?path_2))
                     .await
             }
 
@@ -1533,7 +1982,146 @@ pub(crate) async fn resolve_composite_path(
     }
 }
 
+/// The declared resources and state providers found by walking the component
+/// tree without applying anything; the basis for declarative garbage
+/// collection.
+struct GcScope {
+    /// Resource paths declared in the deployment expression.
+    declared: BTreeSet<ComponentPath>,
+    /// State provider path → declared resources referencing it.
+    states: BTreeMap<ComponentPath, Vec<ComponentPath>>,
+    /// Composites whose structure could not be resolved without applying
+    /// resources. Resources under these paths are excluded from garbage
+    /// collection, because they could be declared but not visible yet.
+    blocked: Vec<ComponentPath>,
+}
+
+/// Check if `path` is strictly below `ancestor` in the component tree.
+fn is_under(path: &ComponentPath, ancestor: &ComponentPath) -> bool {
+    path.0.len() > ancestor.0.len() && path.0.starts_with(&ancestor.0)
+}
+
+/// Order resources for destruction: dependants before their dependencies.
+///
+/// `dependants` maps a resource to the resources that reference its outputs
+/// (and must therefore be destroyed first). Returns a post-order
+/// depth-first traversal starting from every node in `nodes` (in sorted
+/// order), so that every resource appears after all the resources that
+/// reference it. Unreferenced nodes come first, in sorted order.
+fn dependants_first_order(
+    nodes: &BTreeSet<ComponentPath>,
+    dependants: &BTreeMap<ComponentPath, BTreeSet<ComponentPath>>,
+) -> Vec<ComponentPath> {
+    fn visit(
+        node: &ComponentPath,
+        dependants: &BTreeMap<ComponentPath, BTreeSet<ComponentPath>>,
+        visited: &mut BTreeSet<ComponentPath>,
+        order: &mut Vec<ComponentPath>,
+    ) {
+        if !visited.insert(node.clone()) {
+            return;
+        }
+        if let Some(deps) = dependants.get(node) {
+            for dep in deps {
+                visit(dep, dependants, visited, order);
+            }
+        }
+        order.push(node.clone());
+    }
+    let mut order = Vec::new();
+    let mut visited = BTreeSet::new();
+    for node in nodes {
+        visit(node, dependants, &mut visited, &mut order);
+    }
+    order
+}
+
+/// Run a resource provider's destroy operation and close the provider.
+async fn destroy_with_provider(
+    provider_json: &Value,
+    type_: &str,
+    inputs: &serde_json::Map<String, Value>,
+    outputs: &serde_json::Map<String, Value>,
+    resource_path: &ComponentPath,
+) -> Result<()> {
+    let provider_argv = provider::parse_provider(provider_json)?;
+    let mut provider = ResourceProviderClient::new(ResourceProviderConfig {
+        provider_executable: provider_argv.executable,
+        provider_args: provider_argv.args,
+    })
+    .await?;
+    let result = provider.destroy(type_, inputs, outputs).await;
+    // Always close the provider process, even when destroy failed
+    let close_result = provider.close_wait().await;
+    result.with_context(|| format!("Failed to destroy resource {}", resource_path))?;
+    close_result?;
+    Ok(())
+}
+
 fn indented_json(v: &Value) -> String {
     let s = serde_json::to_string_pretty(v).unwrap();
     s.replace("\n", "\n            ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(segments: &[&str]) -> ComponentPath {
+        ComponentPath(segments.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn test_is_under() {
+        let scope = path(&["deployment"]);
+        assert!(is_under(&path(&["deployment", "resource"]), &scope));
+        assert!(is_under(
+            &path(&["deployment", "nested", "resource"]),
+            &scope
+        ));
+        assert!(!is_under(&path(&["deployment"]), &scope));
+        assert!(!is_under(&path(&["resource"]), &scope));
+        assert!(!is_under(&path(&["otherDeployment", "resource"]), &scope));
+        // Root scope contains everything non-root
+        assert!(is_under(&path(&["resource"]), &ComponentPath::root()));
+    }
+
+    #[test]
+    fn test_dependants_first_order() {
+        // ec2-instance references security-group; security-group references vpc
+        let nodes: BTreeSet<ComponentPath> = ["ec2-instance", "security-group", "vpc", "alone"]
+            .iter()
+            .map(|s| path(&[s]))
+            .collect();
+        let mut dependants: BTreeMap<ComponentPath, BTreeSet<ComponentPath>> = BTreeMap::new();
+        // security-group is referenced by ec2-instance
+        dependants.insert(
+            path(&["security-group"]),
+            [path(&["ec2-instance"])].into_iter().collect(),
+        );
+        // vpc is referenced by security-group
+        dependants.insert(
+            path(&["vpc"]),
+            [path(&["security-group"])].into_iter().collect(),
+        );
+
+        let order = dependants_first_order(&nodes, &dependants);
+        // Dependants come before their dependencies; `alone` is unreferenced
+        let position = |name: &str| {
+            order
+                .iter()
+                .position(|p| p == &path(&[name]))
+                .unwrap_or_else(|| panic!("{} not in order: {:?}", name, order))
+        };
+        assert!(position("ec2-instance") < position("security-group"));
+        assert!(position("security-group") < position("vpc"));
+        assert_eq!(order.len(), nodes.len(), "all nodes must be ordered once");
+    }
+
+    #[test]
+    fn test_dependants_first_order_no_edges() {
+        let nodes: BTreeSet<ComponentPath> = ["b", "a"].iter().map(|s| path(&[s])).collect();
+        let order = dependants_first_order(&nodes, &BTreeMap::new());
+        assert_eq!(order, vec![path(&["a"]), path(&["b"])]);
+    }
 }

@@ -112,6 +112,26 @@
       ],
       "additionalProperties": false
     },
+    "DestroyResourceRequest": {
+      "type": "object",
+      "description": "Destroy (delete) an existing resource.",
+      "properties": {
+        "resource": {
+          "$ref": "#/definitions/ExtantResource"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyResourceResponse": {
+      "type": "object",
+      "description": "The resource was destroyed. Providers must implement destruction idempotently: destroying a resource that no longer exists must succeed."
+      ,
+      "properties": {},
+      "additionalProperties": false
+    },
     "StateResourceReadRequest": {
       "type": "object",
       "properties": {
@@ -214,6 +234,19 @@
         },
         {
           "type": "object",
+          "title": "DestroyResourceRequest",
+          "description": "<div class=\"warning\">Optional: providers that do not implement destruction will return an error</div>",
+          "properties": {
+            "destroyResourceRequest": {
+              "$ref": "#/definitions/DestroyResourceRequest"
+            }
+          },
+          "required": [
+            "destroyResourceRequest"
+          ]
+        },
+        {
+          "type": "object",
           "title": "StateResourceEvent",
           "description": "<div class=\"warning\">Only implemented by state provider resources</div>",
           "properties": {
@@ -264,6 +297,18 @@
           },
           "required": [
             "updateResourceResponse"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "DestroyResourceResponse",
+          "properties": {
+            "destroyResourceResponse": {
+              "$ref": "#/definitions/DestroyResourceResponse"
+            }
+          },
+          "required": [
+            "destroyResourceResponse"
           ]
         },
         {
