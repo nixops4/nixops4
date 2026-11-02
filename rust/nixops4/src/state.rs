@@ -1,49 +1,28 @@
+mod codec;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result};
 use nixops4_core::eval_api::{ComponentPath, ResourceProviderInfo};
-use nixops4_resource::schema::v0;
-use nixops4_resource::schema::v0::ExtantResource;
-use nixops4_resource_runner::ResourceProviderClient;
-use serde::Deserialize;
-use serde::Deserializer;
+use nixops4_resource_runner::{
+    ProviderResource, ResourceProviderClient, StateEvent as ClientStateEvent,
+};
 use tokio::sync::Mutex;
 
 use crate::provider;
 
-/// The root of a state file.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+/// The root of a state file, in memory
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
-    #[serde(flatten)]
     pub deployment: DeploymentState,
-
-    #[serde(deserialize_with = "type_is_nixops_state")]
-    _type: String,
-}
-
-fn type_is_nixops_state<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    if s == "nixopsState" {
-        Ok(s)
-    } else {
-        Err(serde::de::Error::custom(format!(
-            "unexpected _type in nixops state: expected 'nixopsState', got '{}'",
-            s
-        )))
-    }
 }
 
 /// The state of a set of resources
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeploymentState {
-    #[serde(default)]
     pub resources: BTreeMap<String, ResourceState>,
     /// State of resources in nested deployments
-    #[serde(default)]
     pub deployments: BTreeMap<String, DeploymentState>,
 }
 
@@ -64,10 +43,9 @@ impl DeploymentState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceState {
     /// The type of the resource
-    #[serde(rename = "type")]
     pub type_: String,
     /// The input properties of the resource
     pub input_properties: serde_json::Map<String, serde_json::Value>,
@@ -75,38 +53,50 @@ pub struct ResourceState {
     pub output_properties: serde_json::Map<String, serde_json::Value>,
 }
 
+impl From<&ResourceState> for crate::resource::ExtantResource {
+    fn from(resource: &ResourceState) -> Self {
+        crate::resource::ExtantResource {
+            type_: resource.type_.clone(),
+            input_properties: resource.input_properties.clone(),
+            output_properties: Some(resource.output_properties.clone()),
+        }
+    }
+}
+
 pub struct StateHandle {
     pub current: Mutex<State>,
-    pub state_provider_resource: v0::ExtantResource,
-    pub state_provider: Arc<Mutex<ResourceProviderClient>>,
+    state_store: ProviderResource,
+    state_provider: Arc<Mutex<ResourceProviderClient>>,
 }
 
 impl StateHandle {
     pub async fn open(
         provider_info: &ResourceProviderInfo,
-        resource: &ExtantResource,
+        resource: &crate::resource::ExtantResource,
     ) -> Result<Arc<StateHandle>> {
-        let provider_argv = provider::parse_provider(&provider_info.provider)?;
-        // Run the provider
-        let mut provider =
-            ResourceProviderClient::new(nixops4_resource_runner::ResourceProviderConfig {
-                provider_executable: provider_argv.executable,
-                provider_args: provider_argv.args,
-            })
-            .await?;
-
-        let state = provider.state_read(resource.clone()).await?;
-        // Awkwardly construct a JSON object from the BTreeMap
-        let state = serde_json::to_value(&state)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize state: {}", e))?;
-        let state = serde_json::from_value::<State>(state)
-            .map_err(|e| anyhow::anyhow!("Failed to parse state: {}", e))?;
-
+        let mut provider = provider::spawn_provider(&provider_info.provider).await?;
+        let state_store = ProviderResource::from(resource);
+        let state = Self::read_state(&mut provider, &state_store).await?;
         Ok(Arc::new(StateHandle {
             current: Mutex::new(state),
             state_provider: Arc::new(Mutex::new(provider)),
-            state_provider_resource: resource.clone(),
+            state_store,
         }))
+    }
+
+    /// The current state as a persisted state document
+    pub async fn state_json(&self) -> Result<String> {
+        let state = self.current.lock().await;
+        let document = codec::encode_state(&state)?;
+        serde_json::to_string_pretty(&document).context("serializing state document")
+    }
+
+    async fn read_state(
+        provider: &mut ResourceProviderClient,
+        state_store: &ProviderResource,
+    ) -> Result<State> {
+        let document = provider.state_read(state_store).await?;
+        codec::decode_state(serde_json::Value::Object(document))
     }
 
     pub async fn resource_event(
@@ -116,37 +106,26 @@ impl StateHandle {
         _past_resource: Option<&ResourceState>,
         current_resource: &ResourceState,
     ) -> Result<()> {
-        // Use whole-state diff approach for reliability
         let mut current_state = self.current.lock().await;
 
-        // Convert current deployment state to JSON
-        let old_state = serde_json::to_value(&current_state.deployment)
-            .with_context(|| "Failed to serialize current deployment state")?;
-
-        // Create new state with the resource updated
-        let mut new_state = old_state.clone();
-        update_resource_in_deployment_state(&mut new_state, resource_path, current_resource)?;
-
-        // TODO: this is expensive for large states, O(n^2)
-        let patch = json_patch::diff(&old_state, &new_state);
-        // If there are no changes, don't send an event
-        if patch.0.is_empty() {
+        let Some((patch, new_document)) =
+            state_event_patch(&current_state.deployment, resource_path, current_resource)?
+        else {
             return Ok(());
-        }
-
-        let patch_count = patch.0.len();
-
-        let event = v0::StateResourceEvent {
-            resource: self.state_provider_resource.clone(),
-            event: event.to_string(),
-            nixops_version: "0.1.0".to_string(),
-            patch,
         };
+        let patch_count = patch.0.len();
 
         self.state_provider
             .lock()
             .await
-            .state_event(event)
+            .state_event(
+                &self.state_store,
+                ClientStateEvent {
+                    event: event.to_string(),
+                    nixops_version: env!("CARGO_PKG_VERSION").to_string(),
+                    patch,
+                },
+            )
             .await
             .with_context(|| {
                 // TODO: In the future, we could log specific attribute paths that changed (without values)
@@ -157,10 +136,7 @@ impl StateHandle {
                 )
             })?;
 
-        // Update current state after successful patch application
-        let new_deployment_state: DeploymentState = serde_json::from_value(new_state)
-            .with_context(|| "Failed to deserialize updated deployment state")?;
-        current_state.deployment = new_deployment_state;
+        current_state.deployment = codec::decode_deployment(new_document)?;
 
         Ok(())
     }
@@ -175,62 +151,51 @@ impl StateHandle {
     }
 }
 
+/// The patch that turns the deployment state into the one with `resource`
+/// set at `resource_path`, together with that new state document.
+/// `None` when the patch is empty.
+fn state_event_patch(
+    deployment: &DeploymentState,
+    resource_path: &ComponentPath,
+    resource: &ResourceState,
+) -> Result<Option<(json_patch::Patch, serde_json::Value)>> {
+    let old_document = codec::encode_deployment(deployment)?;
+    let mut new_document = old_document.clone();
+    codec::set_resource_in_deployment_state(&mut new_document, resource_path, resource)?;
+    // TODO: this is expensive for large states, O(n^2)
+    let patch = json_patch::diff(&old_document, &new_document);
+    if patch.0.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some((patch, new_document)))
+    }
+}
+
 impl std::fmt::Debug for StateHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State {{ ... }}")
     }
 }
 
-/// Update a resource in a complete deployment state JSON structure.
-/// This modifies the deployment state JSON in-place to set the resource at the given path.
-fn update_resource_in_deployment_state(
-    deployment_state: &mut serde_json::Value,
-    resource_path: &ComponentPath,
-    resource_state: &ResourceState,
-) -> Result<()> {
-    let resource_json = serde_json::to_value(resource_state)
-        .with_context(|| "Failed to serialize resource state")?;
-
-    // The path is from root: all but last element are composite names, last is resource name
-    let path_parts = &resource_path.0;
-    if path_parts.is_empty() {
-        bail!("Empty resource path");
-    }
-
-    // Navigate to the correct deployment
-    let mut current = deployment_state;
-    for deployment_name in &path_parts[..path_parts.len() - 1] {
-        // Ensure deployments object exists
-        if current.get("deployments").is_none() {
-            current["deployments"] = serde_json::json!({});
-        }
-        current = &mut current["deployments"];
-
-        // Ensure this specific deployment exists with proper structure
-        if current.get(deployment_name).is_none() {
-            current[deployment_name] = serde_json::json!({
-                "resources": {},
-                "deployments": {}
-            });
-        }
-        current = &mut current[deployment_name];
-    }
-
-    // Ensure resources object exists at final level
-    if current.get("resources").is_none() {
-        current["resources"] = serde_json::json!({});
-    }
-
-    // Set the resource (last element of path is the resource name)
-    let resource_name = &path_parts[path_parts.len() - 1];
-    current["resources"][resource_name] = resource_json;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resource(type_: &str) -> ResourceState {
+        ResourceState {
+            type_: type_.to_string(),
+            input_properties: serde_json::Map::new(),
+            output_properties: serde_json::Map::new(),
+        }
+    }
+
+    fn set_resource(state: &mut serde_json::Value, path: &[&str], type_: &str) -> Result<()> {
+        codec::set_resource_in_deployment_state(
+            state,
+            &ComponentPath(path.iter().map(|s| s.to_string()).collect()),
+            &resource(type_),
+        )
+    }
 
     #[test]
     fn test_update_resource_in_state_root() {
@@ -238,16 +203,7 @@ mod tests {
             "resources": {}
         });
 
-        // ComponentPath for a resource at root: just the resource name
-        let resource_path = ComponentPath(vec!["myresource".to_string()]);
-
-        let resource_state = ResourceState {
-            type_: "test".to_string(),
-            input_properties: serde_json::Map::new(),
-            output_properties: serde_json::Map::new(),
-        };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        set_resource(&mut state, &["myresource"], "test").unwrap();
 
         assert_eq!(state["resources"]["myresource"]["type"], "test");
     }
@@ -258,16 +214,7 @@ mod tests {
             "resources": {}
         });
 
-        // ComponentPath: deployment name, then resource name
-        let resource_path = ComponentPath(vec!["deploy1".to_string(), "myresource".to_string()]);
-
-        let resource_state = ResourceState {
-            type_: "test".to_string(),
-            input_properties: serde_json::Map::new(),
-            output_properties: serde_json::Map::new(),
-        };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        set_resource(&mut state, &["deploy1", "myresource"], "test").unwrap();
 
         let expected = serde_json::json!({
             "resources": {},
@@ -307,15 +254,7 @@ mod tests {
             }
         });
 
-        let resource_path = ComponentPath(vec!["deploy1".to_string(), "new_resource".to_string()]);
-
-        let resource_state = ResourceState {
-            type_: "new".to_string(),
-            input_properties: serde_json::Map::new(),
-            output_properties: serde_json::Map::new(),
-        };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        set_resource(&mut state, &["deploy1", "new_resource"], "new").unwrap();
 
         let expected = serde_json::json!({
             "resources": {
@@ -358,20 +297,12 @@ mod tests {
             }
         });
 
-        let resource_path = ComponentPath(vec![
-            "level1".to_string(),
-            "level2".to_string(),
-            "level3".to_string(),
-            "deep_new".to_string(),
-        ]);
-
-        let resource_state = ResourceState {
-            type_: "deep_new".to_string(),
-            input_properties: serde_json::Map::new(),
-            output_properties: serde_json::Map::new(),
-        };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        set_resource(
+            &mut state,
+            &["level1", "level2", "level3", "deep_new"],
+            "deep_new",
+        )
+        .unwrap();
 
         let expected = serde_json::json!({
             "resources": {},
@@ -407,19 +338,12 @@ mod tests {
             "resources": {"root_resource": {"type": "root"}}
         });
 
-        let resource_path = ComponentPath(vec![
-            "new_branch".to_string(),
-            "new_subbranch".to_string(),
-            "new_resource".to_string(),
-        ]);
-
-        let resource_state = ResourceState {
-            type_: "brand_new".to_string(),
-            input_properties: serde_json::Map::new(),
-            output_properties: serde_json::Map::new(),
-        };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        set_resource(
+            &mut state,
+            &["new_branch", "new_subbranch", "new_resource"],
+            "brand_new",
+        )
+        .unwrap();
 
         let expected = serde_json::json!({
             "resources": {"root_resource": {"type": "root"}},
@@ -457,10 +381,7 @@ mod tests {
             }
         });
 
-        let resource_path =
-            ComponentPath(vec!["deploy1".to_string(), "target_resource".to_string()]);
-
-        let resource_state = ResourceState {
+        let new_resource = ResourceState {
             type_: "new_type".to_string(),
             input_properties: {
                 let mut map = serde_json::Map::new();
@@ -469,8 +390,12 @@ mod tests {
             },
             output_properties: serde_json::Map::new(),
         };
-
-        update_resource_in_deployment_state(&mut state, &resource_path, &resource_state).unwrap();
+        codec::set_resource_in_deployment_state(
+            &mut state,
+            &ComponentPath(vec!["deploy1".to_string(), "target_resource".to_string()]),
+            &new_resource,
+        )
+        .unwrap();
 
         let expected = serde_json::json!({
             "resources": {},
@@ -489,5 +414,36 @@ mod tests {
             }
         });
         assert_eq!(state, expected);
+    }
+
+    #[test]
+    fn test_state_event_patch_empty() {
+        let deployment = DeploymentState {
+            resources: [("myresource".to_string(), resource("test"))]
+                .into_iter()
+                .collect(),
+            deployments: BTreeMap::new(),
+        };
+        let path = ComponentPath(vec!["myresource".to_string()]);
+
+        let patch = state_event_patch(&deployment, &path, &resource("test")).unwrap();
+        assert!(patch.is_none());
+    }
+
+    #[test]
+    fn test_state_event_patch_changed() {
+        let deployment = DeploymentState {
+            resources: [("myresource".to_string(), resource("old"))]
+                .into_iter()
+                .collect(),
+            deployments: BTreeMap::new(),
+        };
+        let path = ComponentPath(vec!["myresource".to_string()]);
+
+        let (patch, new_document) = state_event_patch(&deployment, &path, &resource("new"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(patch.0.len(), 1);
+        assert_eq!(new_document["resources"]["myresource"]["type"], "new");
     }
 }

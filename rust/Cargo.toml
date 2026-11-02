@@ -2,6 +2,7 @@
 members = [
     "nixops4-core",
     "nixops4-eval",
+    "nixops4-provider-wire",
     "nixops4-resource",
     "nixops4-resource-runner",
     "nixops4-resources-local",

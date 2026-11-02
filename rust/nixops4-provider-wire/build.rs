@@ -8,7 +8,6 @@ fn main() {
         "generated/schema/resource",
         "v0.rs",
     );
-    schema_to_rust("state-schema-v0.json", "generated/schema/state", "v0.rs");
 }
 
 fn schema_to_rust(schema_file: &str, out_dir: &str, out_file: &str) {

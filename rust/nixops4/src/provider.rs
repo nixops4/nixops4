@@ -1,6 +1,7 @@
 /// This module supplements the `nixops4-resource-runner` library with
 /// evaluation-layer logic.
 use anyhow::{bail, Result};
+use nixops4_resource_runner::{ResourceProviderClient, ResourceProviderConfig};
 use serde_json::Value;
 
 /// This type implements the parsing of `type: "stdio"` providers.
@@ -26,4 +27,15 @@ pub(crate) fn parse_provider(provider_value: &Value) -> Result<ProviderStdio> {
             bail!("Unknown provider type: {}", type_);
         }
     }
+}
+
+/// Start the provider process described by a provider binding such as
+/// `{"type": "stdio", "executable": ..., "args": [...]}`.
+pub(crate) async fn spawn_provider(provider_value: &Value) -> Result<ResourceProviderClient> {
+    let provider = parse_provider(provider_value)?;
+    ResourceProviderClient::new(ResourceProviderConfig {
+        provider_executable: provider.executable,
+        provider_args: provider.args,
+    })
+    .await
 }

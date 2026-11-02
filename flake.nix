@@ -74,6 +74,7 @@
             nix-bindings-rust.nixPackage = inputs'.nix.packages.nix;
 
             checks.json-schema = pkgs.callPackage ./test/json-schema.nix { };
+            checks.representations = pkgs.callPackage ./test/representations.nix { };
             checks.nixops4-resources-local = pkgs.callPackage ./test/nixops4-resources-local.nix {
               inherit (config.packages) nixops4-resource-runner die;
               nixops4-resources-local = config.packages.nixops4-resources-local-release;

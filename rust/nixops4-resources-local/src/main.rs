@@ -217,6 +217,8 @@ impl nixops4_resource::framework::ResourceProvider for LocalResourceProvider {
                     &request.resource.input_properties,
                     &request.resource.type_,
                 )?;
+                // FIXME: a fresh handle per event starts with `expected_size: None`,
+                // so the concurrent-write check in `StateHandle::append` never fires
                 let mut handle = StateHandle::open(inputs.name.as_str(), false)?;
 
                 handle.append(&[&StateEvent {
