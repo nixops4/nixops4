@@ -1,4 +1,5 @@
 use std::{
+    collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
     sync::{atomic::AtomicU64, Arc},
 };
@@ -215,6 +216,26 @@ pub enum EvalRequest {
     GetResourceInput(QueryRequest<Property, StepResult<Value>>),
     /// Provide a resource output value for the fixpoint
     PutResourceOutput(NamedProperty, Value),
+    /// Discover the dependency graph of a component tree.
+    ///
+    /// Forces evaluation of every resource input in the tree to find which
+    /// resource outputs they reference (e.g. an `aws_security_group`
+    /// referencing the `id` output of an `aws_vpc` from a Terraform provider).
+    /// Resources are not applied: outputs that are not known yet still produce
+    /// edges, and their dependants are reported as incomplete.
+    ///
+    /// The returned [`DependencyGraph::edges`] include edges discovered by
+    /// previous requests (input evaluation and discovery), while `incomplete`
+    /// and `structural` reflect the current state of this discovery run.
+    DiscoverDependencies(QueryRequest<Id<CompositeType>, StepResult<DependencyGraph>>),
+    /// Get the dependants of a resource: the edges of resources whose inputs
+    /// reference an output of this resource.
+    ///
+    /// Runs dependency discovery on the root component tree (as with
+    /// [`EvalRequest::DiscoverDependencies`]) and filters the graph by the
+    /// resource's component path. Returns `Needs` when the root structure is
+    /// blocked by a structural dependency.
+    GetResourceDependants(QueryRequest<Id<ResourceType>, StepResult<Vec<DependencyEdge>>>),
 }
 
 pub trait RequestIdType {
@@ -275,6 +296,10 @@ pub enum QueryResponseValue {
     ResourceProviderInfo(StepResult<ResourceProviderInfo>),
     ListResourceInputs(StepResult<Vec<String>>),
     ResourceInputValue(StepResult<Value>),
+    /// Result of a DiscoverDependencies request
+    DependencyGraph(StepResult<DependencyGraph>),
+    /// Result of a GetResourceDependants request
+    ResourceDependants(StepResult<Vec<DependencyEdge>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,7 +311,7 @@ pub struct ResourceProviderInfo {
     pub state: Option<ComponentPath>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NamedProperty {
     /// Path to the resource component
     pub resource: ComponentPath,
@@ -298,6 +323,64 @@ pub struct NamedProperty {
 pub struct Property {
     pub resource: Id<ResourceType>,
     pub name: String,
+}
+
+/// A dependency that occurs not merely between inputs and outputs of resources,
+/// but in the structure of the resource graph itself.
+///
+/// See https://nixops.dev/manual/development/concept/resource.html#structural-dependencies
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct StructuralDependency {
+    /// The composite path where the unknown structure exists (if known).
+    pub path: Option<ComponentPath>,
+    /// The resource output this structure depends on.
+    pub depends_on: NamedProperty,
+}
+
+/// A dependency edge discovered by evaluating a resource input.
+///
+/// The `source` resource (the dependant) references the output property
+/// `target` of another resource (the dependency) in its input named `input`.
+///
+/// For example, an `aws_security_group` resource of a Terraform provider that
+/// sets `vpc_id` to the `id` output of an `aws_vpc` resource produces the edge
+/// `aws_security_group.vpc_id` -> `aws_vpc.id`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DependencyEdge {
+    /// Path to the dependant resource component.
+    pub source: ComponentPath,
+    /// Name of the dependant's input that references `target`.
+    pub input: String,
+    /// The referenced output property.
+    pub target: NamedProperty,
+}
+
+/// Why the inputs of a resource could not be fully evaluated during
+/// dependency discovery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiscoveryBlocker {
+    /// Evaluation was stopped by a dependency on a resource output that is
+    /// not known yet (the resource providing it has not been applied).
+    /// The edges discovered up to that point are still recorded in the graph.
+    Dependency,
+    /// Evaluation failed with an error.
+    Error(String),
+}
+
+/// The dependency graph of a component tree, as discovered by evaluating
+/// resource inputs.
+///
+/// Discovery does not apply resources: outputs that are not known yet still
+/// produce edges, and their dependants are marked incomplete. Edges are
+/// accumulated across discovery runs and regular input evaluations.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DependencyGraph {
+    /// Edges from resource inputs to the resource outputs they reference.
+    pub edges: BTreeSet<DependencyEdge>,
+    /// Resources whose inputs could not be fully evaluated during discovery.
+    pub incomplete: BTreeMap<ComponentPath, DiscoveryBlocker>,
+    /// Parts of the component tree structure that depend on resource outputs.
+    pub structural: BTreeSet<StructuralDependency>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
