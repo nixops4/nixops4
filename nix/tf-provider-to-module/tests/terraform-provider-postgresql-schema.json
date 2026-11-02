@@ -1,0 +1,1672 @@
+{
+  "provider": {
+    "version": 0,
+    "block": {
+      "attributes": {
+        "username": {
+          "type": "\"string\"",
+          "description": "PostgreSQL user name to connect as",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "sslmode": {
+          "type": "\"string\"",
+          "description": "This option determines whether or with what priority a secure SSL TCP/IP connection will be negotiated with the PostgreSQL server",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "connect_timeout": {
+          "type": "\"number\"",
+          "description": "Maximum wait for connection, in seconds. Zero or not specified means wait indefinitely.",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "aws_rds_iam_profile": {
+          "type": "\"string\"",
+          "description": "AWS profile to use for IAM auth",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "azure_tenant_id": {
+          "type": "\"string\"",
+          "description": "MS Azure tenant ID (see: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config.html)",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "scheme": {
+          "type": "\"string\"",
+          "description": null,
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "database_username": {
+          "type": "\"string\"",
+          "description": "Database username associated to the connected user (for user name maps)",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "database": {
+          "type": "\"string\"",
+          "description": "The name of the database to connect to in order to conenct to (defaults to `postgres`).",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "superuser": {
+          "type": "\"bool\"",
+          "description": "Specify if the user to connect as is a Postgres superuser or not.If not, some feature might be disabled (e.g.: Refreshing state password from Postgres)",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "password": {
+          "type": "\"string\"",
+          "description": "Password to be used if the PostgreSQL server demands password authentication",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": true
+        },
+        "port": {
+          "type": "\"number\"",
+          "description": "The PostgreSQL port number to connect to at the server host, or socket file name extension for Unix-domain connections",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "aws_rds_iam_region": {
+          "type": "\"string\"",
+          "description": "AWS region to use for IAM auth",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "max_connections": {
+          "type": "\"number\"",
+          "description": "Maximum number of connections to establish to the database. Zero means unlimited.",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "aws_rds_iam_auth": {
+          "type": "\"bool\"",
+          "description": "Use rds_iam instead of password authentication (see: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html)",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "host": {
+          "type": "\"string\"",
+          "description": "Name of PostgreSQL server address to connect to",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "aws_rds_iam_provider_role_arn": {
+          "type": "\"string\"",
+          "description": "AWS IAM role to assume for IAM auth",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "azure_identity_auth": {
+          "type": "\"bool\"",
+          "description": "Use MS Azure identity OAuth token (see: https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-configure-sign-in-azure-ad-authentication)",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "expected_version": {
+          "type": "\"string\"",
+          "description": "Specify the expected version of PostgreSQL.",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "sslrootcert": {
+          "type": "\"string\"",
+          "description": "The SSL server root certificate file path. The file must contain PEM encoded data.",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "gcp_iam_impersonate_service_account": {
+          "type": "\"string\"",
+          "description": "Service account to impersonate when using GCP IAM authentication.",
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        },
+        "ssl_mode": {
+          "type": "\"string\"",
+          "description": null,
+          "description_kind": "Plain",
+          "required": false,
+          "optional": true,
+          "computed": false,
+          "sensitive": false
+        }
+      },
+      "block_types": {},
+      "description": null,
+      "description_kind": "Plain"
+    }
+  },
+  "resource_schemas": {
+    "postgresql_role": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "replication": {
+            "type": "\"bool\"",
+            "description": "Determine whether a role is allowed to initiate streaming replication or put the system in and out of backup mode",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "create_database": {
+            "type": "\"bool\"",
+            "description": "Define a role's ability to create databases",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "skip_drop_role": {
+            "type": "\"bool\"",
+            "description": "Skip actually running the DROP ROLE command when removing a ROLE from PostgreSQL",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "encrypted_password": {
+            "type": "\"bool\"",
+            "description": "Control whether the password is stored encrypted in the system catalogs",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "search_path": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Sets the role's search path",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "connection_limit": {
+            "type": "\"number\"",
+            "description": "How many concurrent connections can be made with this role",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "roles": {
+            "type": "[\"set\",\"string\"]",
+            "description": "Role(s) to grant to this new role",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "valid_until": {
+            "type": "\"string\"",
+            "description": "Sets a date and time after which the role's password is no longer valid",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "statement_timeout": {
+            "type": "\"number\"",
+            "description": "Abort any statement that takes more than the specified number of milliseconds",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "encrypted": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "idle_in_transaction_session_timeout": {
+            "type": "\"number\"",
+            "description": "Terminate any session with an open transaction that has been idle for longer than the specified duration in milliseconds",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "create_role": {
+            "type": "\"bool\"",
+            "description": "Determine whether this role will be permitted to create new roles",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": "The name of the role",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "password": {
+            "type": "\"string\"",
+            "description": "Sets the role's password",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": true
+          },
+          "login": {
+            "type": "\"bool\"",
+            "description": "Determine whether a role is allowed to log in",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "skip_reassign_owned": {
+            "type": "\"bool\"",
+            "description": "Skip actually running the REASSIGN OWNED command when removing a role from PostgreSQL",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "superuser": {
+            "type": "\"bool\"",
+            "description": "Determine whether the new role is a \"superuser\"",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "bypass_row_level_security": {
+            "type": "\"bool\"",
+            "description": "Determine whether a role bypasses every row-level security (RLS) policy",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "assume_role": {
+            "type": "\"string\"",
+            "description": "Role to switch to at login",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "inherit": {
+            "type": "\"bool\"",
+            "description": "Determine whether a role \"inherits\" the privileges of roles it is a member of",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_user_mapping": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "server_name": {
+            "type": "\"string\"",
+            "description": "The name of an existing server for which the user mapping is to be created",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "user_name": {
+            "type": "\"string\"",
+            "description": "The name of an existing user that is mapped to foreign server. CURRENT_ROLE, CURRENT_USER, and USER match the name of the current user. When PUBLIC is specified, a so-called public mapping is created that is used when no user-specific mapping is applicable",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "options": {
+            "type": "[\"map\",\"string\"]",
+            "description": "This clause specifies the options of the user mapping. The options typically define the actual user name and password of the mapping. Option names must be unique. The allowed option names and values are specific to the server's foreign-data wrapper",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_grant": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "object_type": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL object type to grant the privileges on (one of: database, function, procedure, routine, schema, sequence, table, foreign_data_wrapper, foreign_server, column)",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "with_grant_option": {
+            "type": "\"bool\"",
+            "description": "Permit the grant recipient to grant it to others",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "privileges": {
+            "type": "[\"set\",\"string\"]",
+            "description": "The list of privileges to grant",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "role": {
+            "type": "\"string\"",
+            "description": "The name of the role to grant privileges on",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "schema": {
+            "type": "\"string\"",
+            "description": "The database schema to grant privileges on for this role",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "The database to grant privileges on for this role",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "objects": {
+            "type": "[\"set\",\"string\"]",
+            "description": "The specific objects to grant privileges on for this role (empty means all objects of the requested type)",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "columns": {
+            "type": "[\"set\",\"string\"]",
+            "description": "The specific columns to grant privileges on for this role",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_function": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "returns": {
+            "type": "\"string\"",
+            "description": "Function return type. If not specified, it will be calculated based on the output arguments",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "schema": {
+            "type": "\"string\"",
+            "description": "Schema where the function is located. If not specified, the provider default schema is used.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "security_definer": {
+            "type": "\"bool\"",
+            "description": "If the function should execute with the permissions of the function owner instead of the permissions of the caller.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "parallel": {
+            "type": "\"string\"",
+            "description": "If the function can be executed in parallel for a single query execution. One of: UNSAFE, RESTRICTED, SAFE",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "volatility": {
+            "type": "\"string\"",
+            "description": "Volatility of the function. One of: VOLATILE, STABLE, IMMUTABLE.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "strict": {
+            "type": "\"bool\"",
+            "description": "If the function should always return NULL if any of it's inputs is NULL.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "language": {
+            "type": "\"string\"",
+            "description": "Language of theof the function. One of: internal, sql, c, plpgsql",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "The database where the function is located. If not specified, the provider default database is used.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "body": {
+            "type": "\"string\"",
+            "description": "Body of the function.",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "drop_cascade": {
+            "type": "\"bool\"",
+            "description": "Automatically drop objects that depend on the function (such as operators or triggers), and in turn all objects that depend on those objects.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": "Name of the function.",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_publication": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "name": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "Sets the database to add the publication for",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "drop_cascade": {
+            "type": "\"bool\"",
+            "description": "When true, will also drop all the objects that depend on the publication, and in turn all objects that depend on those objects",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "owner": {
+            "type": "\"string\"",
+            "description": "Sets the owner of the publication",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "all_tables": {
+            "type": "\"bool\"",
+            "description": "Sets the tables list to publish to ALL tables",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "publish_param": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Sets which DML operations will be published",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "publish_via_partition_root_param": {
+            "type": "\"bool\"",
+            "description": "Sets whether changes in a partitioned table using the identity and schema of the partitioned table",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "tables": {
+            "type": "[\"set\",\"string\"]",
+            "description": "Sets the tables list to publish",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_physical_replication_slot": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_security_label": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "label": {
+            "type": "\"string\"",
+            "description": "The label to be applied",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "object_name": {
+            "type": "\"string\"",
+            "description": "The name of the existing object to apply the security label to",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "object_type": {
+            "type": "\"string\"",
+            "description": "The type of the existing object to apply the security label to",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "label_provider": {
+            "type": "\"string\"",
+            "description": "The provider to apply the security label for",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_replication_slot": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "database": {
+            "type": "\"string\"",
+            "description": "Sets the database to add the replication slot to",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "plugin": {
+            "type": "\"string\"",
+            "description": "Sets the output plugin to use",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_extension": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "drop_cascade": {
+            "type": "\"bool\"",
+            "description": "When true, will also drop all the objects that depend on the extension, and in turn all objects that depend on those objects",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "version": {
+            "type": "\"string\"",
+            "description": "Sets the version number of the extension",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "create_cascade": {
+            "type": "\"bool\"",
+            "description": "When true, will also create any extensions that this extension depends on that are not already installed",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "schema": {
+            "type": "\"string\"",
+            "description": "Sets the schema of an extension",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "Sets the database to add the extension to",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_default_privileges": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "database": {
+            "type": "\"string\"",
+            "description": "The database to grant default privileges for this role",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "privileges": {
+            "type": "[\"set\",\"string\"]",
+            "description": "The list of privileges to apply as default privileges",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "owner": {
+            "type": "\"string\"",
+            "description": "Target role for which to alter default privileges.",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "schema": {
+            "type": "\"string\"",
+            "description": "The database schema to set default privileges for this role",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "object_type": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL object type to set the default privileges on (one of: table, sequence, function, type, schema)",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "role": {
+            "type": "\"string\"",
+            "description": "The name of the role to which grant default privileges on",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "with_grant_option": {
+            "type": "\"bool\"",
+            "description": "Permit the grant recipient to grant it to others",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_server": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "drop_cascade": {
+            "type": "\"bool\"",
+            "description": "Automatically drop objects that depend on the server (such as user mappings), and in turn all objects that depend on those objects. Drop RESTRICT is the default",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "fdw_name": {
+            "type": "\"string\"",
+            "description": "The name of the foreign-data wrapper that manages the server",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "server_owner": {
+            "type": "\"string\"",
+            "description": "The user name of the new owner of the foreign server",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "server_name": {
+            "type": "\"string\"",
+            "description": "The name of the foreign server to be created",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "options": {
+            "type": "[\"map\",\"string\"]",
+            "description": "This clause specifies the options for the server. The options typically define the connection details of the server, but the actual names and values are dependent on the server's foreign-data wrapper",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "server_version": {
+            "type": "\"string\"",
+            "description": "Optional server version, potentially useful to foreign-data wrappers.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "server_type": {
+            "type": "\"string\"",
+            "description": "Optional server type, potentially useful to foreign-data wrappers",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_subscription": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "Sets the database to add the subscription for",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "conninfo": {
+            "type": "\"string\"",
+            "description": "The connection string to the publisher. It should follow the keyword/value format (https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING)",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": true
+          },
+          "create_slot": {
+            "type": "\"bool\"",
+            "description": "Specifies whether the command should create the replication slot on the publisher",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "publications": {
+            "type": "[\"set\",\"string\"]",
+            "description": "Names of the publications on the publisher to subscribe to",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "slot_name": {
+            "type": "\"string\"",
+            "description": "Name of the replication slot to use. The default behavior is to use the name of the subscription for the slot name",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": "The name of the subscription",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_schema": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "if_not_exists": {
+            "type": "\"bool\"",
+            "description": "When true, use the existing schema if it exists",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "owner": {
+            "type": "\"string\"",
+            "description": "The ROLE name who owns the schema",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": "The name of the schema",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "The database name to alter schema",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "drop_cascade": {
+            "type": "\"bool\"",
+            "description": "When true, will also drop all the objects that are contained in the schema",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_database": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "connection_limit": {
+            "type": "\"number\"",
+            "description": "How many concurrent connections can be made to this database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "is_template": {
+            "type": "\"bool\"",
+            "description": "If true, then this database can be cloned by any user with CREATEDB privileges",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "allow_connections": {
+            "type": "\"bool\"",
+            "description": "If false then no one can connect to this database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "lc_ctype": {
+            "type": "\"string\"",
+            "description": "Character classification (LC_CTYPE) to use in the new database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "tablespace_name": {
+            "type": "\"string\"",
+            "description": "The name of the tablespace that will be associated with the new database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "template": {
+            "type": "\"string\"",
+            "description": "The name of the template from which to create the new database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "alter_object_ownership": {
+            "type": "\"bool\"",
+            "description": "If true, the owner of already existing objects will change if the owner changes",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "lc_collate": {
+            "type": "\"string\"",
+            "description": "Collation order (LC_COLLATE) to use in the new database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "owner": {
+            "type": "\"string\"",
+            "description": "The ROLE which owns the database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "name": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL database name to connect to",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "encoding": {
+            "type": "\"string\"",
+            "description": "Character set encoding to use in the new database",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_grant_role": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "role": {
+            "type": "\"string\"",
+            "description": "The name of the role to grant grant_role",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "with_admin_option": {
+            "type": "\"bool\"",
+            "description": "Permit the grant recipient to grant it to others",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "grant_role": {
+            "type": "\"string\"",
+            "description": "The name of the role that is granted to role",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    }
+  },
+  "data_source_schemas": {
+    "postgresql_schemas": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "include_system_schemas": {
+            "type": "\"bool\"",
+            "description": "Determines whether to include system schemas (pg_ prefix and information_schema). 'public' will always be included.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "like_any_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched in the query using the PostgreSQL LIKE ANY operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "regex_pattern": {
+            "type": "\"string\"",
+            "description": "Expression which will be pattern matched in the query using the PostgreSQL ~ (regular expression match) operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched in the query using the PostgreSQL LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL database which will be queried for schema names",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "schemas": {
+            "type": "[\"set\",\"string\"]",
+            "description": "The list of PostgreSQL schemas retrieved by this data source",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": false,
+            "computed": true,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "not_like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched in the query using the PostgreSQL NOT LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_tables": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "database": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL database which will be queried for table names",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "table_types": {
+            "type": "[\"list\",\"string\"]",
+            "description": "The PostgreSQL table types which will be queried for table names. Includes all table types by default. Use 'BASE TABLE' for normal tables only",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "schemas": {
+            "type": "[\"list\",\"string\"]",
+            "description": "The PostgreSQL schema(s) which will be queried for table names. Queries all schemas in the database by default",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "not_like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against table names in the query using the PostgreSQL NOT LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against table names in the query using the PostgreSQL LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "regex_pattern": {
+            "type": "\"string\"",
+            "description": "Expression which will be pattern matched against table names in the query using the PostgreSQL ~ (regular expression match) operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "like_any_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against table names in the query using the PostgreSQL LIKE ANY operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "tables": {
+            "type": "[\"list\",[\"object\",{\"object_name\":\"string\",\"schema_name\":\"string\",\"table_type\":\"string\"}]]",
+            "description": "The list of PostgreSQL tables retrieved by this data source. Note that this returns a set, so duplicate table names across different schemas will be consolidated.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": false,
+            "computed": true,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    },
+    "postgresql_sequences": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "like_any_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against sequence names in the query using the PostgreSQL LIKE ANY operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against sequence names in the query using the PostgreSQL LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "regex_pattern": {
+            "type": "\"string\"",
+            "description": "Expression which will be pattern matched against sequence names in the query using the PostgreSQL ~ (regular expression match) operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "database": {
+            "type": "\"string\"",
+            "description": "The PostgreSQL database which will be queried for sequence names",
+            "description_kind": "Plain",
+            "required": true,
+            "optional": false,
+            "computed": false,
+            "sensitive": false
+          },
+          "id": {
+            "type": "\"string\"",
+            "description": null,
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": true,
+            "sensitive": false
+          },
+          "schemas": {
+            "type": "[\"list\",\"string\"]",
+            "description": "The PostgreSQL schema(s) which will be queried for sequence names. Queries all schemas in the database by default",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          },
+          "sequences": {
+            "type": "[\"list\",[\"object\",{\"data_type\":\"string\",\"object_name\":\"string\",\"schema_name\":\"string\"}]]",
+            "description": "The list of PostgreSQL sequence names retrieved by this data source. Note that this returns a set, so duplicate table names across different schemas will be consolidated.",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": false,
+            "computed": true,
+            "sensitive": false
+          },
+          "not_like_all_patterns": {
+            "type": "[\"list\",\"string\"]",
+            "description": "Expression(s) which will be pattern matched against sequence names in the query using the PostgreSQL NOT LIKE ALL operator",
+            "description_kind": "Plain",
+            "required": false,
+            "optional": true,
+            "computed": false,
+            "sensitive": false
+          }
+        },
+        "block_types": {},
+        "description": null,
+        "description_kind": "Plain"
+      }
+    }
+  }
+}

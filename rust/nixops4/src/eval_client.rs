@@ -136,6 +136,9 @@ async fn forward_eval_responses(
     loop {
         let line_result = lines.next_line().await;
         match line_result {
+            Ok(None) => {
+                break;
+            }
             Ok(Some(line)) => {
                 if let Ok(response) = eval_api::eval_response_from_json(line.as_str()) {
                     if verbose {
@@ -157,7 +160,6 @@ async fn forward_eval_responses(
                     bail!("error parsing response: {}", line);
                 }
             }
-            Ok(None) => break,
             Err(e) => {
                 bail!("error reading from nixops4-eval process stdout: {}", e);
             }
@@ -184,7 +186,9 @@ async fn forward_eval_commands(
                     }
                 }
             }
-            None => break,
+            None => {
+                break;
+            }
         }
     }
     Ok(())
